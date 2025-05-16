@@ -1,0 +1,150 @@
+# views.py
+from rest_framework_simplejwt.views import TokenObtainPairView
+from .serializers import CustomTokenCreateSerializer, CustomUserCreateSerializer
+from rest_framework import generics, status
+from rest_framework.response import Response
+from .models import CustomUser
+from .serializers import EmailOTPVerifySerializer
+from rest_framework.views import APIView
+from django.core.mail import send_mail
+import random
+import string  # Added missing import
+from datetime import timedelta
+from django.utils import timezone
+from rest_framework.permissions import AllowAny
+from django.conf import settings
+import logging
+
+# Set up logger
+logger = logging.getLogger(__name__)
+
+class CustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenCreateSerializer
+
+class RegisterUserView(generics.CreateAPIView):
+    serializer_class = CustomUserCreateSerializer
+    permission_classes = [AllowAny]
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            # Let the serializer handle OTP generation and email sending
+            user = serializer.save()
+            
+            return Response({
+                'message': 'Registration successful. Please check your email for verification code.',
+                'email': user.email
+            }, status=status.HTTP_201_CREATED)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class EmailOTPVerifyView(generics.GenericAPIView):
+    serializer_class = EmailOTPVerifySerializer
+    permission_classes = [AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            otp = serializer.validated_data['otp']
+            
+            try:
+                user = CustomUser.objects.get(email=email)
+                
+                # Logger for debugging instead of print statements
+                logger.debug(f"OTP Verification attempt for {email}")
+                logger.debug(f"Current status: is_active={user.is_active}")
+                
+                # Check if OTP exists
+                if not user.otp or not user.otp_created_at:
+                    return Response({'error': 'No OTP found for this account. Please request a new one.'}, 
+                                   status=status.HTTP_400_BAD_REQUEST)
+                
+                # Check if OTP is expired
+                if timezone.now() > user.otp_created_at + timedelta(minutes=10):
+                    return Response({'error': 'OTP has expired. Please request a new one.'}, 
+                                   status=status.HTTP_400_BAD_REQUEST)
+
+                # Verify OTP
+                if user.otp != otp:
+                    return Response({'error': 'Invalid OTP. Please try again.'}, 
+                                   status=status.HTTP_400_BAD_REQUEST)
+
+                # Update is_active flag
+                user.is_active = True
+                user.otp = None 
+                user.otp_created_at = None
+                user.save()
+                
+                return Response({
+                    'message': 'Email verified successfully. You can now login.',
+                    'status': {
+                        'is_active': user.is_active,
+                        'email': email
+                    }
+                }, status=status.HTTP_200_OK)
+                
+            except CustomUser.DoesNotExist:
+                return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class CheckJwtTokenView(APIView):
+    """View to check what's in a JWT token"""
+    
+    def get(self, request):
+        """Returns information about the authenticated user from the JWT token"""
+        if not request.user.is_authenticated:
+            return Response({'error': 'Not authenticated'}, status=status.HTTP_401_UNAUTHORIZED)
+        
+        user = request.user
+        return Response({
+            'user_id': user.id,
+            'email': user.email,
+            'username': user.username,
+            'is_active': user.is_active,
+            'is_staff': user.is_staff,
+            'is_superuser': user.is_superuser,
+            'role': user.role,  # Added role to the response
+        })
+
+class ResendOTPView(APIView):
+    permission_classes = [AllowAny]
+    
+    def post(self, request):
+        email = request.data.get('email', '').lower().strip()
+        if not email:
+            return Response({'error': 'Email is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            user = CustomUser.objects.get(email=email)
+            
+            # Only allow resending OTP for inactive users
+            if user.is_active:
+                return Response({'error': 'Account is already active.'}, status=status.HTTP_400_BAD_REQUEST)
+                
+            # Generate new OTP
+            otp = ''.join(random.choices(string.digits, k=6))
+            user.otp = otp
+            user.otp_created_at = timezone.now()
+            user.save() 
+
+            # Send OTP via email
+            try:
+                send_mail(
+                    subject='Your OTP Code',
+                    message=f'Your OTP is: {otp}. This code will expire in 10 minutes.',
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[email],
+                    fail_silently=False
+                )
+                logger.info(f"OTP email resent to {email}")
+            except Exception as e:
+                logger.error(f"Failed to send OTP email to {email}: {str(e)}")
+                return Response({'error': 'Failed to send OTP email.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            return Response({'message': 'OTP has been resent successfully.'}, status=status.HTTP_200_OK)
+            
+        except CustomUser.DoesNotExist:
+            return Response({'error': 'User with this email does not exist.'}, status=status.HTTP_404_NOT_FOUND)
+        
+
