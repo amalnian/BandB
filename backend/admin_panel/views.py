@@ -1,18 +1,17 @@
-# Add this to your views.py file
-from rest_framework import viewsets, status
+# views.py file
+from rest_framework import viewsets, status, permissions, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from users.models import CustomUser
-from users.serializers import AdminUserSerializer, UserStatusSerializer
 from rest_framework.views import APIView
-
-
-from rest_framework import viewsets, permissions, filters
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
+from django.utils import timezone
+
+from users.models import CustomUser
+from users.serializers import AdminUserSerializer, UserStatusSerializer
 from shop.models import Shop
-from shop.serializers import ShopSerializer, AdminShopSerializer
+from admin_panel.serializers import AdminShopSerializer
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -52,6 +51,44 @@ class AdminShopViewSet(viewsets.ModelViewSet):
             
         return queryset
     
+    @action(detail=True, methods=['patch'])
+    def toggle_status(self, request, pk=None):
+        """Toggle the shop's active status"""
+        shop = self.get_object()
+        
+        # Get the is_active value from the request data
+        is_active = request.data.get('is_active')
+        if is_active is None:
+            return Response({'error': 'is_active parameter is required'}, 
+                            status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update the shop's user active status
+        try:
+            shop.user.is_active = is_active
+            shop.user.save()
+            return Response({'status': 'Shop status updated', 'is_active': is_active})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=True, methods=['patch'])
+    def approve(self, request, pk=None):
+        """Approve a shop"""
+        shop = self.get_object()
+        
+        # Get the is_approved value from the request data
+        is_approved = request.data.get('is_approved')
+        if is_approved is None:
+            return Response({'error': 'is_approved parameter is required'}, 
+                            status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update the shop's approved status
+        try:
+            shop.is_approved = is_approved
+            shop.save()
+            return Response({'status': 'Shop approval status updated', 'is_approved': is_approved})
+        except Exception as e:
+            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+
 
 class AdminUserViewSet(viewsets.ModelViewSet):
     """
@@ -79,6 +116,7 @@ class AdminUserViewSet(viewsets.ModelViewSet):
         else:
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 class AdminStatusView(APIView):
     """
     Verify if the current user has admin privileges
@@ -93,6 +131,7 @@ class AdminStatusView(APIView):
             'role': request.user.role
         })
 
+
 class DashboardStatsView(APIView):
     """
     Provide statistics for the admin dashboard
@@ -104,15 +143,23 @@ class DashboardStatsView(APIView):
         total_users = CustomUser.objects.count()
         active_users = CustomUser.objects.filter(is_active=True).count()
         
-        # You can add more stats as needed
+        # Shop statistics
+        total_shops = Shop.objects.count()
+        active_shops = Shop.objects.filter(user__is_active=True).count()
+        pending_shops = Shop.objects.filter(is_approved=False).count()
+        
         return Response({
             'total_users': total_users,
             'active_users': active_users,
-            'new_this_month': CustomUser.objects.filter(
+            'new_users_this_month': CustomUser.objects.filter(
                 date_joined__month=timezone.now().month,
                 date_joined__year=timezone.now().year
-            ).count()
+            ).count(),
+            'total_shops': total_shops,
+            'active_shops': active_shops,
+            'pending_shops': pending_shops
         })
+
 
 class RecentAppointmentsView(APIView):
     """

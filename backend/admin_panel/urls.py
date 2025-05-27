@@ -1,3 +1,4 @@
+# urls.py file
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from .views import (
@@ -11,8 +12,7 @@ from .views import (
 # Create a router for ViewSets
 router = DefaultRouter()
 router.register('users', AdminUserViewSet, basename='admin-users')
-router.register(r'shops', AdminShopViewSet)
-
+router.register('shops', AdminShopViewSet, basename='admin-shops')
 
 urlpatterns = [
     # Include the router URLs
@@ -26,7 +26,13 @@ urlpatterns = [
     path('dashboard/appointments/', RecentAppointmentsView.as_view(), name='recent-appointments'),
     
     # The router will automatically create these URL patterns:
-    # users/ - GET (list), POST (create)
-    # users/{id}/ - GET (retrieve), PUT (update), PATCH (partial_update), DELETE (destroy)
-    # users/{id}/toggle_status/ - PATCH (custom action)
+    # /users/ - GET (list), POST (create)
+    # /users/{id}/ - GET (retrieve), PUT (update), PATCH (partial_update), DELETE (destroy)
+    # /users/{id}/toggle_status/ - PATCH (custom action)
+    
+    # Shop-related routes (automatically created by the router):
+    # /shops/ - GET (list), POST (create)
+    # /shops/{id}/ - GET (retrieve), PUT (update), PATCH (partial_update), DELETE (destroy)
+    # /shops/{id}/toggle_status/ - PATCH (custom action to block/unblock shops)
+    # /shops/{id}/approve/ - PATCH (custom action to approve shops)
 ]

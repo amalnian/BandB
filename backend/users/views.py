@@ -1,10 +1,17 @@
 # views.py
+from users.serializers import CustomTokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import CustomTokenCreateSerializer, CustomUserCreateSerializer
+from .serializers import CustomUserCreateSerializer, EmailOTPVerifySerializer
 from rest_framework import generics, status
 from rest_framework.response import Response
 from .models import CustomUser
-from .serializers import EmailOTPVerifySerializer
+from rest_framework import permissions
+from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+# from .serializers import EmailOTPVerifySerializer
 from rest_framework.views import APIView
 from django.core.mail import send_mail
 import random
@@ -18,8 +25,108 @@ import logging
 # Set up logger
 logger = logging.getLogger(__name__)
 
-class CustomTokenObtainPairView(TokenObtainPairView):
-    serializer_class = CustomTokenCreateSerializer
+class CoustomTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+    permission_classes = [permissions.AllowAny]
+    
+    
+    def post(self, request,*args, **kwargs):
+
+        try:
+            email=request.data.get("email")
+            password=request.data.get("password")
+
+            if not CustomUser.objects.filter(email=email).exists():
+                return Response(
+                    {"success":False,"message":"User with this account does not exist"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            response = super().post(request,*args, **kwargs)
+            token = response.data
+
+            access_token = token["access"]
+            refresh_token = token["refresh"]
+
+            res = Response(status=status.HTTP_200_OK)
+
+            user = CustomUser.objects.get(email=email)
+            res.data = {"success":True,"message":"user login successfully","userDetails":{"id":user.id,"username":user.username,"email":user.email}}
+
+            res.set_cookie(
+                key = "access_token",
+                value=access_token,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path='/',
+                max_age=3600
+            )
+
+            res.set_cookie(
+                key = "refresh_token",
+                value=refresh_token,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path='/',
+                max_age=3600
+            )
+            return res
+
+        except AuthenticationFailed:
+            return Response(
+                {"success":False,"message":"Invalid Credentials"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as e:
+            return Response(
+                {"success":False,"message":f"An error occured: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class CoustomTokenRefreshView(TokenRefreshView):
+    permission_classes = [permissions.AllowAny]
+    def post(self,request,*args,**kwargs):
+        
+        try:
+            refresh_token = request.COOKIES.get("refresh_token")
+            if not refresh_token:
+                return Response(
+                    {"success":False,"message":"referesh token not Found"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            request.data["refresh"] = refresh_token
+
+            response = super().post(request,*args,**kwargs)
+
+            if not "access" in response.data:
+                return Response(
+                    {"success":False,"message":"refresh token expired or invalid" },
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            token = response.data
+            access_token = token["access"]
+            res = Response(status=status.HTTP_201_CREATED)
+
+            res.data = {"success":True,"message":"Access token refreshed"}
+
+            res.set_cookie(
+                key = "access_token",
+                value=access_token,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path='/',
+                max_age=3600
+            )
+
+            return res
+        except Exception as e:
+            return Response({"success":False,"message":f"An error occured: {str(e)}"},status=status.HTTP_400_BAD_REQUEST)
 
 class RegisterUserView(generics.CreateAPIView):
     serializer_class = CustomUserCreateSerializer
@@ -32,11 +139,16 @@ class RegisterUserView(generics.CreateAPIView):
             user = serializer.save()
             
             return Response({
+                'success': True,
                 'message': 'Registration successful. Please check your email for verification code.',
                 'email': user.email
             }, status=status.HTTP_201_CREATED)
         
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'success': False,
+            'message': 'Registration failed',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
 
 class EmailOTPVerifyView(generics.GenericAPIView):
     serializer_class = EmailOTPVerifySerializer
@@ -88,24 +200,24 @@ class EmailOTPVerifyView(generics.GenericAPIView):
                 return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-class CheckJwtTokenView(APIView):
-    """View to check what's in a JWT token"""
+# class CheckJwtTokenView(APIView):
+#     """View to check what's in a JWT token"""
     
-    def get(self, request):
-        """Returns information about the authenticated user from the JWT token"""
-        if not request.user.is_authenticated:
-            return Response({'error': 'Not authenticated'}, status=status.HTTP_401_UNAUTHORIZED)
+#     def get(self, request):
+#         """Returns information about the authenticated user from the JWT token"""
+#         if not request.user.is_authenticated:
+#             return Response({'error': 'Not authenticated'}, status=status.HTTP_401_UNAUTHORIZED)
         
-        user = request.user
-        return Response({
-            'user_id': user.id,
-            'email': user.email,
-            'username': user.username,
-            'is_active': user.is_active,
-            'is_staff': user.is_staff,
-            'is_superuser': user.is_superuser,
-            'role': user.role,  # Added role to the response
-        })
+#         user = request.user
+#         return Response({
+#             'user_id': user.id,
+#             'email': user.email,
+#             'username': user.username,
+#             'is_active': user.is_active,
+#             'is_staff': user.is_staff,
+#             'is_superuser': user.is_superuser,
+#             'role': user.role,  # Added role to the response
+#         })
 
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]
@@ -148,3 +260,26 @@ class ResendOTPView(APIView):
             return Response({'error': 'User with this email does not exist.'}, status=status.HTTP_404_NOT_FOUND)
         
 
+class Logout(APIView):
+    permission_classes=[AllowAny]
+    
+    def post(self,request):
+        try:
+            res = Response(status=status.HTTP_200_OK)
+            res.data = {"success":True, "message":"logout successfully"}
+            res.delete_cookie(
+                key="access_token",
+                path='/',
+                samesite='None',
+                
+            )
+            res.delete_cookie(
+                key="refresh_token",
+                path='/',
+                samesite='None',
+                
+            )
+
+            return res
+        except Exception as e:
+            return Response({"success":False , "message": f"Logout failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)

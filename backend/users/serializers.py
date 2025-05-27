@@ -1,5 +1,5 @@
 # serializers.py
-from djoser.serializers import UserCreateSerializer, UserSerializer
+import re
 from .models import CustomUser
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
@@ -13,19 +13,66 @@ import logging
 # Set up logger
 logger = logging.getLogger(__name__)
 
-class CustomUserCreateSerializer(UserCreateSerializer):
-    class Meta(UserCreateSerializer.Meta):
+
+class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+        token['role'] = user.role  
+        return token
+
+
+
+class CustomUserCreateSerializer(serializers.ModelSerializer):
+    class Meta:
         model = CustomUser
         fields = ('id', 'first_name', 'last_name', 'username', 'email', 'password', 'role', 'phone_number')
+        extra_kwargs = {
+            'password': {'write_only': True}  # Make password write-only
+        }
 
     def validate(self, attrs):
         # Always set default role to 'user' even if provided in the request
         attrs['role'] = 'user'
         return super().validate(attrs)
 
+    def validate_username(self, value):
+        if CustomUser.objects.filter(username=value).exists():
+            raise serializers.ValidationError("Username already exists, it should be unique")
+        if len(value) < 3:
+            raise serializers.ValidationError("Username must be at least 3 characters long.")
+        return value
+        
+    def validate_email(self, value):
+        if CustomUser.objects.filter(email=value).exists():
+            raise serializers.ValidationError("User with this email already exists, it should be unique")
+        return value
+        
+    def validate_phone_number(self, value):  # Fixed method name
+        if value and not re.match(r'^\d{10}$', value):
+            raise serializers.ValidationError("Phone number must be exactly 10 digits.")
+        if value and CustomUser.objects.filter(phone_number=value).exists():
+            raise serializers.ValidationError("Phone number already exists.")
+        return value
+        
+    def validate_password(self, value):
+        if len(value) < 8:
+            raise serializers.ValidationError("Password must be at least 8 characters long.")
+        if not re.search(r'[A-Za-z]', value) or not re.search(r'\d', value):
+            raise serializers.ValidationError("Password must contain at least one letter and one number.")
+        return value
+
     def create(self, validated_data):
         try:
-            user = super().create(validated_data)
+            # Extract password from validated data
+            password = validated_data.pop('password')
+            
+            # Create user instance without saving
+            user = CustomUser(**validated_data)
+            
+            # Set password (this will hash it automatically)
+            user.set_password(password)
+            
             # Set is_active to False until OTP verification
             user.is_active = False
             
@@ -33,6 +80,8 @@ class CustomUserCreateSerializer(UserCreateSerializer):
             otp = ''.join(random.choices(string.digits, k=6))
             user.otp = otp
             user.otp_created_at = timezone.now()
+            
+            # Save the user
             user.save()
 
             # Send OTP email
@@ -55,56 +104,16 @@ class CustomUserCreateSerializer(UserCreateSerializer):
             logger.error(f"Error in user creation: {str(e)}")
             raise
         
-class CustomUserSerializer(UserSerializer):
-    is_shop_owner = serializers.BooleanField(read_only=True)
-    
-    class Meta(UserSerializer.Meta):
-        model = CustomUser
-        fields = ('id', 'first_name', 'last_name', 'username', 'email', 
-                 'role', 'is_active', 'is_blocked', 'phone_number', 'is_shop_owner')
-
-
-class CustomTokenCreateSerializer(TokenObtainPairSerializer):
-    username_field = 'email'
-    
-    def validate(self, attrs):
-        # Get the credentials
-        email = attrs.get('email')
         
-        try:
-            # Check if user exists and is active
-            user = CustomUser.objects.get(email=email)
-            
-            if not user.is_active:
-                raise serializers.ValidationError({
-                    "email": ["Account is not active. Please verify your email."]
-                })
-            
-            if user.is_blocked:
-                raise serializers.ValidationError({
-                    "email": ["This account has been blocked. Please contact support."]
-                })
-                
-            # Call the parent validation to check password and return token
-            data = super().validate(attrs)
-            
-            # Add custom claims to token
-            data['user'] = {
-                'id': user.id,
-                'email': user.email,
-                'username': user.username,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'role': user.role,
-                'is_shop_owner': user.is_shop_owner(),
-                'phone_number': user.phone_number,
-            }
-            
-            return data
-            
-        except CustomUser.DoesNotExist:
-            # Let the parent method handle non-existent users
-            return super().validate(attrs)
+# class CustomUserSerializer(UserSerializer):
+#     is_shop_owner = serializers.BooleanField(read_only=True)
+    
+#     class Meta(UserSerializer.Meta):
+#         model = CustomUser
+#         fields = ('id', 'first_name', 'last_name', 'username', 'email', 
+#                  'role', 'is_active', 'is_blocked', 'phone_number', 'is_shop_owner')
+
+
 
 
 class EmailOTPVerifySerializer(serializers.Serializer):
@@ -152,7 +161,6 @@ class ResendOTPSerializer(serializers.Serializer):
         return data
 
 
-# Existing AdminUserSerializer in your code should be modified to match the fields in your React component:
 class AdminUserSerializer(serializers.ModelSerializer):
     """Serializer for admin user management - matches React component fields"""
     class Meta:
