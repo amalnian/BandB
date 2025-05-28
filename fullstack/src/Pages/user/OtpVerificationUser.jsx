@@ -67,7 +67,7 @@ const OtpVerification = () => {
       });
       
       // Make actual API call to verify OTP with axios
-      const response = await axios.post('http://localhost:8000/api/auth/verify-otp/', {
+      const response = await axios.post('http://localhost:8000/api/verify-otp/', {
         email: userEmail,
         otp: otp
       }, {

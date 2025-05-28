@@ -42,7 +42,7 @@ const SignupPage = () => {
     // Here you would typically send the data to your Django backend
     try {
       // Example fetch request to your Django API
-      const response = await fetch("http://127.0.0.1:8000/api/auth/users/", {
+      const response = await fetch("http://127.0.0.1:8000/api/users/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

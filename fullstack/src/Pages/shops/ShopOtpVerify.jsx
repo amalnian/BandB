@@ -51,10 +51,13 @@ const ShopOtpVerification = () => {
     try {
       console.log("Attempting to verify OTP for email:", shopEmail);
       
+      // Ensure OTP is sent as a string to match backend expectations
+      const otpString = String(otp).trim();
+      
       // Call the API to verify OTP
       const response = await axios.post('http://localhost:8000/api/auth/verify-otp/', {
         email: shopEmail,
-        otp: otp
+        otp: otpString
       });
       
       console.log('OTP verification response:', response.data);
@@ -73,7 +76,22 @@ const ShopOtpVerification = () => {
       
     } catch (error) {
       console.error('Error verifying OTP:', error);
-      setError(error.response?.data?.detail || 'Failed to verify OTP. Please try again.');
+      
+      // Enhanced error handling
+      if (error.response) {
+        // The server responded with a status code outside the 2xx range
+        const errorMessage = error.response.data.detail || 
+                            error.response.data.non_field_errors?.join(', ') || 
+                            'Failed to verify OTP. Please try again.';
+        setError(errorMessage);
+        console.log('Error response data:', error.response.data);
+      } else if (error.request) {
+        // The request was made but no response was received
+        setError('No response from server. Please check your connection and try again.');
+      } else {
+        // Something happened in setting up the request
+        setError('An error occurred. Please try again.');
+      }
     } finally {
       setIsVerifying(false);
     }
@@ -93,20 +111,26 @@ const ShopOtpVerification = () => {
   
       console.log('Resend OTP response:', response.data);
       setSuccess('OTP has been resent successfully.');
+      // Clear any previous OTP input
+      setOtp('');
     } catch (error) {
       console.error('Error resending OTP:', error);
-      setError(error.response?.data?.detail || 'Failed to resend OTP. Please try again.');
+      
+      // Enhanced error handling for resend
+      if (error.response) {
+        const errorMessage = error.response.data.detail || 
+                            error.response.data.non_field_errors?.join(', ') || 
+                            'Failed to resend OTP. Please try again.';
+        setError(errorMessage);
+      } else if (error.request) {
+        setError('No response from server. Please check your connection.');
+      } else {
+        setError('An error occurred. Please try again.');
+      }
     } finally {
       setIsResending(false);
     }
   };
-
-  // Add this debugging section
-  useEffect(() => {
-    if (shopEmail) {
-      console.log("Shop email state updated:", shopEmail);
-    }
-  }, [shopEmail]);
 
   return (
     <div className="flex flex-col md:flex-row w-full min-h-screen">
@@ -155,12 +179,15 @@ const ShopOtpVerification = () => {
               <input
                 id="otp-input"
                 type="text"
-                placeholder="Enter your verification code"
+                placeholder="Enter your 6-digit verification code"
                 value={otp}
                 onChange={(e) => setOtp(e.target.value)}
+                maxLength={6}
+                pattern="\d{6}"
                 className="p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500"
                 required
               />
+              <small className="text-gray-500">Enter the 6-digit code sent to your email</small>
             </div>
             
             {/* Buttons */}
@@ -169,7 +196,7 @@ const ShopOtpVerification = () => {
                 type="submit" 
                 className={`flex-1 py-3 bg-blue-600 text-white font-semibold rounded transition-colors 
                   ${isVerifying ? 'opacity-70 cursor-not-allowed' : 'hover:bg-blue-700'}`}
-                disabled={isVerifying}
+                disabled={isVerifying || otp.length !== 6}
               >
                 {isVerifying ? 'Verifying...' : 'Verify'}
               </button>

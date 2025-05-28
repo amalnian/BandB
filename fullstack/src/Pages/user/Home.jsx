@@ -4,17 +4,19 @@ import Sidebar from "./components/sidebar"
 // Import Image component - assuming you're using Next.js
 // If you're using React Router with plain React, you should use standard img tags instead
 import { useEffect } from "react"
+import { logout } from "@/endpoints/APIs" // Adjust the import path as needed
+
 
 export default function Home() {
   // Check if user is authenticated on component mount
-  useEffect(() => {
-    const userToken = localStorage.getItem("user_token")
-    if (userToken) {
-      console.log("User authenticated, displaying home page")
-    } else {
-      console.log("Warning: User accessed home without token")
-    }
-  }, [])
+  // useEffect(() => {
+  //   const userToken = localStorage.getItem("user_token")
+  //   if (userToken) {
+  //     console.log("User authenticated, displaying home page")
+  //   } else {
+  //     console.log("Warning: User accessed home without token")
+  //   }
+  // }, [])
 
   // Sample barber data
   const barbers = [

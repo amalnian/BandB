@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
+import { login } from "@/endpoints/APIs" // Adjust the import path as needed
 
 export default function LoginPageUser() {
   const [showPassword, setShowPassword] = useState(false)
@@ -8,31 +9,22 @@ export default function LoginPageUser() {
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
-  const [navigating, setNavigating] = useState(false)
   const navigate = useNavigate()
 
-  // Debug navigation
+  // Check if user is already logged in on component mount
   useEffect(() => {
-    if (navigating) {
-      console.log("Navigation to dashboard triggered")
-      // Add a small delay to ensure React Router has time to process
-      const timer = setTimeout(() => {
-        console.log("Checking if navigation succeeded")
-        if (window.location.pathname !== "/dashboard") {
-          console.log("Navigation may have failed. Current path:", window.location.pathname)
-        }
-      }, 500)
-      return () => clearTimeout(timer)
+    const userData = localStorage.getItem("user_data")
+    if (userData) {
+      try {
+        JSON.parse(userData)
+        // User is already logged in, redirect to home
+        navigate("/", { replace: true })
+      } catch (error) {
+        // Invalid data, clear it
+        localStorage.removeItem("user_data")
+      }
     }
-  }, [navigating])
-
-  // Check if token exists on load (for debugging)
-  useEffect(() => {
-    const token = localStorage.getItem("access_token")
-    if (token) {
-      console.log("Access token found in localStorage")
-    }
-  }, [])
+  }, [navigate])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -42,83 +34,76 @@ export default function LoginPageUser() {
     try {
       console.log("Attempting login with:", { email, password: "***" })
       
-      // First check if user is active
-      const checkResponse = await fetch(`http://127.0.0.1:8000/debug/user-status/?email=${encodeURIComponent(email)}`)
-      if (!checkResponse.ok) {
-        console.error("Failed to check user status:", await checkResponse.text())
-        // Continue with login attempt even if status check fails
-      } else {
-        const userData = await checkResponse.json()
-        console.log("User status:", userData)
-        
-        if (!userData.is_active) {
-          setError("Your account is not active. Please verify your email first.")
-          setLoading(false)
-          return
-        }
+      const formBody = {
+        email,
+        password
       }
       
-      // Proceed with login
-      const response = await fetch("http://127.0.0.1:8000/api/auth/jwt/create/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      })
-  
-      if (!response.ok) {
-        const contentType = response.headers.get("content-type")
-        if (contentType && contentType.includes("application/json")) {
-          const errorData = await response.json()
-          console.error("Login error:", errorData)
-          
-          if (errorData.email && errorData.email[0].includes("not active")) {
-            setError("Your account is not active. Please check your email for verification instructions.")
-          } else if (errorData.detail) {
-            setError(errorData.detail)
-          } else {
-            setError("Login failed. Please check your credentials.")
-          }
-        } else {
-          const errorText = await response.text()
-          console.error("Non-JSON error response:", errorText)
-          setError("Login failed. Server error occurred.")
-        }
-        throw new Error("Login failed")
+      // Use the axios login function
+      const response = await login(formBody)
+      
+      console.log("Login successful:", response)
+
+      // IMPORTANT: Store user data in localStorage for your protected routes to work
+      // Extract user data from the response - adjust this based on your API response structure
+      const userData = {
+        id: response.data?.user?.id || response.data?.id,
+        email: response.data?.user?.email || response.data?.email || email,
+        name: response.data?.user?.name || response.data?.name,
+        role: response.data?.user?.role || response.data?.role || 'user',
+        // Add any other user fields your app needs
+        token: response.data?.access_token || response.data?.token,
+        refreshToken: response.data?.refresh_token,
       }
-  
-      const data = await response.json()
-      console.log("Login successful, tokens received:", {
-        access: data.access ? `${data.access.substring(0, 10)}...` : "missing",
-        refresh: data.refresh ? `${data.refresh.substring(0, 10)}...` : "missing"
-      })
-  
-      // Store tokens - including as user_token which is what your ProtectedUserRoute looks for
-      localStorage.setItem("access_token", data.access)
-      localStorage.setItem("refresh_token", data.refresh)
-      localStorage.setItem("user_token", data.access) // Add this for ProtectedUserRoute
+
+      // Store user data in localStorage so protected routes can access it
+      localStorage.setItem("user_data", JSON.stringify(userData))
       
-      // Set authentication flag
-      localStorage.setItem("isAuthenticated", "true")
-      
+      console.log("User data stored:", userData)
       console.log("About to navigate to home page")
-      // Set navigating flag for debug useEffect
-      setNavigating(true)
       
-      // Attempt navigation to home page (root path)
-      navigate("/")
+      // Navigate to home page
+      navigate("/", { replace: true })
       
-      // Fallback navigation if React Router fails
-      setTimeout(() => {
-        if (window.location.pathname !== "/") {
-          console.log("Fallback: direct navigation to home page")
-          window.location.href = "/"
-        }
-      }, 1000)
     } catch (error) {
       console.error("Error during login process:", error)
-      if (!error) {
+      
+      // Handle different types of errors
+      if (error.response) {
+        // Server responded with error status
+        const { status, data } = error.response
+        
+        if (status === 401) {
+          setError("Invalid email or password. Please try again.")
+        } else if (status === 403) {
+          setError("Your account is not active. Please verify your email first.")
+        } else if (status === 422) {
+          // Validation errors
+          if (data?.detail) {
+            if (Array.isArray(data.detail)) {
+              setError(data.detail.map(err => err.msg || err).join(", "))
+            } else {
+              setError(data.detail)
+            }
+          } else {
+            setError("Please check your input and try again.")
+          }
+        } else if (data?.detail) {
+          setError(data.detail)
+        } else if (data?.non_field_errors) {
+          setError(data.non_field_errors[0])
+        } else if (data?.email) {
+          setError(data.email[0])
+        } else if (data?.message) {
+          setError(data.message)
+        } else {
+          setError("Login failed. Please check your credentials.")
+        }
+      } else if (error.request) {
+        // Network error
+        setError("Network error. Please check your connection and try again.")
+      } else {
+        // Other error
         setError("Login failed. Please try again.")
       }
     } finally {
@@ -164,7 +149,7 @@ export default function LoginPageUser() {
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
                 placeholder="Email address"
                 required
                 disabled={loading}
@@ -181,7 +166,7 @@ export default function LoginPageUser() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md pr-10"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md pr-10 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
                   placeholder="Password"
                   required
                   disabled={loading}
@@ -190,7 +175,8 @@ export default function LoginPageUser() {
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  disabled={loading}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
@@ -221,7 +207,7 @@ export default function LoginPageUser() {
             <div className="mt-6">
               <button
                 type="button"
-                className="w-full flex items-center justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+                className="w-full flex items-center justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition duration-200"
                 disabled={loading}
               >
                 <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
@@ -250,7 +236,7 @@ export default function LoginPageUser() {
 
           <div className="mt-6 text-center text-sm text-gray-500">
             Don't have an account?{" "}
-            <Link to="/signup" className="text-blue-500 hover:text-blue-700">
+            <Link to="/signup" className="text-blue-500 hover:text-blue-700 transition duration-200">
               Signup
             </Link>
           </div>

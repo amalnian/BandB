@@ -18,6 +18,32 @@ import {
   FaExclamationTriangle,
   FaLock
 } from 'react-icons/fa';
+import { 
+  Clock, 
+  Calendar, 
+  Save, 
+  Edit, 
+  Trash2, 
+  Plus, 
+  X, 
+  AlertCircle,
+  DollarSign,
+  Clock4,
+  Tag
+} from 'lucide-react';
+import {
+  getShopProfile,
+  updateShopProfile,
+  getDashboardStats,
+  getRecentAppointments,
+  getNotifications,
+  getBusinessHours,
+  updateBusinessHours,
+  getSpecialClosingDays,
+  addSpecialClosingDay,
+  removeSpecialClosingDay,
+  logout as logoutAPI
+} from '@/endpoints/ShopAPI';
 
 export default function ShopDashboard() {
   const [shopData, setShopData] = useState(null);
@@ -32,185 +58,134 @@ export default function ShopDashboard() {
   
   const navigate = useNavigate();
 
-  // Token refresh function
-  const refreshToken = async () => {
-    console.log("Attempting to refresh token...");
-    const refresh = localStorage.getItem("shop_refresh_token");
-    if (!refresh) return false;
+// Fixed fetchDashboardData function
+// Fixed fetchDashboardData function
+const fetchDashboardData = async () => {
+  try {
+    setIsLoading(true);
+    setError("");
+
+    // Always fetch shop profile from API
+    const shopResponse = await getShopProfile();
     
-    try {
-      const refreshResponse = await fetch("http://127.0.0.1:8000/api/token/refresh/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ refresh }),
-      });
-      
-      if (refreshResponse.ok) {
-        const tokens = await refreshResponse.json();
-        localStorage.setItem("shop_access_token", tokens.access);
-        console.log("Token refreshed successfully");
-        return true;
-      }
-      console.log("Failed to refresh token, response:", refreshResponse.status);
-      return false;
-    } catch (error) {
-      console.error("Refresh token error:", error);
-      return false;
+    // Debug: Check the actual response structure
+    console.log("Shop API Response:", shopResponse);
+    
+    // Your API returns: { success: true, data: { shop data } }
+    // So we need to access shopResponse.data.data
+    let shopProfileData;
+    if (shopResponse.data && shopResponse.data.data) {
+      shopProfileData = shopResponse.data.data;
+    } else if (shopResponse.success && shopResponse.data) {
+      // If the response is already parsed and we have direct access
+      shopProfileData = shopResponse.data;
+    } else {
+      console.error("Unexpected API response structure:", shopResponse);
+      throw new Error("Invalid shop profile response structure");
     }
-  };
+    
+    console.log("Parsed Shop Data:", shopProfileData);
+    
+    setShopData(shopProfileData);
+    setIsApproved(shopProfileData.is_approved || false);
+    
+    // Store shop data in localStorage for UI purposes
+    localStorage.setItem("shop_data", JSON.stringify(shopProfileData));
+    
+    // If not approved, automatically set the current section to settings
+    if (!shopProfileData.is_approved) {
+      setCurrentSection("settings");
+    }
+    
+    // Only fetch other dashboard data if the shop is approved
+    if (shopProfileData.is_approved) {
+      try {
+        // Fetch all dashboard data concurrently
+        const [statsResponse, appointmentsResponse, notificationsResponse] = await Promise.allSettled([
+          getDashboardStats(),
+          getRecentAppointments(),
+          getNotifications()
+        ]);
 
-  // Fetch dashboard data with approval check
-  const fetchDashboardData = async (shouldRefresh = false) => {
-    try {
-      // Get token from localStorage
-      const token = localStorage.getItem("shop_access_token");
-      
-      if (!token) {
-        throw new Error("Not authenticated");
-      }
-
-      // First check if shop data exists in localStorage
-      const storedShopData = localStorage.getItem("shop_data");
-      if (storedShopData) {
-        const parsedShopData = JSON.parse(storedShopData);
-        setShopData(parsedShopData);
-        
-        // Set the approval status based on the shop data
-        setIsApproved(parsedShopData.is_approved);
-        
-        // If not approved, automatically set the current section to settings
-        if (!parsedShopData.is_approved) {
-          setCurrentSection("settings");
-        }
-      } else {
-        // If shop data is not in localStorage, fetch it
-        const shopResponse = await fetch("http://127.0.0.1:8000/api/auth/shop/profile/", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
-        
-        if (shopResponse.ok) {
-          const shopData = await shopResponse.json();
-          setShopData(shopData);
-          setIsApproved(shopData.is_approved);
-          localStorage.setItem("shop_data", JSON.stringify(shopData));
-          
-          // If not approved, automatically set the current section to settings
-          if (!shopData.is_approved) {
-            setCurrentSection("settings");
-          }
-        } else if (shopResponse.status === 401 && !shouldRefresh) {
-          // Handle 401 for shop profile
-          const refreshSuccessful = await refreshToken();
-          if (refreshSuccessful) {
-            return fetchDashboardData(true);
-          } else {
-            throw new Error("Session expired. Please log in again.");
-          }
-        }
-      }
-      
-      // Only fetch other dashboard data if the shop is approved
-      if (isApproved) {
-        // Fetch shop dashboard stats
-        const response = await fetch("http://127.0.0.1:8000/api/auth/dashboard/stats/", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
-
-        if (!response.ok) {
-          // Get detailed error information
-          let errorData;
-          try {
-            errorData = await response.json();
-            console.error("Error details:", errorData);
-          } catch (e) {
-            console.error("Could not parse error response");
-          }
-
-          if (response.status === 401 && !shouldRefresh) {
-            console.log("Received 401, attempting token refresh");
-            const refreshSuccessful = await refreshToken();
-            if (refreshSuccessful) {
-              console.log("Retrying fetch after token refresh");
-              return fetchDashboardData(true); // Retry with refreshed token
-            } else {
-              localStorage.removeItem("shop_access_token");
-              localStorage.removeItem("shop_refresh_token");
-              localStorage.removeItem("shop_data");
-              throw new Error("Session expired. Please log in again.");
-            }
-          }
-          throw new Error(`Failed to fetch shop data: ${errorData?.error || response.statusText}`);
+        // Handle stats response - check response structure
+        if (statsResponse.status === 'fulfilled') {
+          const statsData = statsResponse.value.data || statsResponse.value;
+          setStats(statsData);
+        } else {
+          console.error("Error fetching stats:", statsResponse.reason);
         }
 
-        const data = await response.json();
-        setStats(data);
-        
-        // Similar pattern for appointments and notifications
-        const appointmentsResponse = await fetch("http://127.0.0.1:8000/api/auth/appointments/recent/", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
-        
-        if (appointmentsResponse.ok) {
-          const appointmentsData = await appointmentsResponse.json();
+        // Handle appointments response - check response structure  
+        if (appointmentsResponse.status === 'fulfilled') {
+          const appointmentsData = appointmentsResponse.value.data || appointmentsResponse.value;
           setRecentAppointments(appointmentsData);
-        } else if (appointmentsResponse.status === 401 && !shouldRefresh) {
-          // This might already be handled by the previous refresh
+        } else {
+          console.error("Error fetching appointments:", appointmentsResponse.reason);
         }
-        
-        // Fetch notifications with similar pattern
-        const notificationsResponse = await fetch("http://127.0.0.1:8000/api/auth/notifications/", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        });
-        
-        if (notificationsResponse.ok) {
-          const notificationsData = await notificationsResponse.json();
+
+        // Handle notifications response - check response structure
+        if (notificationsResponse.status === 'fulfilled') {
+          const notificationsData = notificationsResponse.value.data || notificationsResponse.value;
           setNotifications(notificationsData);
+        } else {
+          console.error("Error fetching notifications:", notificationsResponse.reason);
         }
+
+      } catch (dashboardError) {
+        console.error("Error fetching dashboard data:", dashboardError);
       }
-      
-    } catch (error) {
-      console.error("Error:", error.message);
-      setError(error.message);
-      
-      // Redirect to login if not authenticated
-      if (error.message === "Not authenticated" || error.message.includes("expired")) {
-        navigate("/shop/login");
-      }
-    } finally {
-      setIsLoading(false);
     }
+    
+  } catch (error) {
+    console.error("Error:", error);
+    setError(error.message || "Failed to load dashboard data");
+    
+    // Check if it's an authentication error
+    if (error.response?.status === 401) {
+      handleAuthenticationError();
+    }
+  } finally {
+    setIsLoading(false);
+  }
+};
+
+  const handleAuthenticationError = () => {
+    // Only clear localStorage data, cookies will be handled by the server
+    localStorage.removeItem("shop_data");
+    navigate("/shop/login");
   };
 
   useEffect(() => {
     fetchDashboardData();
-    // This second effect ensures that currentSection is properly set after isApproved value is loaded
+  }, []);
+
+  // Update currentSection when isApproved changes
+  useEffect(() => {
     if (!isApproved && currentSection !== "settings") {
       setCurrentSection("settings");
     }
-  }, [isApproved, navigate]);
+  }, [isApproved, currentSection]);
 
-  const handleLogout = () => {
-    localStorage.removeItem("shop_access_token");
-    localStorage.removeItem("shop_refresh_token");
-    localStorage.removeItem("shop_data");
-    navigate("/shop/login");
+  const handleLogout = async () => {
+    try {
+      // Call logout API to clear cookies on server side
+      await logoutAPI();
+    } catch (error) {
+      console.error("Logout API error:", error);
+      // Continue with logout even if API call fails
+    } finally {
+      // Clear only localStorage data (cookies are handled by server)
+      localStorage.removeItem("shop_data");
+      // Redirect to login
+      navigate("/shop/login");
+    }
   };
 
   // Navigate to different sections - strict access control
   const navigateToSection = (section) => {
     // If shop is not approved, only allow access to settings
     if (!isApproved && section !== "settings") {
-      // Show a notification or alert here if you want
+      alert("Please complete your shop profile and wait for approval to access other features.");
       return;
     }
     setCurrentSection(section);
@@ -231,36 +206,56 @@ export default function ShopDashboard() {
     };
     
     try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
+      const response = await updateShopProfile(updatedShopData);
+      const updatedData = response.data;
       
-      const response = await fetch("http://127.0.0.1:8000/api/auth/shop/update/", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(updatedShopData)
-      });
+      setShopData(updatedData);
+      localStorage.setItem("shop_data", JSON.stringify(updatedData));
       
-      if (response.ok) {
-        const updatedData = await response.json();
-        setShopData(updatedData);
-        localStorage.setItem("shop_data", JSON.stringify(updatedData));
+      // Check if approval status changed
+      if (updatedData.is_approved !== isApproved) {
+        setIsApproved(updatedData.is_approved);
         
-        // Check if approval status changed
-        if (updatedData.is_approved !== isApproved) {
-          setIsApproved(updatedData.is_approved);
+        // If newly approved, refresh dashboard data
+        if (updatedData.is_approved) {
+          fetchDashboardData();
         }
-        
-        // Show success message
-        alert("Settings updated successfully!");
-      } else {
-        throw new Error("Failed to update shop settings");
       }
+      
+      // Show success message
+      alert("Settings updated successfully!");
+      
     } catch (error) {
       console.error("Error saving settings:", error);
-      alert("Failed to save settings: " + error.message);
+      
+      // Handle specific error cases
+      if (error.response?.status === 401) {
+        // Authentication error - interceptor should handle this
+        return;
+      }
+      
+      alert("Failed to save settings: " + (error.response?.data?.message || error.message));
+    }
+  };
+
+  // Retry function for error states
+  const handleRetry = () => {
+    setError("");
+    fetchDashboardData();
+  };
+
+  // Check authentication status - simplified since we rely on cookies
+  const checkAuthStatus = async () => {
+    try {
+      // Try to fetch shop profile to check if user is authenticated
+      await getShopProfile();
+      return true;
+    } catch (error) {
+      if (error.response?.status === 401) {
+        return false;
+      }
+      // For other errors, assume user is authenticated but there's a different issue
+      return true;
     }
   };
 
@@ -357,109 +352,495 @@ export default function ShopDashboard() {
   );
 
   // Settings content component
-  const SettingsContent = () => (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Shop Settings</h3>
+
+
+
+
+// Fixed SettingsContent component
+const SettingsContent = () => {
+  // Initialize formData with empty values first, then update when shopData is available
+  const [formData, setFormData] = useState({
+    shopName: '',
+    email: '',
+    phone: '',
+    ownerName: '',
+    address: '',
+    description: ''
+  });
+  
+  // Update formData when shopData changes
+useEffect(() => {
+  console.log("ShopData in SettingsContent:", shopData); // Debug log
+  
+  if (shopData) {
+    const newFormData = {
+      shopName: shopData.name || '',
+      email: shopData.email || '',
+      phone: shopData.phone || '',
+      ownerName: shopData.owner_name || '',
+      address: shopData.address || '',
+      description: shopData.description || ''
+    };
+    
+    console.log("Setting form data:", newFormData); // Debug log
+    setFormData(newFormData);
+  }
+}, [shopData]);
+  
+  // Set up businessHours with default values
+  const DAYS_OF_WEEK = [
+    { id: 0, name: 'Monday' },
+    { id: 1, name: 'Tuesday' },
+    { id: 2, name: 'Wednesday' },
+    { id: 3, name: 'Thursday' },
+    { id: 4, name: 'Friday' },
+    { id: 5, name: 'Saturday' },
+    { id: 6, name: 'Sunday' },
+  ];
+  
+  // Business hours and special days state
+  const [businessHours, setBusinessHours] = useState(
+    DAYS_OF_WEEK.map(day => ({
+      day_of_week: day.id,
+      day_name: day.name,
+      opening_time: '09:00',
+      closing_time: '17:00',
+      is_closed: day.id === 6 // Sunday closed by default
+    }))
+  );
+  const [specialClosingDays, setSpecialClosingDays] = useState([]);
+  const [newClosingDay, setNewClosingDay] = useState({ date: '', reason: '' });
+  
+  // UI state for settings
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [businessDataLoading, setBusinessDataLoading] = useState(false);
+  
+  // Fetch business hours and special closing days
+  useEffect(() => {
+    const fetchBusinessData = async () => {
+      try {
+        setBusinessDataLoading(true);
+        
+        // Use the proper API functions instead of direct fetch
+        const [hoursResponse, closingDaysResponse] = await Promise.allSettled([
+          getBusinessHours(),
+          getSpecialClosingDays()
+        ]);
+        
+        if (hoursResponse.status === 'fulfilled' && hoursResponse.value.data.length > 0) {
+          setBusinessHours(hoursResponse.value.data);
+        }
+        
+        if (closingDaysResponse.status === 'fulfilled') {
+          setSpecialClosingDays(closingDaysResponse.value.data);
+        }
+        
+      } catch (error) {
+        console.error("Error fetching business data:", error);
+      } finally {
+        setBusinessDataLoading(false);
+      }
+    };
+    
+    // Only fetch business data if shop is approved
+    if (isApproved) {
+      fetchBusinessData();
+    }
+  }, [isApproved]);
+  
+  // Handle input changes for shop details
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+  
+  // Handle business hours update
+  const handleHoursChange = (index, field, value) => {
+    const updatedHours = [...businessHours];
+    
+    if (field === 'is_closed') {
+      updatedHours[index].is_closed = value;
+    } else {
+      updatedHours[index][field] = value;
+    }
+    
+    setBusinessHours(updatedHours);
+  };
+  
+  // Save shop details - Fixed to use formData
+  const handleSaveShopDetails = async () => {
+    setIsSubmitting(true);
+    try {
+      const updatedShopData = {
+        name: formData.shopName,
+        phone: formData.phone,
+        owner_name: formData.ownerName,
+        address: formData.address,
+        description: formData.description
+      };
       
-      {!isApproved && <ApprovalPendingNotice />}
+      const response = await updateShopProfile(updatedShopData);
+      const updatedData = response.data;
       
-      <form className="space-y-6" onSubmit={handleSaveSettings}>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      setShopData(updatedData);
+      
+      // Check if approval status changed
+      if (updatedData.is_approved !== isApproved) {
+        setIsApproved(updatedData.is_approved);
+        
+        // If newly approved, refresh dashboard data
+        if (updatedData.is_approved) {
+          fetchDashboardData();
+        }
+      }
+      
+      alert("Shop details updated successfully!");
+      
+    } catch (error) {
+      console.error("Error saving shop details:", error);
+      alert("Failed to save shop details: " + (error.response?.data?.message || error.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  // Save business hours - Use proper API function
+  const handleSaveHours = async () => {
+    setIsSubmitting(true);
+    try {
+      await updateBusinessHours(businessHours);
+      alert("Business hours updated successfully!");
+    } catch (error) {
+      console.error("Error saving business hours:", error);
+      alert("Failed to save business hours: " + (error.response?.data?.message || error.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  // Handle new closing day input changes
+  const handleClosingDayChange = (field, value) => {
+    setNewClosingDay(prev => ({
+      ...prev,
+      [field]: value
+    }));
+  };
+  
+  // Add special closing day - Use proper API function
+  const handleAddClosingDay = async () => {
+    if (!newClosingDay.date) {
+      alert("Please select a date");
+      return;
+    }
+    
+    setIsSubmitting(true);
+    try {
+      const response = await addSpecialClosingDay(newClosingDay);
+      
+      setSpecialClosingDays([
+        ...specialClosingDays,
+        {
+          id: response.data.id,
+          date: newClosingDay.date,
+          reason: newClosingDay.reason
+        }
+      ]);
+      setNewClosingDay({ date: '', reason: '' });
+      alert("Special closing day added successfully!");
+    } catch (error) {
+      console.error("Error adding special closing day:", error);
+      alert("Failed to add special closing day: " + (error.response?.data?.message || error.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+  
+  // Remove special closing day - Use proper API function
+  const handleRemoveClosingDay = async (id) => {
+    setIsSubmitting(true);
+    try {
+      await removeSpecialClosingDay(id);
+      setSpecialClosingDays(specialClosingDays.filter(day => day.id !== id));
+      alert("Special closing day removed successfully!");
+    } catch (error) {
+      console.error("Error removing special closing day:", error);
+      alert("Failed to remove special closing day: " + (error.response?.data?.message || error.message));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-lg shadow">
+      {/* Shop Details Section */}
+      <div className="p-6 border-b border-gray-200">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Shop Details</h3>
+        
+        {!isApproved && <ApprovalPendingNotice />}
+        
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="shopName">Shop Name</label>
+              <input 
+                type="text" 
+                id="shopName"
+                name="shopName"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                value={formData.shopName}
+                onChange={handleInputChange}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="email">Email Address</label>
+              <input 
+                type="email" 
+                id="email"
+                name="email"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-100"
+                value={formData.email}
+                disabled
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="phone">Phone Number</label>
+              <input 
+                type="tel" 
+                id="phone"
+                name="phone"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                value={formData.phone}
+                onChange={handleInputChange}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="ownerName">Owner Name</label>
+              <input 
+                type="text" 
+                id="ownerName"
+                name="ownerName"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                value={formData.ownerName}
+                onChange={handleInputChange}
+                required
+              />
+            </div>
+          </div>
+          
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="shopName">Shop Name</label>
-            <input 
-              type="text" 
-              id="shopName"
-              name="shopName"
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="address">Shop Address</label>
+            <textarea 
+              id="address"
+              name="address"
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              defaultValue={shopData?.name || ""}
+              rows={3}
+              value={formData.address}
+              onChange={handleInputChange}
               required
-            />
+            ></textarea>
           </div>
+          
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="email">Email Address</label>
-            <input 
-              type="email" 
-              id="email"
-              name="email"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 bg-gray-100"
-              defaultValue={shopData?.email || ""}
-              disabled
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="phone">Phone Number</label>
-            <input 
-              type="tel" 
-              id="phone"
-              name="phone"
+            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="description">Shop Description</label>
+            <textarea 
+              id="description"
+              name="description"
               className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              defaultValue={shopData?.phone || ""}
+              rows={4}
+              value={formData.description}
+              onChange={handleInputChange}
               required
-            />
+            ></textarea>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="ownerName">Owner Name</label>
-            <input 
-              type="text" 
-              id="ownerName"
-              name="ownerName"
-              className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-              defaultValue={shopData?.owner_name || ""}
-              required
-            />
+          
+          <div className="flex justify-end">
+            <button 
+              onClick={handleSaveShopDetails}
+              disabled={isSubmitting}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200 disabled:bg-blue-300"
+            >
+              <div className="flex items-center">
+                <Save className="w-4 h-4 mr-2" />
+                {isSubmitting ? 'Saving...' : 'Save Shop Details'}
+              </div>
+            </button>
           </div>
         </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="address">Shop Address</label>
-          <textarea 
-            id="address"
-            name="address"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            rows="3"
-            defaultValue={shopData?.address || ""}
-            required
-          ></textarea>
+      </div>
+      
+      {/* Business Hours Section - Only show if approved */}
+      {isApproved && (
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold text-gray-800">Business Hours</h3>
+            <button 
+              onClick={handleSaveHours}
+              disabled={isSubmitting || businessDataLoading}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200 disabled:bg-blue-300"
+            >
+              <div className="flex items-center">
+                <Clock className="w-4 h-4 mr-2" />
+                {isSubmitting ? 'Saving...' : 'Save Hours'}
+              </div>
+            </button>
+          </div>
+          
+          {businessDataLoading ? (
+            <div className="flex justify-center py-4">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {businessHours.map((day, index) => (
+                <div 
+                  key={day.day_of_week} 
+                  className="grid grid-cols-12 gap-4 items-center py-2 border-b border-gray-100 last:border-b-0"
+                >
+                  <div className="col-span-3 font-medium">{day.day_name}</div>
+                  
+                  <div className="col-span-8 grid grid-cols-2 gap-4">
+                    <div className="flex items-center">
+                      <input
+                        type="time"
+                        value={day.opening_time || '09:00'}
+                        onChange={(e) => handleHoursChange(index, 'opening_time', e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        disabled={day.is_closed}
+                      />
+                    </div>
+                    
+                    <div className="flex items-center">
+                      <input
+                        type="time"
+                        value={day.closing_time || '17:00'}
+                        onChange={(e) => handleHoursChange(index, 'closing_time', e.target.value)}
+                        className="px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                        disabled={day.is_closed}
+                      />
+                    </div>
+                  </div>
+                  
+                  <div className="col-span-1 flex items-center justify-end">
+                    <input
+                      type="checkbox"
+                      id={`closed-${day.day_of_week}`}
+                      checked={day.is_closed}
+                      onChange={(e) => handleHoursChange(index, 'is_closed', e.target.checked)}
+                      className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                    />
+                    <label htmlFor={`closed-${day.day_of_week}`} className="ml-2 text-sm text-gray-700">
+                      Closed
+                    </label>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="description">Shop Description</label>
-          <textarea 
-            id="description"
-            name="description"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            rows="4"
-            defaultValue={shopData?.description || ""}
-            required
-          ></textarea>
+      )}
+      
+      {/* Special Closing Days Section - Only show if approved */}
+      {isApproved && (
+        <div className="p-6">
+          <h3 className="text-lg font-semibold text-gray-800 mb-4">Special Closing Days</h3>
+          
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="closingDate">
+                Date
+              </label>
+              <input
+                type="date"
+                id="closingDate"
+                value={newClosingDay.date}
+                onChange={(e) => handleClosingDayChange('date', e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                required
+              />
+            </div>
+            
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="closingReason">
+                Reason (Optional)
+              </label>
+              <input
+                type="text"
+                id="closingReason"
+                value={newClosingDay.reason}
+                onChange={(e) => handleClosingDayChange('reason', e.target.value)}
+                placeholder="e.g., Holiday, Maintenance"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              />
+            </div>
+            
+            <div>
+              <button
+                onClick={handleAddClosingDay}
+                disabled={isSubmitting || !newClosingDay.date}
+                className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200 disabled:bg-blue-300"
+              >
+                <div className="flex items-center justify-center">
+                  <Calendar className="w-4 h-4 mr-2" />
+                  {isSubmitting ? 'Adding...' : 'Add Closing Day'}
+                </div>
+              </button>
+            </div>
+          </div>
+          
+          {specialClosingDays.length > 0 ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200">
+                <thead className="bg-gray-50">
+                  <tr>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Date
+                    </th>
+                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Reason
+                    </th>
+                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                      Action
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="bg-white divide-y divide-gray-200">
+                  {specialClosingDays.map((day) => (
+                    <tr key={day.id}>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        {new Date(day.date).toLocaleDateString()}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {day.reason || '—'}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                        <button
+                          onClick={() => handleRemoveClosingDay(day.id)}
+                          disabled={isSubmitting}
+                          className="text-red-600 hover:text-red-900 disabled:text-red-300"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <div className="text-center py-4 text-gray-500">
+              No special closing days added yet.
+            </div>
+          )}
         </div>
-        
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="openingHours">Opening Hours</label>
-          <input 
-            type="text" 
-            id="openingHours"
-            name="openingHours"
-            className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
-            placeholder="e.g., Mon-Fri: 9am-7pm, Sat: 10am-5pm"
-            defaultValue={shopData?.opening_hours || ""}
-            required
-          />
-        </div>
-        
-        <div className="flex justify-end">
-          <button 
-            type="submit"
-            className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200"
-          >
-            Save Changes
-          </button>
-        </div>
-      </form>
+      )}
     </div>
   );
-
+};
   // Dashboard content component
   const DashboardContent = () => (
     <>
@@ -701,17 +1082,420 @@ export default function ShopDashboard() {
   );
   
   // Services content component
-  const ServicesContent = () => (
-    <div className="bg-white rounded-lg shadow p-6">
-      <h3 className="text-lg font-semibold text-gray-800 mb-4">Services</h3>
-      <p className="text-gray-600 mb-6">Manage your services and products here.</p>
+  const ServicesContent = () => {
+  const [services, setServices] = useState([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [isAddingService, setIsAddingService] = useState(false);
+  const [isEditingService, setIsEditingService] = useState(null);
+  const [formData, setFormData] = useState({
+    name: '',
+    description: '',
+    price: '',
+    duration_minutes: 30,
+    is_active: true
+  });
+
+  // Fetch services from the API
+  const fetchServices = async () => {
+    setIsLoading(true);
+    try {
+      const token = localStorage.getItem("shop_access_token");
+      if (!token) throw new Error("Not authenticated");
       
-      {/* Your services content will go here */}
-      <div className="text-gray-500 text-center py-10">
-        <p>Services management functionality coming soon</p>
+      const response = await fetch("http://127.0.0.1:8000/api/auth/shop/services/", {
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error("Failed to fetch services");
+      
+      const data = await response.json();
+      setServices(data);
+    } catch (error) {
+      console.error("Error fetching services:", error);
+      setError(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  // Load services on component mount
+  useEffect(() => {
+    fetchServices();
+  }, []);
+
+  // Reset form data
+  const resetForm = () => {
+    setFormData({
+      name: '',
+      description: '',
+      price: '',
+      duration_minutes: 30,
+      is_active: true
+    });
+  };
+
+  // Handle form input changes
+  const handleInputChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  // Add new service
+const handleAddService = async (e) => {
+  e.preventDefault();
+  try {
+    const token = localStorage.getItem("shop_access_token");
+    if (!token) throw new Error("Not authenticated");
+    
+    // You'll need to get the shop_id from somewhere - either from local storage,
+    // global state, or fetched from an API endpoint first
+    const shop_id = localStorage.getItem("shop_id"); // Or however you store the shop ID
+    if (!shop_id) throw new Error("Shop ID not found");
+    
+    const dataToSend = {
+      ...formData,
+      shop_id: shop_id
+    };
+    
+    const response = await fetch("http://127.0.0.1:8000/api/auth/shop/services/create/", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${token}`,
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify(dataToSend)
+    });
+    
+    if (!response.ok) throw new Error("Failed to create service");
+    
+    const newService = await response.json();
+    setServices([...services, newService]);
+    setIsAddingService(false);
+    resetForm();
+  } catch (error) {
+    console.error("Error adding service:", error);
+    setError(error.message);
+  }
+};
+
+
+  // Update existing service
+  const handleUpdateService = async (e) => {
+    e.preventDefault();
+    try {
+      const token = localStorage.getItem("shop_access_token");
+      if (!token) throw new Error("Not authenticated");
+      
+      const response = await fetch(`http://127.0.0.1:8000/api/auth/shop/services/${isEditingService}/update/`, {
+        method: "PUT",
+        headers: {
+          "Authorization": `Bearer ${token}`,
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify(formData)
+      });
+      
+      if (!response.ok) throw new Error("Failed to update service");
+      
+      const updatedService = await response.json();
+      setServices(services.map(service => 
+        service.id === updatedService.id ? updatedService : service
+      ));
+      setIsEditingService(null);
+      resetForm();
+    } catch (error) {
+      console.error("Error updating service:", error);
+      setError(error.message);
+    }
+  };
+
+  // Delete service
+  const handleDeleteService = async (id) => {
+    if (!window.confirm("Are you sure you want to delete this service?")) return;
+    
+    try {
+      const token = localStorage.getItem("shop_access_token");
+      if (!token) throw new Error("Not authenticated");
+      
+      const response = await fetch(`http://127.0.0.1:8000/api/auth/shop/services/${id}/delete/`, {
+        method: "DELETE",
+        headers: {
+          "Authorization": `Bearer ${token}`
+        }
+      });
+      
+      if (!response.ok) throw new Error("Failed to delete service");
+      
+      setServices(services.filter(service => service.id !== id));
+    } catch (error) {
+      console.error("Error deleting service:", error);
+      setError(error.message);
+    }
+  };
+
+  // Start editing a service
+  const startEditService = (service) => {
+    setFormData({
+      name: service.name,
+      description: service.description || '',
+      price: service.price,
+      duration_minutes: service.duration_minutes,
+      is_active: service.is_active
+    });
+    setIsEditingService(service.id);
+  };
+
+  // Cancel form
+  const handleCancel = () => {
+    setIsAddingService(false);
+    setIsEditingService(null);
+    resetForm();
+  };
+
+  // Display loading state
+  if (isLoading && services.length === 0) {
+    return (
+      <div className="bg-white rounded-lg shadow p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Services</h3>
+        <div className="flex justify-center py-8">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-lg shadow">
+      <div className="p-6 border-b border-gray-200">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-semibold text-gray-800">Services</h3>
+          {!isAddingService && !isEditingService && (
+            <button 
+              onClick={() => setIsAddingService(true)}
+              className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200"
+            >
+              <div className="flex items-center">
+                <Plus className="w-4 h-4 mr-2" />
+                Add Service
+              </div>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Error message */}
+      {error && (
+        <div className="mx-6 mt-4 p-3 bg-red-50 border-l-4 border-red-500 text-red-700">
+          <div className="flex items-center">
+            <AlertCircle className="w-5 h-5 mr-2" />
+            <p>{error}</p>
+          </div>
+        </div>
+      )}
+
+      {/* Add/Edit Form */}
+      {(isAddingService || isEditingService) && (
+        <div className="p-6 border-b border-gray-200">
+          <h4 className="text-md font-medium text-gray-700 mb-4">
+            {isAddingService ? 'Add New Service' : 'Edit Service'}
+          </h4>
+          
+          <form onSubmit={isAddingService ? handleAddService : handleUpdateService}>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Service Name</label>
+                <input 
+                  type="text"
+                  name="name"
+                  value={formData.name}
+                  onChange={handleInputChange}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Price ($)</label>
+                <input 
+                  type="number"
+                  name="price"
+                  value={formData.price}
+                  onChange={handleInputChange}
+                  step="0.01"
+                  min="0"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+            </div>
+            
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Description (Optional)</label>
+              <textarea 
+                name="description"
+                value={formData.description}
+                onChange={handleInputChange}
+                rows={3}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+              ></textarea>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Duration (minutes)</label>
+                <input 
+                  type="number"
+                  name="duration_minutes"
+                  value={formData.duration_minutes}
+                  onChange={handleInputChange}
+                  min="5"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                  required
+                />
+              </div>
+              
+              <div className="flex items-center h-full pt-6">
+                <input
+                  type="checkbox"
+                  id="is_active"
+                  name="is_active"
+                  checked={formData.is_active}
+                  onChange={handleInputChange}
+                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                />
+                <label htmlFor="is_active" className="ml-2 text-sm text-gray-700">
+                  Active (available for booking)
+                </label>
+              </div>
+            </div>
+            
+            <div className="flex justify-end space-x-3">
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <div className="flex items-center">
+                  <X className="w-4 h-4 mr-2" />
+                  Cancel
+                </div>
+              </button>
+              
+              <button
+                type="submit"
+                className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                <div className="flex items-center">
+                  <Save className="w-4 h-4 mr-2" />
+                  {isAddingService ? 'Save Service' : 'Update Service'}
+                </div>
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* Services List */}
+      <div className="p-6">
+        {services.length > 0 ? (
+          <div className="overflow-x-auto">
+            <table className="min-w-full divide-y divide-gray-200">
+              <thead className="bg-gray-50">
+                <tr>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Service Name
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Price
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Duration
+                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Status
+                  </th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Actions
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="bg-white divide-y divide-gray-200">
+                {services.map((service) => (
+                  <tr key={service.id}>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <div className="text-sm font-medium text-gray-900">{service.name}</div>
+                      {service.description && (
+                        <div className="text-sm text-gray-500 truncate max-w-xs">{service.description}</div>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      ${Number(service.price).toFixed(2)}
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      {service.duration_minutes} mins
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap">
+                      <span className={`inline-flex px-2 py-1 text-xs rounded-full ${
+                        service.is_active 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {service.is_active ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                      <div className="flex justify-end space-x-3">
+                        <button 
+                          onClick={() => startEditService(service)}
+                          className="text-blue-600 hover:text-blue-900"
+                          disabled={isAddingService || isEditingService}
+                        >
+                          <Edit className="w-4 h-4" />
+                        </button>
+                        <button 
+                          onClick={() => handleDeleteService(service.id)}
+                          className="text-red-600 hover:text-red-900"
+                          disabled={isAddingService || isEditingService}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="text-center py-8 text-gray-500">
+            {!isAddingService && !error && (
+              <div>
+                <p className="mb-4">No services have been added yet.</p>
+                <button 
+                  onClick={() => setIsAddingService(true)}
+                  className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 transition duration-200"
+                >
+                  <div className="flex items-center justify-center">
+                    <Plus className="w-4 h-4 mr-2" />
+                    Add Your First Service
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
+}
+
+
   
   // Customers content component
 const CustomersContent = () => (

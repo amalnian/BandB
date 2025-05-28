@@ -1,8 +1,8 @@
 "use client"
 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { lazy, Suspense } from "react"
-import Home from "./Pages/user/Home"
+import { lazy, Suspense, useState, useEffect } from "react"
+import axios from "axios"
 
 // Create a loading component for Suspense fallback
 const LoadingSpinner = () => (
@@ -15,7 +15,7 @@ const LoadingSpinner = () => (
 const LoginPage = lazy(() => import("./Pages/user/LoginPageUser"))
 const SignupPage = lazy(() => import("./Pages/user/SignUpUser"))
 const OtpVerification = lazy(() => import("./Pages/user/OtpVerificationUser"))
-const HomePage = lazy(() => import("./Pages/user/Home")) // Import the HomePage component
+const Home = lazy(() => import("./Pages/user/Home"))
 
 // Admin components
 const AdminLoginPage = lazy(() => import("./Pages/admin/LoginAdmin"))
@@ -30,36 +30,61 @@ const ShopRegisterPage = lazy(() => import("./Pages/shops/ShopSignup"))
 const ShopDashboard = lazy(() => import("./Pages/shops/ShopDashboard"))
 const ShopOtpVerification = lazy(() => import("./Pages/shops/ShopOtpVerify"))
 
-// Protected route components
+// Enhanced Protected Route for HttpOnly Cookies
+const SimpleProtectedUserRoute = ({ children }) => {
+  const userData = localStorage.getItem("user_data");
+  
+  if (!userData) {
+    return <Navigate to="/login" replace />;
+  }
+  
+  try {
+    JSON.parse(userData);
+    return children;
+  } catch (error) {
+    localStorage.removeItem("user_data");
+    return <Navigate to="/login" replace />;
+  }
+};
+
+// Admin Protection
 const ProtectedAdminRoute = ({ children }) => {
-  const token = localStorage.getItem("access_token")
+  const userData = localStorage.getItem("user_data");
   
-  if (!token) {
-    return <Navigate to="/admin/login" replace />
+  if (!userData) {
+    return <Navigate to="/admin/login" replace />;
   }
   
-  return children
-}
-
-const ProtectedUserRoute = ({ children }) => {
-  const token = localStorage.getItem("user_token")
-  
-  if (!token) {
-    return <Navigate to="/login" replace />
+  try {
+    const user = JSON.parse(userData);
+    if (user.role !== 'admin') {
+      return <Navigate to="/login" replace />;
+    }
+    return children;
+  } catch (error) {
+    localStorage.removeItem("user_data");
+    return <Navigate to="/admin/login" replace />;
   }
-  
-  return children
-}
+};
 
+// Shop Protection
 const ProtectedShopRoute = ({ children }) => {
-  const token = localStorage.getItem("shop_access_token")
+  const shopData = localStorage.getItem("shop_data");
   
-  if (!token) {
-    return <Navigate to="/shop/login" replace />
+  if (!shopData) {
+    return <Navigate to="/shop/login" replace />;
   }
   
-  return children
-}
+  try {
+    JSON.parse(shopData);
+    return children;
+  } catch (error) {
+    localStorage.removeItem("shop_data");
+    return <Navigate to="/shop/login" replace />;
+  }
+};
+
+
 
 function App() {
   return (
@@ -70,11 +95,14 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/otp" element={<OtpVerification />} />
+          
+          {/* Home route with proper protection */}
           <Route path="/" element={
-            <ProtectedUserRoute>
+            <SimpleProtectedUserRoute>
               <Home />
-            </ProtectedUserRoute>
+            </SimpleProtectedUserRoute>
           } />
+          
           
           {/* Admin routes - Nested routing structure */}
           <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -86,11 +114,9 @@ function App() {
               </ProtectedAdminRoute>
             }
           >
-            {/* These routes will render inside the AdminLayout's <Outlet /> */}
             <Route path="dashboard" element={<DashboardContent />} />
             <Route path="users" element={<UsersManagement />} />
             <Route path="shops" element={<ShopManagement />} />
-            {/* Redirect from /admin to /admin/dashboard */}
             <Route index element={<Navigate to="/admin/dashboard" replace />} />
           </Route>
           
@@ -105,7 +131,7 @@ function App() {
           } />
           
           {/* Redirect any unknown routes to home */}
-          <Route path="*" element={<Navigate to="/" replace />} />
+          <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Suspense>
     </BrowserRouter>

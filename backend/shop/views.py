@@ -11,6 +11,7 @@ from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework import status, permissions, generics
 from rest_framework.views import APIView
@@ -23,7 +24,7 @@ from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
-
+from rest_framework.permissions import AllowAny
 from users.models import CustomUser
 from shop.models import Shop, Appointment, Notification, Service, OTP
 from shop.serializers import (
@@ -41,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 
 class ShopRegisterView(APIView):
+    permission_classes = [AllowAny]
+
     def post(self, request):
         # Log the received data for debugging
         logger.debug(f"Received data: {request.data}")
@@ -132,6 +135,8 @@ class ShopRegisterView(APIView):
 
 
 class ShopVerifyOTPView(APIView):
+    permission_classes = [AllowAny]
+    
     def post(self, request):
         email = request.data.get('email')
         otp_code = request.data.get('otp')
@@ -302,6 +307,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         return token
 
 
+# Updated backend views with fixes
+
+# Updated views.py with fixes
+
 class CustomShopTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
@@ -321,6 +330,13 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
             # Get the user and check if they have a shop
             user = CustomUser.objects.get(email=email)
             
+            # Check if user is active
+            if not user.is_active:
+                return Response(
+                    {"success": False, "message": "Account is not activated. Please verify your email first."},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
             # Check if user is a shop owner
             if user.role != 'shop':
                 return Response(
@@ -328,9 +344,14 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Check if shop exists
+            # Check if shop exists and is verified
             try:
                 shop = Shop.objects.get(user=user)
+                if not shop.is_email_verified:
+                    return Response(
+                        {"success": False, "message": "Please verify your email before logging in"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
             except Shop.DoesNotExist:
                 return Response(
                     {"success": False, "message": "Shop profile not found"},
@@ -365,13 +386,14 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
                 }
             }
 
+            # FIXED: Set cookies with root path for all shop routes
             res.set_cookie(
                 key="access_token",
                 value=access_token,
                 httponly=True,
-                secure=True,
-                samesite="None",
-                path='/shop/dashboard',
+                secure=False,  # Set to True in production with HTTPS
+                samesite="Lax",  # Changed from "None" to "Lax" for local development
+                path='/',  # FIXED: Use root path instead of specific path
                 max_age=3600
             )
 
@@ -379,10 +401,10 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
                 key="refresh_token",
                 value=refresh_token,
                 httponly=True,
-                secure=True,
-                samesite="None",
-                path='/shop/dashboard',
-                max_age=3600
+                secure=False,  # Set to True in production with HTTPS
+                samesite="Lax",  # Changed from "None" to "Lax" for local development
+                path='/',  # FIXED: Use root path instead of specific path
+                max_age=86400  # 24 hours for refresh token
             )
             return res
 
@@ -411,11 +433,12 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Modify request data to include refresh token
-            request.data._mutable = True  # Make QueryDict mutable
-            request.data["refresh"] = refresh_token
+            # Create a new request with the refresh token
+            import copy
+            new_request = copy.copy(request)
+            new_request.data = {"refresh": refresh_token}
 
-            response = super().post(request, *args, **kwargs)
+            response = super().post(new_request, *args, **kwargs)
 
             if "access" not in response.data:
                 return Response(
@@ -429,13 +452,14 @@ class CustomShopTokenRefreshView(TokenRefreshView):
 
             res.data = {"success": True, "message": "Access token refreshed"}
 
+            # FIXED: Use same cookie settings as login
             res.set_cookie(
                 key="access_token",
                 value=access_token,
                 httponly=True,
-                secure=True,
-                samesite="None",
-                path='/shop/dashboard',
+                secure=False,  # Set to True in production
+                samesite="Lax",
+                path='/',  # FIXED: Consistent root path
                 max_age=3600
             )
 
@@ -448,7 +472,6 @@ class CustomShopTokenRefreshView(TokenRefreshView):
             )
 
 
-# Optional: Shop logout view to clear cookies
 class ShopLogoutView(APIView):
     permission_classes = [permissions.AllowAny]
     
@@ -457,9 +480,9 @@ class ShopLogoutView(APIView):
             res = Response(status=status.HTTP_200_OK)
             res.data = {"success": True, "message": "Logged out successfully"}
             
-            # Clear cookies
-            res.delete_cookie('access_token', path='/shop/dashboard')
-            res.delete_cookie('refresh_token', path='/shop/dashboard')
+            # FIXED: Clear cookies with consistent paths
+            res.delete_cookie('access_token', path='/')
+            res.delete_cookie('refresh_token', path='/')
             
             return res
             
@@ -469,24 +492,55 @@ class ShopLogoutView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-# Shop Profile and Management Views
 class ShopProfileView(APIView):
     """View to retrieve the authenticated shop's profile information."""
     
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        # Assuming we have a one-to-one relationship between User and Shop models
         try:
-            shop = Shop.objects.get(user=request.user)
-            serializer = ShopSerializer(shop)
-            return Response(serializer.data)
-        except Shop.DoesNotExist:
+            logger.debug(f"Shop profile request from user: {request.user}")
+            logger.debug(f"User is authenticated: {request.user.is_authenticated}")
+            logger.debug(f"User role: {getattr(request.user, 'role', 'No role')}")
+            
+            # Check if user is authenticated
+            if not request.user.is_authenticated:
+                logger.warning("Unauthenticated user trying to access shop profile")
+                return Response(
+                    {"success": False, "error": "Authentication required"}, 
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            # Check if user has shop role
+            if getattr(request.user, 'role', None) != 'shop':
+                logger.warning(f"User {request.user.id} with role {getattr(request.user, 'role', 'None')} trying to access shop profile")
+                return Response(
+                    {"success": False, "error": "Only shop owners can access this endpoint"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            try:
+                shop = Shop.objects.get(user=request.user)
+                logger.debug(f"Found shop: {shop.name} for user: {request.user.username}")
+                
+                serializer = ShopSerializer(shop)
+                return Response({
+                    "success": True,
+                    "data": serializer.data
+                })
+            except Shop.DoesNotExist:
+                logger.error(f"Shop not found for user: {request.user.id}")
+                return Response(
+                    {"success": False, "error": "Shop profile not found"}, 
+                    status=status.HTTP_404_NOT_FOUND
+                )
+                
+        except Exception as e:
+            logger.error(f"Unexpected error in ShopProfileView: {str(e)}")
             return Response(
-                {"error": "Shop profile not found"}, 
-                status=status.HTTP_404_NOT_FOUND
+                {"success": False, "error": "Internal server error"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 class ShopUpdateView(APIView):
     """View to update shop details."""

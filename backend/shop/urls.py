@@ -47,8 +47,8 @@ urlpatterns = [
     path('register/', ShopRegisterView.as_view(), name='shop-register'),
     path('verify-otp/', ShopVerifyOTPView.as_view(), name='shop-verify-otp'),
     path('resend-otp/', ShopResendOTPView.as_view(), name='shop-resend-otp'),
-    path('token/', CustomShopTokenObtainPairView.as_view(), name='shop-login'),
-    path('token/refresh/', CustomShopTokenRefreshView.as_view(), name='token-refresh'),
+    path('shop/token/', CustomShopTokenObtainPairView.as_view(), name='shop-login'),
+    path('shop/token/refresh/', CustomShopTokenRefreshView.as_view(), name='token-refresh'),
     path('dashboard/stats/', ShopDashboardStatsView.as_view(), name='shop-dashboard-stats'),
     
     # # JWT endpoints that match what your React frontend expects
@@ -62,7 +62,7 @@ urlpatterns = [
     path('shop/update/', ShopUpdateView.as_view(), name='shop-update'),
     path('appointments/recent/', RecentAppointmentsView.as_view(), name='recent-appointments'),
     path('notifications/', ShopNotificationsView.as_view(), name='shop-notifications'),
-    path('logout/', ShopLogoutView.as_view(), name='shop-logout'),
+    path('shop/logout/', ShopLogoutView.as_view(), name='shop-logout'),
 
 
         # Business Hours endpoints

@@ -147,42 +147,75 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 #--------------------------------------------------------------------
 AUTH_USER_MODEL = 'users.CustomUser'
 
+# Add this to your settings.py
+
+# REST Framework settings
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'shop.authentication.CookieJWTAuthentication',
+        'users.authentication.CoustomJWTAuthentication',  # Replace with actual path
         'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
+        'rest_framework.authentication.SessionAuthentication',
+        'rest_framework.authentication.TokenAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+    # ... other settings
 }
 
-DJOSER = {
-    "LOGIN_FIELD": "email",
-    "SERIALIZERS": {
-        "user_create": "users.serializers.CustomUserCreateSerializer",
-        "user": "users.serializers.CustomUserSerializer",
-        "current_user": "users.serializers.CustomUserSerializer",
-        "token_create": "users.serializers.CustomTokenCreateSerializer",
-    },
-    # Don't allow activation via email since we handle it ourselves
-    "SEND_ACTIVATION_EMAIL": False,
-    "ACTIVATION_URL": None,
-}
+# JWT Settings
+from datetime import timedelta
 
 SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(hours=1),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': True,
+    'UPDATE_LAST_LOGIN': True,
+    
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'VERIFYING_KEY': None,
+    'AUDIENCE': None,
+    'ISSUER': None,
+    'JWK_URL': None,
+    'LEEWAY': 0,
+    
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'AUTH_HEADER_NAME': 'HTTP_AUTHORIZATION',
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule',
+    
     'AUTH_TOKEN_CLASSES': ('rest_framework_simplejwt.tokens.AccessToken',),
-    'TOKEN_OBTAIN_SERIALIZER': 'users.serializers.CustomTokenCreateSerializer',
-    'AUTH_HEADER_TYPES': ('Bearer',),  # Make sure this is 'Bearer' since that's what your frontend is using
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.environ.get('ACCESS_TOKEN_LIFETIME_MINUTES', 60))),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=int(os.environ.get('REFRESH_TOKEN_LIFETIME_DAYS', 1))),
-    # Remove this line to prevent conflicts with your custom verification
-    # 'USER_AUTHENTICATION_RULE': 'rest_framework_simplejwt.authentication.default_user_authentication_rule',
+    'TOKEN_TYPE_CLAIM': 'token_type',
+    'TOKEN_USER_CLASS': 'rest_framework_simplejwt.models.TokenUser',
+    
+    'JTI_CLAIM': 'jti',
+    
+    'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
+    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
+    'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
 
-# Allow frontend access
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:5173",  # Vite dev server
-]
-CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'False') == 'True'
-
+# CORS settings for development
 CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",  # Your React dev server
+    "http://127.0.0.1:3000",
+]
+
+# For development only - remove in production
+CORS_ALLOW_ALL_ORIGINS = True
+
+# Session and Cookie settings
+SESSION_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_SAMESITE = 'Lax'
+
+# For local development
+SESSION_COOKIE_SECURE = False
+CSRF_COOKIE_SECURE = False
 
 # Make sure these headers are allowed:
 CORS_ALLOW_HEADERS = [

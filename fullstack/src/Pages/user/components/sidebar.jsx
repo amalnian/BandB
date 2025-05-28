@@ -3,6 +3,8 @@
 import { useState } from "react"
 import { Home, Users, Calendar, MessageSquare, Wallet, Settings, LogOut } from "lucide-react"
 import { useNavigate } from "react-router-dom" // Import useNavigate for redirection
+import { logout } from "@/endpoints/APIs" // Adjust the import path as needed
+
 
 export default function Sidebar() {
   const [activeItem, setActiveItem] = useState("find-barbers")
@@ -17,19 +19,41 @@ export default function Sidebar() {
     { id: "settings", label: "Settings", icon: Settings },
   ]
 
-  // Function to handle logout
-  const handleLogout = () => {
-    // Clear all authentication tokens
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("refresh_token")
-    localStorage.removeItem("user_token")
-    localStorage.removeItem("isAuthenticated")
-    
-    // Log the logout action
-    console.log("User logged out successfully")
-    
-    // Redirect to login page
-    navigate("/login")
+  // Function to handle logout with API call
+  const handleLogout = async () => {
+    try {
+      // Call the logout API endpoint
+      const response = await logout()
+      
+      // Check if logout was successful
+      if (response?.success) {
+        console.log("User logged out successfully")
+      } else {
+        console.log("Logout API returned non-success response")
+      }
+    } catch (error) {
+      console.error("Logout error:", error)
+      
+      // If we get a 401, it means the user is already "logged out" from the server's perspective
+      if (error.response?.status === 401) {
+        console.log("User already logged out on server side (401)")
+      } else {
+        console.log("Logout API call failed, proceeding with client-side logout")
+      }
+    } finally {
+      // Always clear client-side state and redirect, regardless of API response
+      try {
+        localStorage.removeItem('user_data')
+        localStorage.removeItem('isAuthenticated')
+        localStorage.clear() // Clear all localStorage items as a fallback
+        console.log("Local storage cleared")
+      } catch (storageError) {
+        console.error("Error clearing localStorage:", storageError)
+      }
+      
+      console.log("Redirecting to login page...")
+      navigate("/login")
+    }
   }
 
   return (
@@ -65,7 +89,7 @@ export default function Sidebar() {
         </ul>
       </nav>
 
-      {/* Logout - Now with proper functionality */}
+      {/* Logout - Now with API call */}
       <div className="p-4 border-t border-gray-800">
         <button 
           onClick={handleLogout}
