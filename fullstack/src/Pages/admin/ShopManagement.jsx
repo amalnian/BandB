@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useState, useEffect } from "react"
@@ -19,6 +20,17 @@ import {
   Shield
 } from "lucide-react"
 
+// Import API functions
+import {
+  getShops,
+  createShop,
+  updateShop,
+  deleteShop,
+  blockShop,
+  unblockShop,
+  approveShop
+} from '@/endpoints/AdminAPI' // Adjust the import path as needed
+
 export default function ShopManagement() {
   const [shops, setShops] = useState([])
   const [loading, setLoading] = useState(true)
@@ -31,6 +43,7 @@ export default function ShopManagement() {
   const [showBlockModal, setShowBlockModal] = useState(false)
   const [showApproveModal, setShowApproveModal] = useState(false)
   const [currentShop, setCurrentShop] = useState(null)
+  const [error, setError] = useState("")
   const [formData, setFormData] = useState({
     name: "",
     address: "",
@@ -43,46 +56,31 @@ export default function ShopManagement() {
   })
   
   const itemsPerPage = 10
-  // Updated API base URL to match Django URLs pattern
-  const API_BASE_URL = "http://127.0.0.1:8000/api/admin"
 
   useEffect(() => {
     fetchShops()
   }, [currentPage, searchTerm])
 
-  const navigateToLogin = () => {
-    window.location.href = "/admin/login"
-  }
-
   const fetchShops = async () => {
-    const token = localStorage.getItem("access_token")
-    
-    if (!token) {
-      navigateToLogin()
-      return
-    }
-    
     try {
       setLoading(true)
+      setError("")
       
-      const response = await fetch(
-        `${API_BASE_URL}/shops/?page=${currentPage}&search=${searchTerm}`, 
-        {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        }
-      )
+      const response = await getShops({
+        page: currentPage,
+        search: searchTerm
+      })
       
-      if (!response.ok) {
-        throw new Error("Failed to fetch shops")
-      }
-      
-      const data = await response.json()
-      setShops(data.results)
-      setTotalPages(Math.ceil(data.count / itemsPerPage))
+      setShops(response.data.results)
+      setTotalPages(Math.ceil(response.data.count / itemsPerPage))
     } catch (error) {
       console.error("Error fetching shops:", error)
+      setError("Failed to fetch shops")
+      
+      // Check if it's an authentication error
+      if (error.response?.status === 401) {
+        window.location.href = "/admin/login"
+      }
     } finally {
       setLoading(false)
     }
@@ -91,21 +89,8 @@ export default function ShopManagement() {
   const handleAddShop = async (e) => {
     if (e) e.preventDefault()
     
-    const token = localStorage.getItem("access_token")
-    
     try {
-      const response = await fetch(`${API_BASE_URL}/shops/`, {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(formData)
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to add shop")
-      }
+      await createShop(formData)
       
       setShowAddModal(false)
       setFormData({
@@ -119,129 +104,71 @@ export default function ShopManagement() {
         is_approved: false
       })
       fetchShops()
+      setError("")
     } catch (error) {
       console.error("Error adding shop:", error)
+      setError("Failed to add shop")
     }
   }
 
   const handleEditShop = async (e) => {
     if (e) e.preventDefault()
     
-    const token = localStorage.getItem("access_token")
-    
     try {
-      const response = await fetch(`${API_BASE_URL}/shops/${currentShop.id}/`, {
-        method: "PUT",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(formData)
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to update shop")
-      }
-      
+      await updateShop(currentShop.id, formData)
       setShowEditModal(false)
       fetchShops()
+      setError("")
     } catch (error) {
       console.error("Error updating shop:", error)
+      setError("Failed to update shop")
     }
   }
 
   const handleDeleteShop = async () => {
-    const token = localStorage.getItem("access_token")
-    
     try {
-      const response = await fetch(`${API_BASE_URL}/shops/${currentShop.id}/`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to delete shop")
-      }
-      
+      await deleteShop(currentShop.id)
       setShowDeleteModal(false)
       fetchShops()
+      setError("")
     } catch (error) {
       console.error("Error deleting shop:", error)
+      setError("Failed to delete shop")
     }
   }
 
-  // Updated to use custom action endpoint from Django viewset
   const handleBlockShop = async () => {
-    const token = localStorage.getItem("access_token")
-    
     try {
-      const response = await fetch(`${API_BASE_URL}/shops/${currentShop.id}/toggle_status/`, {
-        method: "PATCH",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ is_active: false })
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to block shop")
-      }
-      
+      await blockShop(currentShop.id)
       setShowBlockModal(false)
       fetchShops()
+      setError("")
     } catch (error) {
       console.error("Error blocking shop:", error)
+      setError("Failed to block shop")
     }
   }
 
-  // Updated to use custom action endpoint from Django viewset
   const handleUnblockShop = async (shop) => {
-    const token = localStorage.getItem("access_token")
-    
     try {
-      const response = await fetch(`${API_BASE_URL}/shops/${shop.id}/toggle_status/`, {
-        method: "PATCH",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ is_active: true })
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to unblock shop")
-      }
-      
+      await unblockShop(shop.id)
       fetchShops()
+      setError("")
     } catch (error) {
       console.error("Error unblocking shop:", error)
+      setError("Failed to unblock shop")
     }
   }
 
   const handleApproveShop = async () => {
-    const token = localStorage.getItem("access_token")
-    
     try {
-      const response = await fetch(`${API_BASE_URL}/shops/${currentShop.id}/approve/`, {
-        method: "PATCH",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ is_approved: true })
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to approve shop")
-      }
-      
+      await approveShop(currentShop.id, { is_approved: true })
       setShowApproveModal(false)
       fetchShops()
+      setError("")
     } catch (error) {
       console.error("Error approving shop:", error)
+      setError("Failed to approve shop")
     }
   }
 
@@ -280,6 +207,12 @@ export default function ShopManagement() {
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50">
       <div className="w-full max-w-md rounded-lg bg-white p-6">
         <h2 className="mb-4 text-xl font-bold">Add New Shop</h2>
+        
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
         
         <div>
           <div className="mb-4">
@@ -365,7 +298,10 @@ export default function ShopManagement() {
           <div className="mt-6 flex justify-end space-x-3">
             <button
               type="button"
-              onClick={() => setShowAddModal(false)}
+              onClick={() => {
+                setShowAddModal(false)
+                setError("")
+              }}
               className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Cancel
@@ -388,6 +324,12 @@ export default function ShopManagement() {
     <div className="fixed inset-0 z-10 flex items-center justify-center bg-black bg-opacity-50">
       <div className="w-full max-w-md rounded-lg bg-white p-6">
         <h2 className="mb-4 text-xl font-bold">Edit Shop</h2>
+        
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
         
         <div>
           <div className="mb-4">
@@ -473,7 +415,10 @@ export default function ShopManagement() {
           <div className="mt-6 flex justify-end space-x-3">
             <button
               type="button"
-              onClick={() => setShowEditModal(false)}
+              onClick={() => {
+                setShowEditModal(false)
+                setError("")
+              }}
               className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
             >
               Cancel
@@ -497,13 +442,22 @@ export default function ShopManagement() {
       <div className="w-full max-w-md rounded-lg bg-white p-6">
         <h2 className="mb-4 text-xl font-bold text-red-600">Delete Shop</h2>
         
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        
         <p className="mb-6 text-gray-700">
-          Are you sure you want to delete <span className="font-semibold">{currentShop.name}</span>? This action cannot be undone.
+          Are you sure you want to delete <span className="font-semibold">{currentShop?.name}</span>? This action cannot be undone.
         </p>
         
         <div className="flex justify-end space-x-3">
           <button
-            onClick={() => setShowDeleteModal(false)}
+            onClick={() => {
+              setShowDeleteModal(false)
+              setError("")
+            }}
             className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Cancel
@@ -525,13 +479,22 @@ export default function ShopManagement() {
       <div className="w-full max-w-md rounded-lg bg-white p-6">
         <h2 className="mb-4 text-xl font-bold text-orange-600">Block Shop</h2>
         
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        
         <p className="mb-6 text-gray-700">
-          Are you sure you want to block <span className="font-semibold">{currentShop.name}</span>? The shop will no longer be visible to customers.
+          Are you sure you want to block <span className="font-semibold">{currentShop?.name}</span>? The shop will no longer be visible to customers.
         </p>
         
         <div className="flex justify-end space-x-3">
           <button
-            onClick={() => setShowBlockModal(false)}
+            onClick={() => {
+              setShowBlockModal(false)
+              setError("")
+            }}
             className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Cancel
@@ -553,13 +516,22 @@ export default function ShopManagement() {
       <div className="w-full max-w-md rounded-lg bg-white p-6">
         <h2 className="mb-4 text-xl font-bold text-blue-600">Approve Shop</h2>
         
+        {error && (
+          <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+            {error}
+          </div>
+        )}
+        
         <p className="mb-6 text-gray-700">
-          Are you sure you want to approve <span className="font-semibold">{currentShop.name}</span>? This will make the shop visible to all customers.
+          Are you sure you want to approve <span className="font-semibold">{currentShop?.name}</span>? This will make the shop visible to all customers.
         </p>
         
         <div className="flex justify-end space-x-3">
           <button
-            onClick={() => setShowApproveModal(false)}
+            onClick={() => {
+              setShowApproveModal(false)
+              setError("")
+            }}
             className="rounded-md border px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50"
           >
             Cancel
@@ -587,6 +559,12 @@ export default function ShopManagement() {
   return (
     <div className="container mx-auto p-4">
       <h1 className="mb-6 text-2xl font-bold">Shop Management</h1>
+      
+      {error && !showAddModal && !showEditModal && !showDeleteModal && !showBlockModal && !showApproveModal && (
+        <div className="mb-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
+          {error}
+        </div>
+      )}
       
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div className="flex items-center rounded-md border bg-white px-3 py-2">

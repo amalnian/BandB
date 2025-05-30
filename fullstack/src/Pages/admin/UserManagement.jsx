@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { Search, Edit, Trash2, CheckCircle, XCircle, Plus } from "lucide-react"
+import * as adminAPI from "@/endpoints/AdminAPI" // Adjust the import path as needed
 
 export default function UsersManagement() {
   const [users, setUsers] = useState([])
@@ -28,19 +29,8 @@ export default function UsersManagement() {
   const fetchUsers = async () => {
     setLoading(true)
     try {
-      const token = localStorage.getItem("access_token")
-      const response = await fetch("http://127.0.0.1:8000/api/admin/users/", {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to fetch users")
-      }
-      
-      const data = await response.json()
-      setUsers(data)
+      const response = await adminAPI.getUsers()
+      setUsers(response.data)
     } catch (error) {
       console.error("Error fetching users:", error)
     } finally {
@@ -99,26 +89,10 @@ export default function UsersManagement() {
     e.preventDefault()
     
     try {
-      const token = localStorage.getItem("access_token")
-      let url = "http://127.0.0.1:8000/api/admin/users/"
-      let method = "POST"
-      
-      if (formMode === "edit" && currentUser) {
-        url = `http://127.0.0.1:8000/api/admin/users/${currentUser.id}/`
-        method = "PUT"
-      }
-      
-      const response = await fetch(url, {
-        method,
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(formData)
-      })
-      
-      if (!response.ok) {
-        throw new Error(`Failed to ${formMode} user`)
+      if (formMode === "create") {
+        await adminAPI.createUser(formData)
+      } else if (formMode === "edit" && currentUser) {
+        await adminAPI.updateUser(currentUser.id, formData)
       }
       
       closeModal()
@@ -134,18 +108,7 @@ export default function UsersManagement() {
     }
     
     try {
-      const token = localStorage.getItem("access_token")
-      const response = await fetch(`http://127.0.0.1:8000/api/admin/users/${userId}/`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to delete user")
-      }
-      
+      await adminAPI.deleteUser(userId)
       fetchUsers()
     } catch (error) {
       console.error("Error deleting user:", error)
@@ -154,20 +117,7 @@ export default function UsersManagement() {
   
   const toggleUserStatus = async (userId, currentStatus) => {
     try {
-      const token = localStorage.getItem("access_token")
-      const response = await fetch(`http://127.0.0.1:8000/api/admin/users/${userId}/toggle_status/`, {
-        method: "PATCH",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ is_active: !currentStatus })
-      })
-      
-      if (!response.ok) {
-        throw new Error("Failed to update user status")
-      }
-      
+      await adminAPI.toggleUserStatus(userId, { is_active: !currentStatus })
       fetchUsers()
     } catch (error) {
       console.error("Error updating user status:", error)

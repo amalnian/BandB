@@ -1,6 +1,6 @@
 "use client"
 
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom"
 import { lazy, Suspense, useState, useEffect } from "react"
 import axios from "axios"
 
@@ -10,6 +10,15 @@ const LoadingSpinner = () => (
     <div className="h-12 w-12 border-4 border-t-blue-500 border-b-blue-500 rounded-full animate-spin"></div>
   </div>
 )
+
+// Debug component to log current location
+const LocationLogger = () => {
+  const location = useLocation();
+  useEffect(() => {
+    console.log("Current route:", location.pathname);
+  }, [location]);
+  return null;
+}
 
 // Lazy load components
 const LoginPage = lazy(() => import("./Pages/user/LoginPageUser"))
@@ -33,35 +42,50 @@ const ShopOtpVerification = lazy(() => import("./Pages/shops/ShopOtpVerify"))
 // Enhanced Protected Route for HttpOnly Cookies
 const SimpleProtectedUserRoute = ({ children }) => {
   const userData = localStorage.getItem("user_data");
+  console.log("SimpleProtectedUserRoute - userData:", userData);
   
   if (!userData) {
+    console.log("SimpleProtectedUserRoute - No user data, redirecting to login");
     return <Navigate to="/login" replace />;
   }
   
   try {
-    JSON.parse(userData);
+    const parsed = JSON.parse(userData);
+    console.log("SimpleProtectedUserRoute - Parsed user data:", parsed);
     return children;
   } catch (error) {
+    console.log("SimpleProtectedUserRoute - Parse error:", error);
     localStorage.removeItem("user_data");
     return <Navigate to="/login" replace />;
   }
 };
 
-// Admin Protection
+// Admin Protection with enhanced debugging
 const ProtectedAdminRoute = ({ children }) => {
+  console.log("ProtectedAdminRoute - Component rendered");
+  
   const userData = localStorage.getItem("user_data");
+  console.log("ProtectedAdminRoute - Raw userData:", userData);
   
   if (!userData) {
+    console.log("ProtectedAdminRoute - No user data found, redirecting to admin login");
     return <Navigate to="/admin/login" replace />;
   }
   
   try {
     const user = JSON.parse(userData);
-    if (user.role !== 'admin') {
-      return <Navigate to="/login" replace />;
+    console.log("ProtectedAdminRoute - Parsed user:", user);
+    console.log("ProtectedAdminRoute - Superuser status:", user.superuser);
+    
+    if (!user.superuser) {
+      console.log("ProtectedAdminRoute - Not superuser, redirecting to admin login");
+      return <Navigate to="/admin/login" replace />;
     }
+    
+    console.log("ProtectedAdminRoute - Access granted, rendering children");
     return children;
   } catch (error) {
+    console.error("ProtectedAdminRoute - Parse error:", error);
     localStorage.removeItem("user_data");
     return <Navigate to="/admin/login" replace />;
   }
@@ -84,11 +108,12 @@ const ProtectedShopRoute = ({ children }) => {
   }
 };
 
-
-
 function App() {
+  console.log("App component rendered");
+  
   return (
     <BrowserRouter>
+      <LocationLogger />
       <Suspense fallback={<LoadingSpinner />}>
         <Routes>
           {/* User routes */}
@@ -102,7 +127,6 @@ function App() {
               <Home />
             </SimpleProtectedUserRoute>
           } />
-          
           
           {/* Admin routes - Nested routing structure */}
           <Route path="/admin/login" element={<AdminLoginPage />} />

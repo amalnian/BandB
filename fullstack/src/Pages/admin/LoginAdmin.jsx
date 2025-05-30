@@ -3,71 +3,79 @@
 import { useState } from "react"
 import { Eye, EyeOff, ShieldAlert } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
+import { login } from "@/endpoints/AdminAPI" // Adjust the import path based on your file structure
 
 export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
+    setLoading(true);
   
     try {
-      // First authenticate the user
-      const response = await fetch("http://127.0.0.1:8000/api/auth/jwt/create/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-  
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.detail || "Invalid credentials");
-      }
-  
-      const data = await response.json();
+      // Use your admin API function
+      const response = await login({ email, password });
       
-      // Store tokens
-      localStorage.setItem("access_token", data.access);
-      localStorage.setItem("refresh_token", data.refresh);
+      console.log("Login response:", response); // Debug log
       
-      // Now check if user is admin using our dedicated endpoint
-      const adminCheckResponse = await fetch("http://127.0.0.1:8000/api/admin/check/", {
-        headers: {
-          "Authorization": `Bearer ${data.access}`  // CHANGED FROM JWT TO BEARER
-        }
-      });
-      
-      if (!adminCheckResponse.ok) {
-        // Get more specific error information
-        const errorData = await adminCheckResponse.json();
-        console.error("Admin check failed:", errorData);
+      if (response.data.success) {
+        // Store user data in localStorage including superuser flag
+        const userData = {
+          id: response.data.user?.id || response.data.id,
+          email: response.data.user?.email || response.data.email || email,
+          superuser: response.data.user?.superuser || response.data.superuser || true,
+          name: response.data.user?.name || response.data.name,
+          // Add any other user properties you receive from the API
+        };
         
-        // Clear tokens if not admin
-        localStorage.removeItem("access_token");
-        localStorage.removeItem("refresh_token");
-        throw new Error(errorData.detail || "You don't have admin privileges");
+        console.log("Storing user data:", userData); // Debug log
+        
+        // Store the data synchronously
+        localStorage.setItem("user_data", JSON.stringify(userData));
+        
+        // Verify data was stored immediately
+        const storedData = localStorage.getItem("user_data");
+        console.log("Verified stored data:", storedData); // Debug log
+        
+        if (storedData) {
+          console.log("Navigating to admin dashboard..."); // Debug log
+          // Navigate immediately without setTimeout
+          navigate("/admin/dashboard", { replace: true });
+        } else {
+          throw new Error("Failed to store user data");
+        }
+        
+      } else {
+        throw new Error(response.data.message || "Login failed");
       }
-      
-      const userData = await adminCheckResponse.json();
-      
-      // Store user data with admin flag
-      localStorage.setItem("user_data", JSON.stringify(userData));
-      
-      // Redirect to admin dashboard
-      navigate("/admin/dashboard");
       
     } catch (error) {
-      console.error("Error:", error.message);
-      setError(error.message);
+      console.error("Login error:", error);
+      
+      // Handle different types of errors
+      if (error.response) {
+        // Server responded with error status
+        const errorMessage = error.response.data?.message || 
+                            error.response.data?.detail || 
+                            "Invalid credentials";
+        setError(errorMessage);
+      } else if (error.request) {
+        // Network error
+        setError("Network error. Please check your connection.");
+      } else {
+        // Other errors
+        setError(error.message || "An unexpected error occurred");
+      }
+    } finally {
+      setLoading(false);
     }
   };
-
 
   return (
     <div className="flex flex-col md:flex-row h-screen">
@@ -89,11 +97,14 @@ export default function AdminLoginPage() {
       {/* Right side - Login form */}
       <div className="bg-white md:w-1/2 p-6 flex items-center justify-center">
         <div className="w-full max-w-md p-6">
-          <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">Admin Login</h2>
-          <p className="text-gray-600 mb-6 text-center">Enter your credentials to access the admin dashboard</p>
+          <div className="text-center mb-6">
+            <ShieldAlert className="mx-auto h-12 w-12 text-gray-600 mb-4" />
+            <h2 className="text-3xl font-bold text-gray-800 mb-2">Admin Login</h2>
+            <p className="text-gray-600">Enter your credentials to access the admin dashboard</p>
+          </div>
 
           {error && (
-            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4">
+            <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded mb-4 text-sm">
               {error}
             </div>
           )}
@@ -101,16 +112,18 @@ export default function AdminLoginPage() {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
+                Email Address
               </label>
               <input
                 id="email"
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-md"
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                 placeholder="admin@example.com"
                 required
+                disabled={loading}
+                autoComplete="email"
               />
             </div>
 
@@ -124,14 +137,17 @@ export default function AdminLoginPage() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md pr-10"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md pr-10 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:border-transparent"
                   placeholder="••••••••"
                   required
+                  disabled={loading}
+                  autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400"
+                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
+                  disabled={loading}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
@@ -140,15 +156,29 @@ export default function AdminLoginPage() {
 
             <button
               type="submit"
-              className="w-full py-2 px-4 bg-gray-800 hover:bg-gray-900 text-white font-medium rounded-md transition duration-200"
+              disabled={loading}
+              className="w-full py-2 px-4 bg-gray-800 hover:bg-gray-900 disabled:bg-gray-400 disabled:cursor-not-allowed text-white font-medium rounded-md transition duration-200 flex items-center justify-center"
             >
-              Login to Admin
+              {loading ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Signing in...
+                </>
+              ) : (
+                "Login to Admin Panel"
+              )}
             </button>
           </form>
 
           <div className="mt-6 text-center">
-            <Link to="/" className="text-sm text-gray-600 hover:text-gray-800">
-              Return to main site
+            <Link 
+              to="/" 
+              className="text-sm text-gray-600 hover:text-gray-800 transition duration-200"
+            >
+              ← Return to main site
             </Link>
           </div>
         </div>

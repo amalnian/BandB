@@ -5,6 +5,7 @@ import {
   Scissors, 
   ShoppingBag 
 } from "lucide-react"
+import { getDashboardStats, getRecentAppointments } from "@/endpoints/AdminAPI"  // Import API functions
 
 export default function DashboardContent() {
   const [dashboardStats, setDashboardStats] = useState(null)
@@ -13,34 +14,17 @@ export default function DashboardContent() {
 
   useEffect(() => {
     const fetchDashboardData = async () => {
-      const token = localStorage.getItem("access_token")
-      
       try {
-        // Fetch dashboard stats
-        const statsResponse = await fetch("http://127.0.0.1:8000/api/admin/dashboard/stats/", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        })
+        // Fetch dashboard stats using API function
+        const statsResponse = await getDashboardStats()
+        setDashboardStats(statsResponse.data)
         
-        if (statsResponse.ok) {
-          const statsData = await statsResponse.json()
-          setDashboardStats(statsData)
-        }
-        
-        // Fetch recent appointments
-        const appointmentsResponse = await fetch("http://127.0.0.1:8000/api/admin/dashboard/appointments/", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        })
-        
-        if (appointmentsResponse.ok) {
-          const appointmentsData = await appointmentsResponse.json()
-          setRecentAppointments(appointmentsData)
-        }
+        // Fetch recent appointments using API function
+        const appointmentsResponse = await getRecentAppointments()
+        setRecentAppointments(appointmentsResponse.data)
       } catch (error) {
         console.error("Error fetching dashboard data:", error)
+        // If there's an authentication error, the interceptor will handle redirect to login
       } finally {
         setLoading(false)
       }

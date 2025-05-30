@@ -13,9 +13,10 @@ class AdminShopSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'name', 'address', 'phone', 'email', 
             'description', 'opening_hours', 'is_approved', 
-            'is_email_verified', 'created_at', 
+            'is_email_verified'
         ]
-        read_only_fields = ['created_at', 'updated_at']
+        # Remove created_at and updated_at from read_only_fields if they don't exist
+        # read_only_fields = ['created_at', 'updated_at']
     
     # Include the active status from the linked user
     def to_representation(self, instance):

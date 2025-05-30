@@ -10,6 +10,7 @@ import {
   Scissors, 
   ShoppingBag 
 } from "lucide-react"
+import { getDashboardStats, logout } from "@/endpoints/AdminAPI"
 
 export default function AdminLayout() {
   const [userData, setUserData] = useState(null)
@@ -18,44 +19,54 @@ export default function AdminLayout() {
   const navigate = useNavigate()
 
   useEffect(() => {
+    console.log("AdminLayout mounted - checking authentication");
+    
     // Check if user is logged in and is admin
     const checkAuthStatus = async () => {
-      const token = localStorage.getItem("access_token")
+      // First check localStorage for user data
+      const storedUserData = localStorage.getItem("user_data");
       
-      if (!token) {
-        navigate("/admin/login")
-        return
+      if (!storedUserData) {
+        console.log("No user data in localStorage, redirecting to login");
+        navigate("/admin/login");
+        return;
       }
       
       try {
-        // Check if user is admin
-        const response = await fetch("http://127.0.0.1:8000/api/admin/check/", {
-          headers: {
-            "Authorization": `Bearer ${token}`
-          }
-        })
+        const parsedUserData = JSON.parse(storedUserData);
+        console.log("Found user data:", parsedUserData);
         
-        if (!response.ok) {
-          throw new Error("Not authorized")
-        }
+        // Verify the user is still authenticated by making an API call
+        // This will use your axios interceptor with HTTP-only cookies
+        await getDashboardStats();
         
-        const data = await response.json()
-        setUserData(data)
+        console.log("Authentication verified, setting user data");
+        setUserData(parsedUserData);
       } catch (error) {
-        console.error("Authentication error:", error)
-        navigate("/admin/login")
+        console.error("Authentication verification failed:", error);
+        // Clear invalid user data and redirect
+        localStorage.removeItem("user_data");
+        navigate("/admin/login");
       } finally {
-        setLoading(false)
+        setLoading(false);
       }
     }
     
     checkAuthStatus()
   }, [navigate])
   
-  const handleLogout = () => {
-    localStorage.removeItem("access_token")
-    localStorage.removeItem("refresh_token")
-    navigate("/admin/login")
+  const handleLogout = async () => {
+    try {
+      // Call logout API to clear HTTP-only cookies
+      await logout();
+    } catch (error) {
+      console.error("Logout API error:", error);
+      // Continue with logout even if API fails
+    } finally {
+      // Clear localStorage and redirect
+      localStorage.removeItem("user_data");
+      navigate("/admin/login");
+    }
   }
 
   if (loading) {
@@ -123,8 +134,13 @@ export default function AdminLayout() {
           </ul>
         </nav>
         
-        {/* Logout */}
+        {/* User info and Logout */}
         <div className="p-4 border-t border-gray-800">
+          {sidebarOpen && userData && (
+            <div className="mb-2 text-sm text-gray-300">
+              <p>Welcome, {userData.email}</p>
+            </div>
+          )}
           <button 
             onClick={handleLogout}
             className="flex items-center p-2 w-full rounded-md hover:bg-gray-800"

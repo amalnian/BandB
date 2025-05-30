@@ -7,11 +7,154 @@ from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from django.utils import timezone
+from rest_framework.exceptions import AuthenticationFailed
 
 from users.models import CustomUser
-from users.serializers import AdminUserSerializer, UserStatusSerializer
+from users.serializers import AdminUserSerializer, CustomTokenObtainPairSerializer, UserStatusSerializer
 from shop.models import Shop
 from admin_panel.serializers import AdminShopSerializer
+from rest_framework_simplejwt.views import (
+    TokenObtainPairView,
+    TokenRefreshView,
+)
+class AdminTokenObtainPairView(TokenObtainPairView):
+    serializer_class = CustomTokenObtainPairSerializer
+    permission_classes = [permissions.AllowAny]
+
+    def post(self, request, *args, **kwargs):
+        try:
+            email = request.data.get("email")
+            password = request.data.get("password")
+
+            if not CustomUser.objects.filter(email=email).exists():
+                return Response(
+                    {"success": False, "message": "Admin account does not exist"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            user = CustomUser.objects.get(email=email)
+
+            if not user.is_superuser:
+                return Response(
+                    {"success": False, "message": "User is not an admin"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            response = super().post(request, *args, **kwargs)
+            token = response.data
+
+            access_token = token["access"]
+            refresh_token = token["refresh"]
+
+            res = Response(status=status.HTTP_200_OK)
+            res.data = {
+                "success": True,
+                "message": "Admin login successful",
+                "userDetails": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email,
+                }
+            }
+
+            res.set_cookie(
+                key="access_token",
+                value=access_token,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path='/',
+                max_age=3600
+            )
+
+            res.set_cookie(
+                key="refresh_token",
+                value=refresh_token,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path='/',
+                max_age=3600
+            )
+
+            return res
+
+        except AuthenticationFailed:
+            return Response(
+                {"success": False, "message": "Invalid credentials"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as e:
+            return Response(
+                {"success": False, "message": f"An error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class AdminTokenRefreshView(TokenRefreshView):
+    permission_classes = [permissions.AllowAny]
+    def post(self,request,*args,**kwargs):
+        
+        try:
+            refresh_token = request.COOKIES.get("refresh_token")
+            if not refresh_token:
+                return Response(
+                    {"success":False,"message":"referesh token not Found"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            request.data["refresh"] = refresh_token
+
+            response = super().post(request,*args,**kwargs)
+
+            if not "access" in response.data:
+                return Response(
+                    {"success":False,"message":"refresh token expired or invalid"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+            
+            token = response.data
+            access_token = token["access"]
+            res = Response(status=status.HTTP_201_CREATED)
+
+            res.data = {"success":True,"message":"Access token refreshed"}
+
+            res.set_cookie(
+                key = "access_token",
+                value=access_token,
+                httponly=True,
+                secure=True,
+                samesite="None",
+                path='/',
+                max_age=3600
+            )
+
+            return res
+        except Exception as e:
+            return Response({"success":False,"message":f"An error occured: {str(e)}"},status=status.HTTP_400_BAD_REQUEST)
+        
+class Logout(APIView):
+    permission_classes=[IsAdminUser]
+    def post(self,request):
+        try:
+            res = Response(status=status.HTTP_200_OK)
+            res.data = {"success":True, "message":"logout successfully"}
+            res.delete_cookie(
+                key="access_token",
+                path='/',
+                samesite='None',
+                
+            )
+            res.delete_cookie(
+                key="refresh_token",
+                path='/',
+                samesite='None',
+                
+            )
+
+            return res
+        except Exception as e:
+            return Response({"success":False , "message": f"Logout failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class StandardResultsSetPagination(PageNumberPagination):
@@ -40,16 +183,40 @@ class AdminShopViewSet(viewsets.ModelViewSet):
     search_fields = ['name', 'email', 'phone', 'address']
     filterset_fields = ['is_approved', 'is_email_verified']
     
-    def get_queryset(self):
-        queryset = super().get_queryset()
-        
-        # Allow filtering by is_active (which is actually on the User model)
-        is_active = self.request.query_params.get('is_active')
-        if is_active is not None:
-            is_active = is_active.lower() == 'true'
-            queryset = queryset.filter(user__is_active=is_active)
+    def list(self, request, *args, **kwargs):
+        """Override list method to add debugging"""
+        try:
+            print(f"Admin shop list request from user: {request.user}")
+            print(f"Request params: {request.query_params}")
             
-        return queryset
+            # Check if user is admin
+            if not request.user.is_staff:
+                return Response({'error': 'Admin access required'}, 
+                              status=status.HTTP_403_FORBIDDEN)
+            
+            return super().list(request, *args, **kwargs)
+        except Exception as e:
+            print(f"Error in AdminShopViewSet.list: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response({'error': str(e)}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def get_queryset(self):
+        try:
+            queryset = super().get_queryset()
+            
+            # Allow filtering by is_active (which is actually on the User model)
+            is_active = self.request.query_params.get('is_active')
+            if is_active is not None:
+                is_active = is_active.lower() == 'true'
+                queryset = queryset.filter(user__is_active=is_active)
+                
+            print(f"Filtered queryset count: {queryset.count()}")
+            return queryset
+        except Exception as e:
+            print(f"Error in get_queryset: {str(e)}")
+            raise
     
     @action(detail=True, methods=['patch'])
     def toggle_status(self, request, pk=None):
@@ -99,7 +266,7 @@ class AdminUserViewSet(viewsets.ModelViewSet):
     
     def get_queryset(self):
         """Return all users"""
-        return CustomUser.objects.all().filter(role = 'user').order_by('-date_joined')
+        return CustomUser.objects.all().filter(role = 'user', is_staff=False).order_by('-date_joined')
     
     @action(detail=True, methods=['patch'])
     def toggle_status(self, request, pk=None):
