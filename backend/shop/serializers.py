@@ -127,13 +127,15 @@ class ServiceSerializer(serializers.ModelSerializer):
     """
     Serializer for shop services.
     """
+    shop = serializers.StringRelatedField(read_only=True)  # Make shop read-only
+    
     class Meta:
         model = Service
         fields = [
             'id', 'name', 'description', 'price', 
-            'duration_minutes', 'is_active'
+            'duration_minutes', 'is_active', 'shop'
         ]
-
+        read_only_fields = ['shop']  # Ensure shop cannot be set via API
 
 class AppointmentSerializer(serializers.ModelSerializer):
     """

@@ -43,13 +43,17 @@ export const updateAppointment = (id, appointmentData) => axios.put(`appointment
 export const deleteAppointment = (id) => axios.delete(`appointments/${id}/`);
 
 // Services APIs
-export const getServices = () => axios.get("services/");
+export const getShopServices = () => axios.get("shop/services/");
 
-export const createService = (serviceData) => axios.post("services/", serviceData);
+export const createShopService = (serviceData) => 
+  axios.post("shop/services/create/", serviceData);
 
-export const updateService = (id, serviceData) => axios.put(`services/${id}/`, serviceData);
+export const updateShopService = (serviceId, serviceData) => 
+  axios.put(`shop/services/${serviceId}/update/`, serviceData);
 
-export const deleteService = (id) => axios.delete(`services/${id}/`);
+export const deleteShopService = (serviceId) => 
+  axios.delete(`shop/services/${serviceId}/delete/`);
+
 
 // Customers APIs
 export const getCustomers = () => axios.get("customers/");

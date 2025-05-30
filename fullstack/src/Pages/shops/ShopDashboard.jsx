@@ -42,6 +42,10 @@ import {
   getSpecialClosingDays,
   addSpecialClosingDay,
   removeSpecialClosingDay,
+  getShopServices, 
+  createShopService, 
+  updateShopService, 
+  deleteShopService,
   logout as logoutAPI
 } from '@/endpoints/ShopAPI';
 
@@ -1081,63 +1085,34 @@ useEffect(() => {
     </div>
   );
   
-  // Services content component
-  const ServicesContent = () => {
+
+const ServicesContent = ({ shopId }) => {
   const [services, setServices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
   const [isAddingService, setIsAddingService] = useState(false);
   const [isEditingService, setIsEditingService] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     price: '',
-    duration_minutes: 30,
+    duration_minutes: '',
     is_active: true
   });
 
-  // Fetch services from the API
-  const fetchServices = async () => {
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
-      
-      const response = await fetch("http://127.0.0.1:8000/api/auth/shop/services/", {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) throw new Error("Failed to fetch services");
-      
-      const data = await response.json();
-      setServices(data);
-    } catch (error) {
-      console.error("Error fetching services:", error);
-      setError(error.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Load services on component mount
-  useEffect(() => {
-    fetchServices();
-  }, []);
-
-  // Reset form data
+  // Reset form helper
   const resetForm = () => {
     setFormData({
       name: '',
       description: '',
       price: '',
-      duration_minutes: 30,
+      duration_minutes: '',
       is_active: true
     });
+    setError('');
   };
 
-  // Handle form input changes
+  // Handle input changes
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -1146,98 +1121,112 @@ useEffect(() => {
     }));
   };
 
-  // Add new service
-const handleAddService = async (e) => {
-  e.preventDefault();
+  // Fetch services on component mount
+  useEffect(() => {
+    fetchServices();
+  }, [shopId]);
+
+  // Fetch all services for the shop
+const fetchServices = async () => {
   try {
-    const token = localStorage.getItem("shop_access_token");
-    if (!token) throw new Error("Not authenticated");
-    
-    // You'll need to get the shop_id from somewhere - either from local storage,
-    // global state, or fetched from an API endpoint first
-    const shop_id = localStorage.getItem("shop_id"); // Or however you store the shop ID
-    if (!shop_id) throw new Error("Shop ID not found");
-    
-    const dataToSend = {
-      ...formData,
-      shop_id: shop_id
-    };
-    
-    const response = await fetch("http://127.0.0.1:8000/api/auth/shop/services/create/", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${token}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify(dataToSend)
-    });
-    
-    if (!response.ok) throw new Error("Failed to create service");
-    
-    const newService = await response.json();
-    setServices([...services, newService]);
-    setIsAddingService(false);
-    resetForm();
+    setIsLoading(true);
+    setError('');
+    const response = await getShopServices(); // Remove shopId parameter
+    setServices(response.data || []);
   } catch (error) {
-    console.error("Error adding service:", error);
-    setError(error.message);
+    console.error('Error fetching services:', error);
+    if (error.response?.status === 401) {
+      setError('Authentication required. Please log in again.');
+    } else if (error.response?.status === 403) {
+      setError('You do not have permission to view these services.');
+    } else {
+      setError(error.response?.data?.message || 'Failed to load services');
+    }
+  } finally {
+    setIsLoading(false);
   }
 };
 
-
-  // Update existing service
-  const handleUpdateService = async (e) => {
-    e.preventDefault();
-    try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
-      
-      const response = await fetch(`http://127.0.0.1:8000/api/auth/shop/services/${isEditingService}/update/`, {
-        method: "PUT",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(formData)
-      });
-      
-      if (!response.ok) throw new Error("Failed to update service");
-      
-      const updatedService = await response.json();
-      setServices(services.map(service => 
-        service.id === updatedService.id ? updatedService : service
-      ));
-      setIsEditingService(null);
-      resetForm();
-    } catch (error) {
-      console.error("Error updating service:", error);
-      setError(error.message);
+// Add new service
+const handleAddService = async (e) => {
+  e.preventDefault();
+  try {
+    setError('');
+    const response = await createShopService(formData); // Remove shopId parameter
+    setServices([...services, response.data]);
+    setIsAddingService(false);
+    resetForm();
+  } catch (error) {
+    console.error('Error adding service:', error);
+    if (error.response?.status === 401) {
+      setError('Authentication required. Please log in again.');
+    } else if (error.response?.status === 403) {
+      setError('You do not have permission to create services.');
+    } else {
+      setError(error.response?.data?.message || 'Failed to create service');
     }
-  };
+  }
+};
 
-  // Delete service
-  const handleDeleteService = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this service?")) return;
+const handleUpdateService = async (e) => {
+  e.preventDefault();
+  try {
+    setError('');
     
-    try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
-      
-      const response = await fetch(`http://127.0.0.1:8000/api/auth/shop/services/${id}/delete/`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) throw new Error("Failed to delete service");
-      
-      setServices(services.filter(service => service.id !== id));
-    } catch (error) {
-      console.error("Error deleting service:", error);
-      setError(error.message);
+    // Make sure we're passing the service ID correctly
+    const response = await updateShopService(isEditingService, formData);
+    
+    setServices(services.map(service => 
+      service.id === isEditingService ? response.data : service
+    ));
+    setIsEditingService(null);
+    resetForm();
+  } catch (error) {
+    console.error('Error updating service:', error);
+    console.error('Error details:', error.response?.data); // Add this for debugging
+    
+    if (error.response?.status === 401) {
+      setError('Authentication required. Please log in again.');
+    } else if (error.response?.status === 403) {
+      setError('You do not have permission to update this service.');
+    } else if (error.response?.status === 404) {
+      setError('Service not found.');
+    } else {
+      // Show more detailed error message
+      const errorMessage = error.response?.data?.detail || 
+                          error.response?.data?.message || 
+                          Object.values(error.response?.data || {}).flat().join(', ') ||
+                          'Failed to update service';
+      setError(errorMessage);
     }
-  };
+  }
+};
+
+const handleDeleteService = async (id) => {
+  if (!window.confirm('Are you sure you want to delete this service?')) return;
+  
+  try {
+    setError('');
+    await deleteShopService(id);
+    setServices(services.filter(service => service.id !== id));
+  } catch (error) {
+    console.error('Error deleting service:', error);
+    console.error('Error details:', error.response?.data); // Add this for debugging
+    
+    if (error.response?.status === 401) {
+      setError('Authentication required. Please log in again.');
+    } else if (error.response?.status === 403) {
+      setError('You do not have permission to delete this service.');
+    } else if (error.response?.status === 404) {
+      setError('Service not found.');
+    } else {
+      const errorMessage = error.response?.data?.detail || 
+                          error.response?.data?.message || 
+                          'Failed to delete service';
+      setError(errorMessage);
+    }
+  }
+};
 
   // Start editing a service
   const startEditService = (service) => {
@@ -1493,7 +1482,7 @@ const handleAddService = async (e) => {
       </div>
     </div>
   );
-}
+};
 
 
   

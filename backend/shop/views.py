@@ -36,6 +36,22 @@ from shop.serializers import (
     NotificationSerializer,
     ServiceSerializer
 )
+from django.shortcuts import get_object_or_404
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from dateutil.parser import parse
+
+from .models import (
+    BusinessHours, Barber, Service, Appointment, SpecialClosingDay,
+    get_available_slots
+)
+from shop.serializers import (
+    BusinessHoursSerializer,
+    AppointmentSerializer,
+    SpecialClosingDaySerializer
+)
 
 logger = logging.getLogger(__name__)
 
@@ -633,7 +649,7 @@ class RecentAppointmentsView(APIView):
         try:
             shop = Shop.objects.get(user=request.user)
             # Get the most recent appointments (e.g., limited to 5)
-            appointments = Appointment.objects.filter(shop=shop).order_by('-scheduled_time')[:5]
+            appointments = Appointment.objects.filter(shop=shop).order_by('-start_time')[:5]
             serializer = AppointmentSerializer(appointments, many=True)
             return Response(serializer.data)
         except Shop.DoesNotExist:
@@ -660,28 +676,6 @@ class ShopNotificationsView(APIView):
                 {"error": "Shop profile not found"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
-        
-
-
-
-
-
-from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from dateutil.parser import parse
-
-from .models import (
-    BusinessHours, Barber, Service, Appointment, SpecialClosingDay,
-    get_available_slots
-)
-from shop.serializers import (
-    BusinessHoursSerializer,
-    AppointmentSerializer,
-    SpecialClosingDaySerializer
-)
 
 
 class BusinessHoursView(APIView):
@@ -922,41 +916,62 @@ class ServiceListView(generics.ListAPIView):
 
     def get_queryset(self):
         """
-        Return services belonging to the authenticated user (shop).
+        Return services belonging to the authenticated user's shop.
+        Assumes the authenticated user has a related shop.
         """
-        return Service.objects.filter(shop=self.request.user)
+        try:
+            # If your User model has a direct relationship to Shop
+            if hasattr(self.request.user, 'shop'):
+                return Service.objects.filter(shop=self.request.user.shop)
+            # If the User IS the Shop (your current setup)
+            else:
+                return Service.objects.filter(shop=self.request.user)
+        except AttributeError:
+            return Service.objects.none()
 
 
 class ServiceCreateView(generics.CreateAPIView):
+    """
+    API view for creating a new service.
+    """
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
 
     def perform_create(self, serializer):
-        # Get shop_id from request data
-        shop_id = self.request.data.get('shop_id')
-        if not shop_id:
-            raise ValidationError("shop_id is required")
-            
+        # Automatically use the authenticated user as the shop
+        # No need to require shop_id from frontend
         try:
-            shop = Shop.objects.get(id=shop_id)
+            # If your User model has a direct relationship to Shop
+            if hasattr(self.request.user, 'shop'):
+                shop = self.request.user.shop
+            # If the User IS the Shop (your current setup based on other views)
+            else:
+                shop = self.request.user
+                
             serializer.save(shop=shop)
-        except Shop.DoesNotExist:
-            raise ValidationError("Shop not found")
+        except AttributeError as e:
+            raise ValidationError({"error": "Unable to determine shop for authenticated user"})
+        except Exception as e:
+            raise ValidationError({"error": "Failed to create service"})
 
 
-class ServiceUpdateView(generics.UpdateAPIView):
-    """
-    API view for updating an existing service.
-    Only allows updating services belonging to the authenticated shop.
-    """
+# Complete view class example
+class ServiceUpdateView(generics.RetrieveUpdateAPIView):
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
-
+    lookup_field = 'id'
+    
     def get_queryset(self):
-        """
-        Return services belonging to the authenticated user (shop) only.
-        """
-        return Service.objects.filter(shop=self.request.user)
+        # Method 1: Direct shop relationship
+        try:
+            shop = self.request.user.shop
+            return Service.objects.filter(shop=shop)
+        except Shop.DoesNotExist:
+            return Service.objects.none()
+    
+    def get_object(self):
+        obj = get_object_or_404(self.get_queryset(), id=self.kwargs['id'])
+        return obj
 
 
 class ServiceDeleteView(generics.DestroyAPIView):
@@ -965,17 +980,30 @@ class ServiceDeleteView(generics.DestroyAPIView):
     Only allows deleting services belonging to the authenticated shop.
     """
     permission_classes = [IsAuthenticated]
+    lookup_field = 'id'
 
     def get_queryset(self):
         """
         Return services belonging to the authenticated user (shop) only.
         """
-        return Service.objects.filter(shop=self.request.user)
+        try:
+            shop = self.request.user.shop
+            return Service.objects.filter(shop=shop)
+        except Shop.DoesNotExist:
+            return Service.objects.none()
+        
+    def get_object(self):
+        """
+        Override to ensure proper permission checking.
+        """
+        obj = get_object_or_404(self.get_queryset(), id=self.kwargs['id'])
+        self.check_object_permissions(self.request, obj)
+        return obj
 
     def destroy(self, request, *args, **kwargs):
         instance = self.get_object()
         self.perform_destroy(instance)
-        return Response(status=status.HTTP_204_NO_CONTENT)
+        return Response({"message": "Service deleted successfully"}, status=status.HTTP_200_OK)
     
 
 

@@ -78,12 +78,12 @@ urlpatterns = [
     # Special Closing Days endpoints
     path('shop/special-closing-days/', SpecialClosingDayView.as_view(), name='special_closing_days'),
     path('shop/special-closing-days/add/', SpecialClosingDayView.as_view(), name='add_special_closing_day'),
-    path('shop/special-closing-days/remove/<int:closing_day_id>/', 
-         SpecialClosingDayDetailView.as_view(), name='remove_special_closing_day'),
+    path('shop/special-closing-days/remove/<int:id>/', 
+        SpecialClosingDayDetailView.as_view(), name='remove_special_closing_day'),
 
 
     path('shop/services/', ServiceListView.as_view(), name='service-list'),
     path('shop/services/create/', ServiceCreateView.as_view(), name='service-create'),
-    path('shop/services/<int:pk>/update/', ServiceUpdateView.as_view(), name='service-update'),
-    path('shop/services/<int:pk>/delete/', ServiceDeleteView.as_view(), name='service-delete'),
+    path('shop/services/<int:id>/update/', ServiceUpdateView.as_view(), name='service-update'),
+    path('shop/services/<int:id>/delete/', ServiceDeleteView.as_view(), name='service-delete'),
 ]
