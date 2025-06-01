@@ -1,7 +1,7 @@
 # views.py
 from users.serializers import CustomTokenObtainPairSerializer
 from rest_framework_simplejwt.views import TokenObtainPairView
-from .serializers import CustomUserCreateSerializer, EmailOTPVerifySerializer
+from .serializers import CustomUserCreateSerializer, EmailOTPVerifySerializer, ForgotPasswordSerializer, ResetPasswordSerializer, VerifyForgotPasswordOTPSerializer
 from rest_framework import generics, status
 from rest_framework.response import Response
 from .models import CustomUser
@@ -283,3 +283,73 @@ class Logout(APIView):
             return res
         except Exception as e:
             return Response({"success":False , "message": f"Logout failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+class ForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ForgotPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response({"message": "OTP has been sent to your email"}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class VerifyForgotPasswordOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = VerifyForgotPasswordOTPSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            otp = serializer.validated_data['otp']
+            try:
+                user = CustomUser.objects.get(email=email)
+                
+                # Check if OTP has expired (1 minute)
+                if user.otp_created_at and (timezone.now() - user.otp_created_at).total_seconds() > 60:
+                    user.otp = None
+                    user.otp_created_at = None
+                    user.save()
+                    return Response({"error": "OTP has expired. Please request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+                
+                if user.otp != otp:
+                    return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+                
+                return Response({"message": "OTP verified successfully"}, status=status.HTTP_200_OK)
+            except CustomUser.DoesNotExist:
+                return Response({"error": "User not found"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ResetPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            email = serializer.validated_data['email']
+            otp = serializer.validated_data['otp']
+            new_password = serializer.validated_data['new_password']
+            
+            try:
+                user = CustomUser.objects.get(email=email)
+                
+                # Check if OTP has expired (1 minute)
+                if user.otp_created_at and (timezone.now() - user.otp_created_at).total_seconds() > 60:
+                    user.otp = None
+                    user.otp_created_at = None
+                    user.save()
+                    return Response({"error": "OTP has expired. Please request a new one."}, status=status.HTTP_400_BAD_REQUEST)
+                
+                if user.otp != otp:
+                    return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
+                
+                user.set_password(new_password)
+                user.otp = None  # Clear the OTP after successful password reset
+                user.otp_created_at = None
+                user.save()
+                return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
+            except CustomUser.DoesNotExist:
+                return Response({"error": "User not found"}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

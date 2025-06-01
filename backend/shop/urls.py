@@ -6,12 +6,15 @@ from .views import (
     CustomShopTokenRefreshView,
     RecentAppointmentsView,
     ShopDashboardStatsView,
+    ShopForgotPasswordView,
     ShopLogoutView,
     ShopNotificationsView,
     ShopProfileView,
     # ShopProfileView,
     ShopRegisterView,
+    ShopResetPasswordView,
     ShopUpdateView,
+    ShopVerifyForgotPasswordOTPView,
     ShopVerifyOTPView,
     ShopResendOTPView,
     # ShopLoginView,
@@ -86,4 +89,10 @@ urlpatterns = [
     path('shop/services/create/', ServiceCreateView.as_view(), name='service-create'),
     path('shop/services/<int:id>/update/', ServiceUpdateView.as_view(), name='service-update'),
     path('shop/services/<int:id>/delete/', ServiceDeleteView.as_view(), name='service-delete'),
+
+
+    path('forgot-password/', ShopForgotPasswordView.as_view(), name='mentor-forgot-password'),
+    path('verify-forgot-password-otp/', ShopVerifyForgotPasswordOTPView.as_view(), name='mentor-verify-forgot-password-otp'),
+    path('reset-password/', ShopResetPasswordView.as_view(), name='mentor-reset-password'),
+
 ]

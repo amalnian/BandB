@@ -82,3 +82,11 @@ export const apiCall = {
     put: (endpoint, data) => axios.put(endpoint, data),
     delete: (endpoint) => axios.delete(endpoint)
 };
+
+
+// Password Reset APIs
+export const forgotPassword = (email) => axios.post('forgot-password/', { email })
+
+export const verifyForgotOtp = (formBody) => axios.post('verify-forgot-password-otp/', formBody)
+
+export const resetPassword = (formBody) => axios.post('reset-password/', formBody)

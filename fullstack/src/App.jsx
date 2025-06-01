@@ -3,6 +3,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom"
 import { lazy, Suspense, useState, useEffect } from "react"
 import axios from "axios"
+import ForgotPasswordFlow from "./Pages/user/ForgotPass"
 
 // Create a loading component for Suspense fallback
 const LoadingSpinner = () => (
@@ -25,6 +26,8 @@ const LoginPage = lazy(() => import("./Pages/user/LoginPageUser"))
 const SignupPage = lazy(() => import("./Pages/user/SignUpUser"))
 const OtpVerification = lazy(() => import("./Pages/user/OtpVerificationUser"))
 const Home = lazy(() => import("./Pages/user/Home"))
+const ForgotPass = lazy(() => import("./Pages/user/ForgotPass"))
+
 
 // Admin components
 const AdminLoginPage = lazy(() => import("./Pages/admin/LoginAdmin"))
@@ -120,7 +123,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/otp" element={<OtpVerification />} />
-          
+          <Route path="/forgot-password" element={<ForgotPass/>} />
           {/* Home route with proper protection */}
           <Route path="/" element={
             <SimpleProtectedUserRoute>
@@ -148,6 +151,7 @@ function App() {
           <Route path="/shop/login" element={<ShopLoginPage />} />
           <Route path="/shop/register" element={<ShopRegisterPage />} />
           <Route path="/shop/otp" element={<ShopOtpVerification />} />
+          <Route path="/shop/forgot-password" element={<ForgotPass/>} />
           <Route path="/shop/dashboard" element={
             <ProtectedShopRoute>
               <ShopDashboard />

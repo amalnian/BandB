@@ -29,12 +29,15 @@ from users.models import CustomUser
 from shop.models import Shop, Appointment, Notification, Service, OTP
 from shop.serializers import (
     CustomTokenObtainPairSerializer,
+    ShopForgotPasswordSerializer,
+    ShopResetPasswordSerializer,
     ShopSerializer,
     ShopUpdateSerializer,
     # ShopProfileSerializer,
     AppointmentSerializer,
     NotificationSerializer,
-    ServiceSerializer
+    ServiceSerializer,
+    ShopVerifyForgotPasswordOTPSerializer
 )
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
@@ -1006,4 +1009,45 @@ class ServiceDeleteView(generics.DestroyAPIView):
         return Response({"message": "Service deleted successfully"}, status=status.HTTP_200_OK)
     
 
+class ShopForgotPasswordView(APIView):
+    permission_classes = [AllowAny]
 
+    def post(self, request):
+        serializer = ShopForgotPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            try:
+                send_mail(
+                    subject="Your FocusBuddy Password Reset OTP",
+                    message=f"Hello {user.name}, your OTP for password reset is {user.otp}",
+                    from_email=settings.DEFAULT_FROM_EMAIL,
+                    recipient_list=[user.email],
+                    fail_silently=False,
+                )
+                return Response({"message": "OTP has been sent to your email"}, status=status.HTTP_200_OK)
+            except Exception as e:
+                logger.error(f"Failed to send OTP email: {str(e)}")
+                return Response(
+                    {"error": "Failed to send OTP email. Please try again."},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ShopVerifyForgotPasswordOTPView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ShopVerifyForgotPasswordOTPSerializer(data=request.data)
+        if serializer.is_valid():
+            return Response({"message": "OTP verified successfully"}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+class ShopResetPasswordView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        serializer = ShopResetPasswordSerializer(data=request.data)
+        if serializer.is_valid():
+            user = serializer.save()
+            return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

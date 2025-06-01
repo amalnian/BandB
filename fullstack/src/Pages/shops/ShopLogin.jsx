@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { shoplogin } from '@/endpoints/ShopAPI';
 
 export default function ShopLoginPage() {
@@ -141,6 +141,7 @@ export default function ShopLoginPage() {
               <label className="block text-gray-700 text-sm font-semibold mb-2" htmlFor="password">
                 Password
               </label>
+
               <div className="relative">
                 <input
                   id="password"
@@ -168,6 +169,12 @@ export default function ShopLoginPage() {
                     </svg>
                   )}
                 </button>
+                <Link 
+                  to="/shop/forgot-password" 
+                  className="text-sm text-blue-500 hover:text-blue-700 transition duration-200"
+                >
+                  Forgot Password?
+                </Link>
               </div>
             </div>
             

@@ -115,9 +115,6 @@ export default function LoginPageUser() {
     <div className="flex flex-col md:flex-row h-screen">
       {/* Left side - Orange background with barber theme */}
       <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden bg-amber-400">
-        <div className="absolute left-10 top-10 z-10 text-2xl font-bold text-gray-600 md:text-3xl">
-          {/* BARBER AND THE BLADE */}
-        </div>
         <div
           className="absolute h-full w-full bg-cover bg-center opacity-90"
           style={{
@@ -157,9 +154,17 @@ export default function LoginPageUser() {
             </div>
 
             <div className="space-y-2">
-              <label htmlFor="password" className="block text-sm font-medium text-gray-700">
-                Password
-              </label>
+              <div className="flex items-center justify-between">
+                <label htmlFor="password" className="block text-sm font-medium text-gray-700">
+                  Password
+                </label>
+                {/* <Link 
+                  to="/forgot-password" 
+                  className="text-sm text-blue-500 hover:text-blue-700 transition duration-200"
+                >
+                  Forgot Password?
+                </Link> */}
+              </div>
               <div className="relative">
                 <input
                   id="password"
@@ -180,6 +185,12 @@ export default function LoginPageUser() {
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
+                                <Link 
+                  to="/forgot-password" 
+                  className="text-sm text-blue-500 hover:text-blue-700 transition duration-200"
+                >
+                  Forgot Password?
+                </Link>
               </div>
             </div>
 

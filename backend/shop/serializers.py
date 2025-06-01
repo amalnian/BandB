@@ -1,3 +1,4 @@
+import random
 from rest_framework import serializers
 from .models import Shop
 from users.models import CustomUser
@@ -225,3 +226,63 @@ class SpecialClosingDaySerializer(serializers.ModelSerializer):
         data = super().to_representation(instance)
         data['date'] = instance.date.strftime('%Y-%m-%d')
         return data
+    
+
+class ShopForgotPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    def validate_email(self, value):
+        if not CustomUser.objects.filter(email=value, role='shop').exists():
+            raise serializers.ValidationError("No mentor found with this email address.")
+        return value
+
+    def create(self, validated_data):
+        email = validated_data['email']
+        user = CustomUser.objects.get(email=email, is_mentor=True)
+        otp = f"{random.randint(100000, 999999)}"
+        user.otp = otp
+        user.save()
+        print(f"Mentor Password Reset OTP for {user.email}: {otp}")  # Print OTP in terminal
+        return user
+
+class ShopVerifyForgotPasswordOTPSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+
+    def validate(self, data):
+        email = data.get('email')
+        otp = data.get('otp')
+        
+        try:
+            user = CustomUser.objects.get(email=email, role='shop')
+            if user.otp != otp:
+                raise serializers.ValidationError("Invalid OTP")
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Mentor not found")
+        
+        return data
+
+class ShopResetPasswordSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    otp = serializers.CharField(max_length=6)
+    new_password = serializers.CharField(write_only=True)
+
+    def validate(self, data):
+        email = data.get('email')
+        otp = data.get('otp')
+        new_password = data.get('new_password')
+        
+        try:
+            user = CustomUser.objects.get(email=email, role='shop')
+            if user.otp != otp:
+                raise serializers.ValidationError("Invalid OTP")
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Mentor not found")
+        
+        return data
+
+    def update(self, instance, validated_data):
+        user = CustomUser.objects.get(email=validated_data['email'], role='shop')
+        user.set_password(validated_data['new_password'])
+        user.otp = None  # Clear the OTP after successful password reset
+        user.save()
+        return user 
