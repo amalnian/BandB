@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import toast from 'react-hot-toast'; // Add this import
 import { shoplogin } from '@/endpoints/ShopAPI';
 
 export default function ShopLoginPage() {
@@ -17,11 +18,13 @@ export default function ShopLoginPage() {
       try {
         const parsedData = JSON.parse(shopData);
         console.log("Found existing shop session:", parsedData.name);
+        toast.success(`Welcome back, ${parsedData.name || 'Shop Owner'}!`); // Success toast for existing session
         navigate("/shop/dashboard");
       } catch (error) {
         // If data is corrupted, clear it
         localStorage.removeItem("shop_data");
         localStorage.removeItem("user_data");
+        toast.error("Session expired. Please login again."); // Error toast for corrupted data
       }
     }
   }, [navigate]);
@@ -32,6 +35,9 @@ export default function ShopLoginPage() {
     setIsLoading(true);
   
     try {
+      // Show loading toast
+      toast.loading("Logging into shop dashboard...", { id: "shop-login" });
+      
       const response = await shoplogin({ email, password });
       const data = response.data;
       
@@ -49,6 +55,11 @@ export default function ShopLoginPage() {
       }
       
       console.log("Login successful, redirecting to dashboard");
+      
+      // Show success toast with shop name if available
+      const shopName = data.shopDetails?.name || data.shopDetails?.shop_name || 'Shop Owner';
+      toast.success(`Welcome back, ${shopName}! Redirecting to dashboard...`, { id: "shop-login" });
+      
       navigate("/shop/dashboard");
       
     } catch (error) {
@@ -64,12 +75,14 @@ export default function ShopLoginPage() {
       
       // Handle specific error cases
       if (errorMessage.includes("not activated") || errorMessage.includes("verify your email")) {
-        setError("Your account is not activated. Please check your email and verify your account first.");
+        errorMessage = "Your account is not activated. Please check your email and verify your account first.";
       } else if (errorMessage.includes("Invalid Credentials")) {
-        setError("Invalid email or password. Please check your credentials and try again.");
-      } else {
-        setError(errorMessage);
+        errorMessage = "Invalid email or password. Please check your credentials and try again.";
       }
+      
+      // Show error toast
+      toast.error(errorMessage, { id: "shop-login" });
+      setError(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -133,6 +146,7 @@ export default function ShopLoginPage() {
                 className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
                 placeholder="your-shop@example.com"
                 autoComplete="email"
+                disabled={isLoading}
                 required
               />
             </div>
@@ -151,12 +165,14 @@ export default function ShopLoginPage() {
                   className="w-full px-4 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition duration-200"
                   placeholder="••••••••"
                   autoComplete="current-password"
+                  disabled={isLoading}
                   required
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 transition duration-200"
+                  disabled={isLoading}
+                  className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-500 hover:text-gray-700 transition duration-200 disabled:opacity-50"
                 >
                   {showPassword ? (
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

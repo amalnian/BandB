@@ -1,7 +1,157 @@
 import { useState, useEffect } from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
-import { login } from "@/endpoints/APIs" // Adjust the import path as needed
+import toast from "react-hot-toast" // Add this import
+import { login, googleSignIn } from "@/endpoints/APIs"
+
+// Google Sign-In Hook
+const useGoogleSignIn = () => {
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Load Google Sign-In script
+    const loadGoogleScript = () => {
+      if (window.google) {
+        console.log("Google API already loaded");
+        initializeGoogleSignIn();
+        return;
+      }
+      
+      console.log("Loading Google Sign-In script");
+      const script = document.createElement('script');
+      script.src = 'https://accounts.google.com/gsi/client';
+      script.async = true;
+      script.defer = true;
+      script.onload = () => {
+        console.log("Google script loaded successfully");
+        initializeGoogleSignIn();
+      };
+      script.onerror = (error) => {
+        console.error("Failed to load Google script:", error);
+        toast.error("Failed to load Google Sign-In"); // Add toast for script error
+      };
+      document.head.appendChild(script);
+    };
+
+    const initializeGoogleSignIn = () => {
+      if (window.google && window.google.accounts) {
+        window.google.accounts.id.initialize({
+          client_id: '1016181249848-kn59ov7i80ep5gj5g7qc05ncfg4qpp1j.apps.googleusercontent.com',
+          callback: handleGoogleCallback,
+          auto_select: false,
+        });
+      }
+    };
+
+    const handleGoogleCallback = async (response) => {
+      setIsGoogleLoading(true);
+      
+      try {
+        console.log("Google Sign-In response received");
+        toast.loading("Signing in with Google...", { id: "google-signin" }); // Loading toast
+        
+        // Send the credential to your backend
+        const result = await googleSignIn(response.credential);
+    
+        const userInfo = result.data.data.user;
+        
+        const userData = {
+          id: userInfo.id,
+          email: userInfo.email,
+          name: userInfo.name,
+          first_name: userInfo.first_name,
+          last_name: userInfo.last_name,
+          role: userInfo.role || 'user',
+          isGoogleUser: true,
+        };
+
+        localStorage.setItem("user_data", JSON.stringify(userData));
+        
+        console.log("Google user data stored:", userData);
+        
+        toast.success(`Welcome back, ${userData.name || userData.email}!`, { id: "google-signin" }); // Success toast
+        
+        // Navigate to home page
+        navigate("/", { replace: true });
+        
+      } catch (error) {
+        console.error("Google Sign-In failed:", error);
+        
+        const errorMessage = error.response?.data?.error || 'Google Sign-In failed';
+        toast.error(errorMessage, { id: "google-signin" }); // Error toast
+        
+        // Return error to be handled by the parent component
+        if (window.handleGoogleError) {
+          window.handleGoogleError(errorMessage);
+        }
+      } finally {
+        setIsGoogleLoading(false);
+      }
+    };
+
+    loadGoogleScript();
+  }, [navigate]);
+
+  const renderGoogleButton = (onError) => {
+    // Store error handler globally so the callback can access it
+    window.handleGoogleError = onError;
+
+    useEffect(() => {
+      const renderButton = () => {
+        if (window.google && window.google.accounts) {
+          console.log("Google API loaded, rendering button");
+          
+          // Clear any existing button
+          const existingButton = document.getElementById('google-signin-button');
+          if (existingButton) {
+            existingButton.innerHTML = '';
+          }
+
+          // Small delay to ensure DOM is ready
+          setTimeout(() => {
+            const buttonContainer = document.getElementById('google-signin-button');
+            if (buttonContainer) {
+              window.google.accounts.id.renderButton(
+                buttonContainer,
+                {
+                  theme: 'outline',
+                  size: 'large',
+                  text: 'signin_with',
+                  width: 400, // Use pixel value instead of percentage
+                  logo_alignment: 'left'
+                }
+              );
+            }
+          }, 100);
+        } else {
+          console.log("Google API not yet loaded");
+          // Retry after a short delay
+          setTimeout(renderButton, 500);
+        }
+      };
+
+      renderButton();
+    }, []);
+
+    return (
+      <div className="relative">
+        <div 
+          id="google-signin-button" 
+          className={`w-full min-h-[44px] flex justify-center ${isGoogleLoading ? 'opacity-50 pointer-events-none' : ''}`}
+          style={{ minHeight: '44px' }}
+        />
+        {isGoogleLoading && (
+          <div className="absolute inset-0 flex items-center justify-center bg-white bg-opacity-75 rounded-md">
+            <div className="text-sm text-gray-600">Signing in with Google...</div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return { renderGoogleButton, isGoogleLoading };
+};
 
 export default function LoginPageUser() {
   const [showPassword, setShowPassword] = useState(false)
@@ -10,14 +160,16 @@ export default function LoginPageUser() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const { renderGoogleButton, isGoogleLoading } = useGoogleSignIn()
 
   // Check if user is already logged in on component mount
   useEffect(() => {
     const userData = localStorage.getItem("user_data")
     if (userData) {
       try {
-        JSON.parse(userData)
+        const user = JSON.parse(userData)
         // User is already logged in, redirect to home
+        toast.success(`Welcome back, ${user.name || user.email}!`)
         navigate("/", { replace: true })
       } catch (error) {
         // Invalid data, clear it
@@ -33,6 +185,9 @@ export default function LoginPageUser() {
   
     try {
       console.log("Attempting login with:", { email, password: "***" })
+      
+      // Show loading toast
+      toast.loading("Logging in...", { id: "login" })
       
       const formBody = {
         email,
@@ -50,10 +205,12 @@ export default function LoginPageUser() {
         id: response.data?.user?.id || response.data?.id,
         email: response.data?.user?.email || response.data?.email || email,
         name: response.data?.user?.name || response.data?.name,
+        first_name: response.data?.user?.first_name,
+        last_name: response.data?.user?.last_name,
         role: response.data?.user?.role || response.data?.role || 'user',
+        isGoogleUser: false, // Flag to identify regular users
         // Add any other user fields your app needs
-        token: response.data?.access_token || response.data?.token,
-        refreshToken: response.data?.refresh_token,
+        // Note: tokens are stored in httpOnly cookies, not localStorage
       }
 
       // Store user data in localStorage so protected routes can access it
@@ -62,11 +219,16 @@ export default function LoginPageUser() {
       console.log("User data stored:", userData)
       console.log("About to navigate to home page")
       
+      // Show success toast
+      toast.success(`Welcome back, ${userData.name || userData.email}!`, { id: "login" })
+      
       // Navigate to home page
       navigate("/", { replace: true })
       
     } catch (error) {
       console.error("Error during login process:", error)
+      
+      let errorMessage = "Login failed. Please try again."
       
       // Handle different types of errors
       if (error.response) {
@@ -74,42 +236,48 @@ export default function LoginPageUser() {
         const { status, data } = error.response
         
         if (status === 401) {
-          setError("Invalid email or password. Please try again.")
+          errorMessage = "Invalid email or password. Please try again."
         } else if (status === 403) {
-          setError("Your account is not active. Please verify your email first.")
+          errorMessage = "Your account is not active. Please verify your email first."
         } else if (status === 422) {
           // Validation errors
           if (data?.detail) {
             if (Array.isArray(data.detail)) {
-              setError(data.detail.map(err => err.msg || err).join(", "))
+              errorMessage = data.detail.map(err => err.msg || err).join(", ")
             } else {
-              setError(data.detail)
+              errorMessage = data.detail
             }
           } else {
-            setError("Please check your input and try again.")
+            errorMessage = "Please check your input and try again."
           }
         } else if (data?.detail) {
-          setError(data.detail)
+          errorMessage = data.detail
         } else if (data?.non_field_errors) {
-          setError(data.non_field_errors[0])
+          errorMessage = data.non_field_errors[0]
         } else if (data?.email) {
-          setError(data.email[0])
+          errorMessage = data.email[0]
         } else if (data?.message) {
-          setError(data.message)
+          errorMessage = data.message
         } else {
-          setError("Login failed. Please check your credentials.")
+          errorMessage = "Login failed. Please check your credentials."
         }
       } else if (error.request) {
         // Network error
-        setError("Network error. Please check your connection and try again.")
-      } else {
-        // Other error
-        setError("Login failed. Please try again.")
+        errorMessage = "Network error. Please check your connection and try again."
       }
+      
+      // Show error toast
+      toast.error(errorMessage, { id: "login" })
+      setError(errorMessage)
     } finally {
       setLoading(false)
     }
   }
+
+  const handleGoogleError = (errorMessage) => {
+    setError(errorMessage);
+    // Toast is already shown in the Google callback
+  };
 
   return (
     <div className="flex flex-col md:flex-row h-screen">
@@ -136,6 +304,7 @@ export default function LoginPageUser() {
             </div>
           )}
 
+          {/* Wrap inputs in a form element */}
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <label htmlFor="email" className="block text-sm font-medium text-gray-700">
@@ -149,7 +318,8 @@ export default function LoginPageUser() {
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
                 placeholder="Email address"
                 required
-                disabled={loading}
+                disabled={loading || isGoogleLoading}
+                autoComplete="username"
               />
             </div>
 
@@ -158,12 +328,6 @@ export default function LoginPageUser() {
                 <label htmlFor="password" className="block text-sm font-medium text-gray-700">
                   Password
                 </label>
-                {/* <Link 
-                  to="/forgot-password" 
-                  className="text-sm text-blue-500 hover:text-blue-700 transition duration-200"
-                >
-                  Forgot Password?
-                </Link> */}
               </div>
               <div className="relative">
                 <input
@@ -174,20 +338,20 @@ export default function LoginPageUser() {
                   className="w-full px-3 py-2 border border-gray-300 rounded-md pr-10 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent"
                   placeholder="Password"
                   required
-                  disabled={loading}
+                  disabled={loading || isGoogleLoading}
                   autoComplete="current-password"
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute inset-y-0 right-0 pr-3 flex items-center text-gray-400 hover:text-gray-600"
-                  disabled={loading}
+                  disabled={loading || isGoogleLoading}
                 >
                   {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                 </button>
-                                <Link 
+                <Link
                   to="/forgot-password" 
-                  className="text-sm text-blue-500 hover:text-blue-700 transition duration-200"
+                  className="text-sm text-blue-500 hover:text-blue-700 transition duration-200 block mt-1"
                 >
                   Forgot Password?
                 </Link>
@@ -197,9 +361,9 @@ export default function LoginPageUser() {
             <button
               type="submit"
               className={`w-full py-2 px-4 bg-yellow-400 hover:bg-yellow-500 text-white font-medium rounded-md transition duration-200 ${
-                loading ? "opacity-70 cursor-not-allowed" : ""
+                (loading || isGoogleLoading) ? "opacity-70 cursor-not-allowed" : ""
               }`}
-              disabled={loading}
+              disabled={loading || isGoogleLoading}
             >
               {loading ? "Logging in..." : "Login Now"}
             </button>
@@ -216,32 +380,7 @@ export default function LoginPageUser() {
             </div>
 
             <div className="mt-6">
-              <button
-                type="button"
-                className="w-full flex items-center justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 transition duration-200"
-                disabled={loading}
-              >
-                <svg className="h-5 w-5 mr-2" viewBox="0 0 24 24">
-                  <path
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    fill="#4285F4"
-                  />
-                  <path
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    fill="#34A853"
-                  />
-                  <path
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-                    fill="#FBBC05"
-                  />
-                  <path
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                    fill="#EA4335"
-                  />
-                  <path d="M1 1h22v22H1z" fill="none" />
-                </svg>
-                Google
-              </button>
+              {renderGoogleButton(handleGoogleError)}
             </div>
           </div>
 

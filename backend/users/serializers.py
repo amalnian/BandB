@@ -26,10 +26,19 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 class CustomUserCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ('id', 'first_name', 'last_name', 'username', 'email', 'password', 'role', 'phone_number')
+        fields = ('id', 'first_name', 'last_name', 'username', 'email', 'password', 'role', 'phone','current_latitude', 'current_longitude', 'location_enabled')
         extra_kwargs = {
             'password': {'write_only': True}  # Make password write-only
         }
+    def validate_latitude(self, value):
+        if not (-90 <= float(value) <= 90):
+            raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
+        return value
+    
+    def validate_longitude(self, value):
+        if not (-180 <= float(value) <= 180):
+            raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
+        return value
 
     def validate(self, attrs):
         # Always set default role to 'user' even if provided in the request
@@ -251,8 +260,43 @@ class ForgotPasswordSerializer(serializers.Serializer):
         user.otp = otp
         user.otp_created_at = timezone.now()
         user.save()
-        print(f"OTP: {otp}")  
+        
+        # Send OTP via email
+        self.send_otp_email(email, otp, user)
+        
         return user
+    
+    def send_otp_email(self, email, otp, user):
+        """Send OTP to user's email"""
+        subject = 'Password Reset OTP'
+        
+        # Option 1: Simple text email
+        message = f"""
+        Hi {user.first_name or 'User'},
+        
+        Your OTP for password reset is: {otp}
+        
+        This OTP will expire in 1 minute.
+        
+        If you didn't request this, please ignore this email.
+        
+        Best regards,
+        Your App Team
+        """
+        
+        try:
+            send_mail(
+                subject=subject,
+                message=message,
+                from_email=settings.DEFAULT_FROM_EMAIL,
+                recipient_list=[email],
+                fail_silently=False,
+            )
+            print(f"OTP sent to {email}: {otp}")  # Keep for debugging
+        except Exception as e:
+            print(f"Failed to send email: {e}")
+            # You might want to raise an exception here or handle it differently
+            raise serializers.ValidationError("Failed to send OTP email. Please try again.")
 
 class VerifyForgotPasswordOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -299,3 +343,92 @@ class ResetPasswordSerializer(serializers.Serializer):
         user.otp = None  # Clear the OTP after successful password reset
         user.save()
         return user
+    
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    """Serializer for user profile data"""
+    
+    class Meta:
+        model = CustomUser
+        fields = [
+            'id',
+            'username',
+            'email',
+            'first_name',
+            'last_name',
+            'phone',
+            'date_of_birth',
+            'profile_url',
+            'role',
+            'is_active',
+            'date_joined',
+            'last_login',
+            'location_enabled'
+        ]
+        read_only_fields = ['id', 'date_joined', 'last_login', 'role', 'is_active']
+    
+    def validate_email(self, value):
+        """Validate email uniqueness"""
+        user = self.instance
+        if user and CustomUser.objects.filter(email=value).exclude(id=user.id).exists():
+            raise serializers.ValidationError("This email is already in use.")
+        return value
+    
+    def validate_phone(self, value):
+        """Validate phone number format"""
+        if value:
+            import re
+            phone_pattern = re.compile(r'^\+?1?\d{9,15}$')
+            cleaned_phone = value.replace(' ', '').replace('-', '')
+            if not phone_pattern.match(cleaned_phone):
+                raise serializers.ValidationError("Invalid phone number format.")
+        return value
+    
+    def validate_date_of_birth(self, value):
+        """Validate date of birth"""
+        if value:
+            from django.utils import timezone
+            if value > timezone.now().date():
+                raise serializers.ValidationError("Date of birth cannot be in the future.")
+        return value
+
+
+class ChangePasswordSerializer(serializers.Serializer):
+    """Serializer for password change"""
+    old_password = serializers.CharField(required=True, write_only=True)
+    new_password = serializers.CharField(required=True, write_only=True)
+    confirm_password = serializers.CharField(required=True, write_only=True)
+    
+    def validate(self, attrs):
+        if attrs['new_password'] != attrs['confirm_password']:
+            raise serializers.ValidationError("New passwords don't match.")
+        return attrs
+    
+    def validate_new_password(self, value):
+        """Validate new password using Django's password validators"""
+        from django.contrib.auth.password_validation import validate_password
+        from django.core.exceptions import ValidationError
+        
+        try:
+            validate_password(value)
+        except ValidationError as e:
+            raise serializers.ValidationError(list(e.messages))
+        return value
+
+
+class ProfilePictureSerializer(serializers.Serializer):
+    """Serializer for profile picture upload"""
+    profile_picture = serializers.ImageField(required=True)
+    
+    def validate_profile_picture(self, value):
+        """Validate profile picture"""
+        # Check file size (5MB max)
+        if value.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError("File size too large. Maximum 5MB allowed.")
+        
+        # Check file type
+        allowed_types = ['image/jpeg', 'image/png', 'image/gif']
+        if value.content_type not in allowed_types:
+            raise serializers.ValidationError("Invalid file type. Only JPEG, PNG, and GIF are allowed.")
+        
+        return value

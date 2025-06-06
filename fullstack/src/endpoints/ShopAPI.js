@@ -14,6 +14,13 @@ export const getShopProfile = () => axios.get("shop/profile/");
 
 export const updateShopProfile = (shopData) => axios.post("shop/update/", shopData);
 
+// Shop Images APIs - NEW
+export const addShopImage = (imageData) => axios.post("shop/images/add/", imageData);
+
+export const removeShopImage = (imageId) => axios.delete(`shop/images/${imageId}/remove/`);
+
+export const setPrimaryImage = (imageId) => axios.post(`shop/images/${imageId}/set-primary/`);
+
 // Dashboard APIs
 export const getDashboardStats = () => axios.get("dashboard/stats/");
 

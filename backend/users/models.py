@@ -1,6 +1,8 @@
+from datetime import timezone
 from django.contrib.auth.base_user import BaseUserManager
 from django.contrib.auth.models import AbstractUser
 from django.db import models
+from django.core.validators import RegexValidator
 
 
 class CustomUserManager(BaseUserManager):
@@ -34,13 +36,33 @@ class CustomUser(AbstractUser):
         ('user', 'User'),
         ('shop', 'Shop Owner'),  # Added shop role
     )
+    profile_url = models.URLField(blank=True,null=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='user')
     email = models.EmailField(unique=True)
     otp = models.CharField(max_length=6, blank=True, null=True)
     otp_created_at = models.DateTimeField(null=True, blank=True)
     is_blocked = models.BooleanField(default=False)  # Added is_blocked field
-    phone_number = models.CharField(max_length=15, blank=True, null=True)  # Added phone_number field
-    
+    phone_regex = RegexValidator(
+        regex=r'^\+?1?\d{9,15}$',
+        message="Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
+    )
+    current_latitude = models.DecimalField(
+        max_digits=10, decimal_places=8, blank=True, null=True,
+        help_text="Current latitude of user"
+    )
+    current_longitude = models.DecimalField(
+        max_digits=11, decimal_places=8, blank=True, null=True,
+        help_text="Current longitude of user"
+    )
+    location_enabled = models.BooleanField(default=False, help_text="Whether user has enabled location services")
+    date_of_birth = models.DateField(blank=True, null=True)
+    phone = models.CharField(
+        validators=[phone_regex], 
+        max_length=17, 
+        blank=True, 
+        null=True,
+        help_text="Phone number with country code"
+    )    
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = []
     
@@ -49,3 +71,10 @@ class CustomUser(AbstractUser):
     def is_shop_owner(self):
         """Helper method to check if user is a shop owner"""
         return self.role == 'shop'
+    
+    def update_location(self, latitude, longitude):
+        """Update user's current location"""
+        self.current_latitude = latitude
+        self.current_longitude = longitude
+        self.location_enabled = True
+        self.save()

@@ -55,6 +55,22 @@ from shop.serializers import (
     AppointmentSerializer,
     SpecialClosingDaySerializer
 )
+# views.py
+from rest_framework.views import APIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from django.shortcuts import get_object_or_404
+from .models import Shop, ShopImage
+from .serializers import ShopSerializer, ShopImageSerializer, ShopUpdateSerializer
+import logging
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework.response import Response
+from rest_framework import status, permissions
+from rest_framework_simplejwt.exceptions import AuthenticationFailed
+from .models import Shop, CustomUser
+
 
 logger = logging.getLogger(__name__)
 
@@ -310,13 +326,6 @@ class ShopResendOTPView(APIView):
         }, status=status.HTTP_200_OK)
     
 
-from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
-from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
-from rest_framework.response import Response
-from rest_framework import status, permissions
-from rest_framework_simplejwt.exceptions import AuthenticationFailed
-from .models import Shop, CustomUser
-
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
@@ -511,6 +520,8 @@ class ShopLogoutView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+logger = logging.getLogger(__name__)
+
 class ShopProfileView(APIView):
     """View to retrieve the authenticated shop's profile information."""
     
@@ -562,27 +573,226 @@ class ShopProfileView(APIView):
             )
 
 class ShopUpdateView(APIView):
-    """View to update shop details."""
+    """View to update shop details and handle images."""
     
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
         try:
-            shop = Shop.objects.get(user=request.user)
-            serializer = ShopUpdateSerializer(shop, data=request.data, partial=True)
-            
-            if serializer.is_valid():
-                serializer.save()
-                return Response(serializer.data)
-            else:
+            # Check if user has shop role
+            if getattr(request.user, 'role', None) != 'shop':
+                logger.warning(f"User {request.user.id} with role {getattr(request.user, 'role', 'None')} trying to update shop profile")
                 return Response(
-                    serializer.errors, 
-                    status=status.HTTP_400_BAD_REQUEST
+                    {"success": False, "error": "Only shop owners can access this endpoint"}, 
+                    status=status.HTTP_403_FORBIDDEN
                 )
+            
+            shop = get_object_or_404(Shop, user=request.user)
+            
+            # Update basic shop details
+            shop.name = request.data.get('name', shop.name)
+            shop.phone = request.data.get('phone', shop.phone)
+            shop.owner_name = request.data.get('owner_name', shop.owner_name)
+            shop.address = request.data.get('address', shop.address)
+            shop.description = request.data.get('description', shop.description)
+            shop.save()
+            
+            # Handle images if provided
+            images_data = request.data.get('images', [])
+            if images_data:
+                # Clear existing images
+                ShopImage.objects.filter(shop=shop).delete()
+                
+                # Add new images
+                for index, image_data in enumerate(images_data):
+                    ShopImage.objects.create(
+                        shop=shop,
+                        image_url=image_data.get('url'),
+                        public_id=image_data.get('public_id'),
+                        width=image_data.get('width'),
+                        height=image_data.get('height'),
+                        is_primary=(index == 0),  # First image is primary
+                        order=index
+                    )
+            
+            # Return updated shop data
+            serializer = ShopSerializer(shop)
+            return Response({
+                'success': True,
+                'data': serializer.data,
+                'message': 'Shop profile updated successfully'
+            })
+            
         except Shop.DoesNotExist:
             return Response(
-                {"error": "Shop profile not found"}, 
+                {"success": False, "error": "Shop profile not found"}, 
                 status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in ShopUpdateView: {str(e)}")
+            return Response(
+                {"success": False, "error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ShopImageAddView(APIView):
+    """View to add a new image to shop."""
+    
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # Check if user has shop role
+            if getattr(request.user, 'role', None) != 'shop':
+                return Response(
+                    {"success": False, "error": "Only shop owners can access this endpoint"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            shop = get_object_or_404(Shop, user=request.user)
+            
+            image_data = request.data
+            order = ShopImage.objects.filter(shop=shop).count()
+            is_primary = order == 0  # First image is primary
+            
+            shop_image = ShopImage.objects.create(
+                shop=shop,
+                image_url=image_data.get('url'),
+                public_id=image_data.get('public_id'),
+                width=image_data.get('width'),
+                height=image_data.get('height'),
+                is_primary=is_primary,
+                order=order
+            )
+            
+            serializer = ShopImageSerializer(shop_image)
+            return Response({
+                'success': True,
+                'data': serializer.data,
+                'message': 'Image added successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in ShopImageAddView: {str(e)}")
+            return Response(
+                {"success": False, "error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ShopImageRemoveView(APIView):
+    """View to remove a shop image."""
+    
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, image_id):
+        try:
+            # Check if user has shop role
+            if getattr(request.user, 'role', None) != 'shop':
+                return Response(
+                    {"success": False, "error": "Only shop owners can access this endpoint"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            shop = get_object_or_404(Shop, user=request.user)
+            image = get_object_or_404(ShopImage, id=image_id, shop=shop)
+            
+            was_primary = image.is_primary
+            image.delete()
+            
+            # If deleted image was primary, make the first remaining image primary
+            if was_primary:
+                first_image = ShopImage.objects.filter(shop=shop).first()
+                if first_image:
+                    first_image.is_primary = True
+                    first_image.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Image removed successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in ShopImageRemoveView: {str(e)}")
+            return Response(
+                {"success": False, "error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class ShopImageSetPrimaryView(APIView):
+    """View to set an image as primary."""
+    
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, image_id):
+        try:
+            # Check if user has shop role
+            if getattr(request.user, 'role', None) != 'shop':
+                return Response(
+                    {"success": False, "error": "Only shop owners can access this endpoint"}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            shop = get_object_or_404(Shop, user=request.user)
+            image = get_object_or_404(ShopImage, id=image_id, shop=shop)
+            
+            # Set all images as non-primary
+            ShopImage.objects.filter(shop=shop).update(is_primary=False)
+            
+            # Set this image as primary
+            image.is_primary = True
+            image.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Primary image updated successfully'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in ShopImageSetPrimaryView: {str(e)}")
+            return Response(
+                {"success": False, "error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class PublicShopDetailView(APIView):
+    """Public view to get shop details for users."""
+    
+    def get(self, request, shop_id):
+        try:
+            shop = get_object_or_404(Shop, id=shop_id, is_approved=True)
+            serializer = ShopSerializer(shop)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+        except Shop.DoesNotExist:
+            return Response(
+                {"success": False, "error": "Shop not found or not approved"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Error in PublicShopDetailView: {str(e)}")
+            return Response(
+                {"success": False, "error": "Internal server error"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+class PublicShopListView(APIView):
+    """Public view to get all approved shops."""
+    
+    def get(self, request):
+        try:
+            shops = Shop.objects.filter(is_approved=True)
+            serializer = ShopSerializer(shops, many=True)
+            return Response({
+                'success': True,
+                'data': serializer.data
+            })
+        except Exception as e:
+            logger.error(f"Error in PublicShopListView: {str(e)}")
+            return Response(
+                {"success": False, "error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
 

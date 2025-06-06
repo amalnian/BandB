@@ -29,11 +29,19 @@ import {
   AlertCircle,
   DollarSign,
   Clock4,
-  Tag
+  Tag,
+  CheckCircle,
+  Upload, 
+  Star, 
+  Image as ImageIcon,
+
 } from 'lucide-react';
 import {
   getShopProfile,
   updateShopProfile,
+  addShopImage, 
+  removeShopImage, 
+  setPrimaryImage,
   getDashboardStats,
   getRecentAppointments,
   getNotifications,
@@ -180,6 +188,7 @@ const fetchDashboardData = async () => {
     } finally {
       // Clear only localStorage data (cookies are handled by server)
       localStorage.removeItem("shop_data");
+      localStorage.removeItem("user_data");
       // Redirect to login
       navigate("/shop/login");
     }
@@ -361,6 +370,7 @@ const fetchDashboardData = async () => {
 
 
 // Fixed SettingsContent component
+
 const SettingsContent = () => {
   // Initialize formData with empty values first, then update when shopData is available
   const [formData, setFormData] = useState({
@@ -369,28 +379,189 @@ const SettingsContent = () => {
     phone: '',
     ownerName: '',
     address: '',
-    description: ''
+    description: '',
+    images: [] // Add images array to store shop images
   });
   
+  // Toast state
+  const [toast, setToast] = useState(null);
+  
+  // Image upload states
+  const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // Toast helper function
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000); // Auto-hide after 5 seconds
+  };
+  
   // Update formData when shopData changes
-useEffect(() => {
-  console.log("ShopData in SettingsContent:", shopData); // Debug log
-  
-  if (shopData) {
-    const newFormData = {
-      shopName: shopData.name || '',
-      email: shopData.email || '',
-      phone: shopData.phone || '',
-      ownerName: shopData.owner_name || '',
-      address: shopData.address || '',
-      description: shopData.description || ''
-    };
+  useEffect(() => {
+    console.log("ShopData in SettingsContent:", shopData); // Debug log
     
-    console.log("Setting form data:", newFormData); // Debug log
-    setFormData(newFormData);
-  }
-}, [shopData]);
-  
+    if (shopData) {
+      const newFormData = {
+        shopName: shopData.name || '',
+        email: shopData.email || '',
+        phone: shopData.phone || '',
+        ownerName: shopData.owner_name || '',
+        address: shopData.address || '',
+        description: shopData.description || '',
+        images: shopData.images || [] // Load existing images
+      };
+      
+      console.log("Setting form data:", newFormData); // Debug log
+      setFormData(newFormData);
+    }
+  }, [shopData]);
+
+  // Cloudinary upload function
+  const uploadToCloudinary = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('upload_preset', 'Barber and Blade'); // Replace with your Cloudinary upload preset
+    formData.append('folder', 'barber_shop_preset'); // Optional: organize images in folders
+    
+    try {
+      const response = await fetch(
+        `https://api.cloudinary.com/v1_1/dqzfwvmoe/image/upload`, // Replace with your cloud name
+        {
+          method: 'POST',
+          body: formData,
+        }
+      );
+      
+      if (!response.ok) {
+        throw new Error('Upload failed');
+      }
+      
+      const data = await response.json();
+      return {
+        url: data.secure_url,
+        public_id: data.public_id,
+        width: data.width,
+        height: data.height
+      };
+    } catch (error) {
+      console.error('Cloudinary upload error:', error);
+      throw error;
+    }
+  };
+
+  // Handle image upload
+  const handleImageUpload = async (event) => {
+    const files = Array.from(event.target.files);
+    
+    if (files.length === 0) return;
+    
+    // Validation code remains the same...
+    const validTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+    const invalidFiles = files.filter(file => !validTypes.includes(file.type));
+    
+    if (invalidFiles.length > 0) {
+      showToast('Please select only JPEG, PNG, or WebP images', 'error');
+      return;
+    }
+    
+    const maxSize = 5 * 1024 * 1024; // 5MB
+    const oversizedFiles = files.filter(file => file.size > maxSize);
+    
+    if (oversizedFiles.length > 0) {
+      showToast('Please select images smaller than 5MB', 'error');
+      return;
+    }
+    
+    if (formData.images.length + files.length > 10) {
+      showToast('Maximum 10 images allowed', 'error');
+      return;
+    }
+    
+    setIsUploading(true);
+    setUploadProgress(0);
+    
+    try {
+      const uploadPromises = files.map(async (file, index) => {
+        // Upload to Cloudinary
+        const cloudinaryResult = await uploadToCloudinary(file);
+        setUploadProgress(((index + 1) / files.length) * 50); // 50% for Cloudinary upload
+        
+        // Save to database
+        const dbResult = await addShopImage({
+          url: cloudinaryResult.url,
+          public_id: cloudinaryResult.public_id,
+          width: cloudinaryResult.width,
+          height: cloudinaryResult.height
+        });
+        
+        setUploadProgress(((index + 1) / files.length) * 100); // 100% after DB save
+        
+        return dbResult.data.data; // Return the saved image data from DB
+      });
+      
+      const savedImages = await Promise.all(uploadPromises);
+      
+      // Update local state with saved images (including DB IDs)
+      setFormData(prev => ({
+        ...prev,
+        images: [...prev.images, ...savedImages]
+      }));
+      
+      showToast(`${files.length} image(s) uploaded successfully!`, 'success');
+      
+    } catch (error) {
+      console.error('Upload error:', error);
+      showToast('Failed to upload images. Please try again.', 'error');
+    } finally {
+      setIsUploading(false);
+      setUploadProgress(0);
+      event.target.value = '';
+    }
+  };
+
+  // Remove image
+  const handleRemoveImage = async (index, imageId) => {
+    try {
+      // Remove from database
+      await removeShopImage(imageId);
+      
+      // Update local state
+      const updatedImages = formData.images.filter((_, i) => i !== index);
+      setFormData(prev => ({
+        ...prev,
+        images: updatedImages
+      }));
+      
+      showToast('Image removed successfully', 'success');
+    } catch (error) {
+      console.error('Error removing image:', error);
+      showToast('Failed to remove image', 'error');
+    }
+  };
+
+  // Update the handleSetPrimaryImage function to update in database
+  const handleSetPrimaryImage = async (index, imageId) => {
+    try {
+      // Update primary image in database
+      await setPrimaryImage(imageId);
+      
+      // Update local state
+      const updatedImages = [...formData.images];
+      const [primaryImage] = updatedImages.splice(index, 1);
+      updatedImages.unshift(primaryImage);
+      
+      setFormData(prev => ({
+        ...prev,
+        images: updatedImages
+      }));
+      
+      showToast('Primary image updated', 'success');
+    } catch (error) {
+      console.error('Error setting primary image:', error);
+      showToast('Failed to update primary image', 'error');
+    }
+  };
+
   // Set up businessHours with default values
   const DAYS_OF_WEEK = [
     { id: 0, name: 'Monday' },
@@ -441,6 +612,7 @@ useEffect(() => {
         
       } catch (error) {
         console.error("Error fetching business data:", error);
+        showToast("Failed to load business data", 'error');
       } finally {
         setBusinessDataLoading(false);
       }
@@ -474,38 +646,95 @@ useEffect(() => {
     setBusinessHours(updatedHours);
   };
   
-  // Save shop details - Fixed to use formData
+  // Save shop details - FIXED VERSION
   const handleSaveShopDetails = async () => {
     setIsSubmitting(true);
     try {
-      const updatedShopData = {
-        name: formData.shopName,
-        phone: formData.phone,
-        owner_name: formData.ownerName,
-        address: formData.address,
-        description: formData.description
-      };
-      
-      const response = await updateShopProfile(updatedShopData);
-      const updatedData = response.data;
-      
-      setShopData(updatedData);
-      
-      // Check if approval status changed
-      if (updatedData.is_approved !== isApproved) {
-        setIsApproved(updatedData.is_approved);
-        
-        // If newly approved, refresh dashboard data
-        if (updatedData.is_approved) {
-          fetchDashboardData();
-        }
+      // Validate required fields before sending
+      if (!formData.shopName.trim()) {
+        showToast("Shop name is required", 'error');
+        return;
       }
+      if (!formData.phone.trim()) {
+        showToast("Phone number is required", 'error');
+        return;
+      }
+      if (!formData.ownerName.trim()) {
+        showToast("Owner name is required", 'error');
+        return;
+      }
+      if (!formData.address.trim()) {
+        showToast("Address is required", 'error');
+        return;
+      }
+
+      // Create update payload with only the fields we want to update
+      const updatedShopData = {
+        name: formData.shopName.trim(),
+        phone: formData.phone.trim(),
+        owner_name: formData.ownerName.trim(),
+        address: formData.address.trim(),
+        description: formData.description.trim(),
+      };
+
+      console.log("Sending update data:", updatedShopData); // Debug log
+
+      const response = await updateShopProfile(updatedShopData);
+      console.log("API Response:", response); // Debug log
       
-      alert("Shop details updated successfully!");
+      // Handle the response properly
+      if (response && response.data) {
+        const updatedData = response.data;
+        
+        // Update the parent shopData state with the response
+        // Make sure to preserve existing data and only update what was changed
+        const newShopData = {
+          ...shopData, // Keep existing data
+          ...updatedData, // Override with updated data
+          // Ensure images are preserved if not included in response
+          images: updatedData.images || shopData?.images || formData.images
+        };
+        
+        console.log("Updated shop data:", newShopData); // Debug log
+        setShopData(newShopData);
+
+        // Update local form data to reflect the saved state
+        setFormData(prev => ({
+          ...prev,
+          shopName: updatedData.name || prev.shopName,
+          phone: updatedData.phone || prev.phone,
+          ownerName: updatedData.owner_name || prev.ownerName,
+          address: updatedData.address || prev.address,
+          description: updatedData.description || prev.description,
+        }));
+
+        showToast("Shop details updated successfully!", 'success');
+      } else {
+        throw new Error("Invalid response from server");
+      }
       
     } catch (error) {
       console.error("Error saving shop details:", error);
-      alert("Failed to save shop details: " + (error.response?.data?.message || error.message));
+      
+      // More detailed error handling
+      let errorMessage = "Failed to update shop details";
+      
+      if (error.response) {
+        // Server responded with error status
+        if (error.response.data?.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.response.status === 422) {
+          errorMessage = "Please check your input data";
+        } else if (error.response.status === 401) {
+          errorMessage = "You are not authorized to perform this action";
+        } else if (error.response.status >= 500) {
+          errorMessage = "Server error. Please try again later";
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      showToast(errorMessage, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -516,10 +745,11 @@ useEffect(() => {
     setIsSubmitting(true);
     try {
       await updateBusinessHours(businessHours);
-      alert("Business hours updated successfully!");
+      showToast("Business hours updated successfully!", 'success');
     } catch (error) {
       console.error("Error saving business hours:", error);
-      alert("Failed to save business hours: " + (error.response?.data?.message || error.message));
+      const errorMessage = error.response?.data?.message || error.message || "Failed to update business hours";
+      showToast(errorMessage, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -536,7 +766,7 @@ useEffect(() => {
   // Add special closing day - Use proper API function
   const handleAddClosingDay = async () => {
     if (!newClosingDay.date) {
-      alert("Please select a date");
+      showToast("Please select a date", 'error');
       return;
     }
     
@@ -553,10 +783,13 @@ useEffect(() => {
         }
       ]);
       setNewClosingDay({ date: '', reason: '' });
-      alert("Special closing day added successfully!");
+      
+      const dateStr = new Date(newClosingDay.date).toLocaleDateString();
+      showToast(`Special closing day added for ${dateStr}`, 'success');
     } catch (error) {
       console.error("Error adding special closing day:", error);
-      alert("Failed to add special closing day: " + (error.response?.data?.message || error.message));
+      const errorMessage = error.response?.data?.message || error.message || "Failed to add special closing day";
+      showToast(errorMessage, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -564,14 +797,19 @@ useEffect(() => {
   
   // Remove special closing day - Use proper API function
   const handleRemoveClosingDay = async (id) => {
+    const dayToRemove = specialClosingDays.find(day => day.id === id);
+    
     setIsSubmitting(true);
     try {
       await removeSpecialClosingDay(id);
       setSpecialClosingDays(specialClosingDays.filter(day => day.id !== id));
-      alert("Special closing day removed successfully!");
+      
+      const dateStr = new Date(dayToRemove?.date).toLocaleDateString();
+      showToast(`Special closing day removed for ${dateStr}`, 'success');
     } catch (error) {
       console.error("Error removing special closing day:", error);
-      alert("Failed to remove special closing day: " + (error.response?.data?.message || error.message));
+      const errorMessage = error.response?.data?.message || error.message || "Failed to remove special closing day";
+      showToast(errorMessage, 'error');
     } finally {
       setIsSubmitting(false);
     }
@@ -579,6 +817,38 @@ useEffect(() => {
 
   return (
     <div className="bg-white rounded-lg shadow">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg max-w-sm ${
+          toast.type === 'success' 
+            ? 'bg-green-50 border-l-4 border-green-400 text-green-700' 
+            : 'bg-red-50 border-l-4 border-red-400 text-red-700'
+        }`}>
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              {toast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-green-400" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-400" />
+              )}
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium">{toast.message}</p>
+            </div>
+            <div className="ml-auto pl-3">
+              <button
+                onClick={() => setToast(null)}
+                className={`inline-flex text-sm ${
+                  toast.type === 'success' ? 'text-green-400 hover:text-green-600' : 'text-red-400 hover:text-red-600'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Shop Details Section */}
       <div className="p-6 border-b border-gray-200">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">Shop Details</h3>
@@ -586,6 +856,97 @@ useEffect(() => {
         {!isApproved && <ApprovalPendingNotice />}
         
         <div className="space-y-6">
+          {/* Shop Images Section */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-3">Shop Images</label>
+            
+            {/* Upload Section */}
+            <div className="mb-4">
+              <div className="flex items-center justify-center w-full">
+                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-gray-300 border-dashed rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100 relative">
+                  <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                    {isUploading ? (
+                      <div className="flex flex-col items-center">
+                        <div className="w-8 h-8 border-4 border-blue-200 border-top-blue-600 rounded-full animate-spin mb-2"></div>
+                        <p className="text-sm text-gray-500">Uploading... {Math.round(uploadProgress)}%</p>
+                      </div>
+                    ) : (
+                      <>
+                        <Upload className="w-8 h-8 mb-2 text-gray-400" />
+                        <p className="mb-2 text-sm text-gray-500">
+                          <span className="font-semibold">Click to upload</span> shop images
+                        </p>
+                        <p className="text-xs text-gray-500">PNG, JPG, JPEG or WebP (Max 5MB each, 10 images max)</p>
+                      </>
+                    )}
+                  </div>
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="image/jpeg,image/jpg,image/png,image/webp"
+                    multiple
+                    onChange={handleImageUpload}
+                    disabled={isUploading || formData.images.length >= 10}
+                  />
+                </label>
+              </div>
+            </div>
+
+            {/* Images Grid */}
+            {formData.images.length > 0 && (
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                {formData.images.map((image, index) => (
+                  <div key={image.id || index} className="relative group">
+                    <div className="aspect-square rounded-lg overflow-hidden bg-gray-100">
+                      <img
+                        src={image.image_url || image.url} // Handle both DB and temp URLs
+                        alt={`Shop image ${index + 1}`}
+                        className="w-full h-full object-cover"
+                      />
+                    </div>
+                    
+                    {/* Primary badge */}
+                    {(image.is_primary || index === 0) && (
+                      <div className="absolute top-2 left-2 bg-blue-600 text-white px-2 py-1 rounded text-xs font-medium">
+                        Primary
+                      </div>
+                    )}
+                    
+                    {/* Action buttons */}
+                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all duration-200 flex items-center justify-center opacity-0 group-hover:opacity-100">
+                      <div className="flex space-x-2">
+                        {!image.is_primary && index !== 0 && (
+                          <button
+                            onClick={() => handleSetPrimaryImage(index, image.id)}
+                            className="bg-white text-gray-700 p-2 rounded-full hover:bg-gray-100 transition-colors"
+                            title="Set as primary"
+                          >
+                            <Star className="w-4 h-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={() => handleRemoveImage(index, image.id)}
+                          className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700 transition-colors"
+                          title="Delete image"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            
+            {formData.images.length === 0 && (
+              <div className="text-center py-8 text-gray-500">
+                <ImageIcon className="w-12 h-12 mx-auto mb-3 text-gray-300" />
+                <p>No images uploaded yet</p>
+                <p className="text-sm">Upload images to showcase your barber shop</p>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1" htmlFor="shopName">Shop Name</label>
@@ -1100,6 +1461,15 @@ const ServicesContent = ({ shopId }) => {
     is_active: true
   });
 
+  // Toast state
+  const [toast, setToast] = useState(null);
+
+  // Toast helper function
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000); // Auto-hide after 5 seconds
+  };
+
   // Reset form helper
   const resetForm = () => {
     setFormData({
@@ -1127,106 +1497,126 @@ const ServicesContent = ({ shopId }) => {
   }, [shopId]);
 
   // Fetch all services for the shop
-const fetchServices = async () => {
-  try {
-    setIsLoading(true);
-    setError('');
-    const response = await getShopServices(); // Remove shopId parameter
-    setServices(response.data || []);
-  } catch (error) {
-    console.error('Error fetching services:', error);
-    if (error.response?.status === 401) {
-      setError('Authentication required. Please log in again.');
-    } else if (error.response?.status === 403) {
-      setError('You do not have permission to view these services.');
-    } else {
-      setError(error.response?.data?.message || 'Failed to load services');
+  const fetchServices = async () => {
+    try {
+      setIsLoading(true);
+      setError('');
+      const response = await getShopServices(); // Remove shopId parameter
+      setServices(response.data || []);
+    } catch (error) {
+      console.error('Error fetching services:', error);
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to view these services.');
+        showToast('You do not have permission to view these services.', 'error');
+      } else {
+        const errorMessage = error.response?.data?.message || 'Failed to load services';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
+    } finally {
+      setIsLoading(false);
     }
-  } finally {
-    setIsLoading(false);
-  }
-};
+  };
 
-// Add new service
-const handleAddService = async (e) => {
-  e.preventDefault();
-  try {
-    setError('');
-    const response = await createShopService(formData); // Remove shopId parameter
-    setServices([...services, response.data]);
-    setIsAddingService(false);
-    resetForm();
-  } catch (error) {
-    console.error('Error adding service:', error);
-    if (error.response?.status === 401) {
-      setError('Authentication required. Please log in again.');
-    } else if (error.response?.status === 403) {
-      setError('You do not have permission to create services.');
-    } else {
-      setError(error.response?.data?.message || 'Failed to create service');
+  // Add new service
+  const handleAddService = async (e) => {
+    e.preventDefault();
+    try {
+      setError('');
+      const response = await createShopService(formData); // Remove shopId parameter
+      setServices([...services, response.data]);
+      setIsAddingService(false);
+      resetForm();
+      showToast(`Service "${response.data.name}" has been created successfully!`, 'success');
+    } catch (error) {
+      console.error('Error adding service:', error);
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to create services.');
+        showToast('You do not have permission to create services.', 'error');
+      } else {
+        const errorMessage = error.response?.data?.message || 'Failed to create service';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
     }
-  }
-};
+  };
 
-const handleUpdateService = async (e) => {
-  e.preventDefault();
-  try {
-    setError('');
-    
-    // Make sure we're passing the service ID correctly
-    const response = await updateShopService(isEditingService, formData);
-    
-    setServices(services.map(service => 
-      service.id === isEditingService ? response.data : service
-    ));
-    setIsEditingService(null);
-    resetForm();
-  } catch (error) {
-    console.error('Error updating service:', error);
-    console.error('Error details:', error.response?.data); // Add this for debugging
-    
-    if (error.response?.status === 401) {
-      setError('Authentication required. Please log in again.');
-    } else if (error.response?.status === 403) {
-      setError('You do not have permission to update this service.');
-    } else if (error.response?.status === 404) {
-      setError('Service not found.');
-    } else {
-      // Show more detailed error message
-      const errorMessage = error.response?.data?.detail || 
-                          error.response?.data?.message || 
-                          Object.values(error.response?.data || {}).flat().join(', ') ||
-                          'Failed to update service';
-      setError(errorMessage);
+  const handleUpdateService = async (e) => {
+    e.preventDefault();
+    try {
+      setError('');
+      
+      // Make sure we're passing the service ID correctly
+      const response = await updateShopService(isEditingService, formData);
+      
+      setServices(services.map(service => 
+        service.id === isEditingService ? response.data : service
+      ));
+      setIsEditingService(null);
+      resetForm();
+      showToast(`Service "${response.data.name}" has been updated successfully!`, 'success');
+    } catch (error) {
+      console.error('Error updating service:', error);
+      console.error('Error details:', error.response?.data); // Add this for debugging
+      
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to update this service.');
+        showToast('You do not have permission to update this service.', 'error');
+      } else if (error.response?.status === 404) {
+        setError('Service not found.');
+        showToast('Service not found.', 'error');
+      } else {
+        // Show more detailed error message
+        const errorMessage = error.response?.data?.detail || 
+                            error.response?.data?.message || 
+                            Object.values(error.response?.data || {}).flat().join(', ') ||
+                            'Failed to update service';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
     }
-  }
-};
+  };
 
-const handleDeleteService = async (id) => {
-  if (!window.confirm('Are you sure you want to delete this service?')) return;
-  
-  try {
-    setError('');
-    await deleteShopService(id);
-    setServices(services.filter(service => service.id !== id));
-  } catch (error) {
-    console.error('Error deleting service:', error);
-    console.error('Error details:', error.response?.data); // Add this for debugging
+  const handleDeleteService = async (id) => {
+    const serviceToDelete = services.find(service => service.id === id);
+    if (!window.confirm(`Are you sure you want to delete "${serviceToDelete?.name}"?`)) return;
     
-    if (error.response?.status === 401) {
-      setError('Authentication required. Please log in again.');
-    } else if (error.response?.status === 403) {
-      setError('You do not have permission to delete this service.');
-    } else if (error.response?.status === 404) {
-      setError('Service not found.');
-    } else {
-      const errorMessage = error.response?.data?.detail || 
-                          error.response?.data?.message || 
-                          'Failed to delete service';
-      setError(errorMessage);
+    try {
+      setError('');
+      await deleteShopService(id);
+      setServices(services.filter(service => service.id !== id));
+      showToast(`Service "${serviceToDelete?.name}" has been deleted successfully!`, 'success');
+    } catch (error) {
+      console.error('Error deleting service:', error);
+      console.error('Error details:', error.response?.data); // Add this for debugging
+      
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to delete this service.');
+        showToast('You do not have permission to delete this service.', 'error');
+      } else if (error.response?.status === 404) {
+        setError('Service not found.');
+        showToast('Service not found.', 'error');
+      } else {
+        const errorMessage = error.response?.data?.detail || 
+                            error.response?.data?.message || 
+                            'Failed to delete service';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
     }
-  }
-};
+  };
 
   // Start editing a service
   const startEditService = (service) => {
@@ -1261,6 +1651,38 @@ const handleDeleteService = async (id) => {
 
   return (
     <div className="bg-white rounded-lg shadow">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg max-w-sm ${
+          toast.type === 'success' 
+            ? 'bg-green-50 border-l-4 border-green-400 text-green-700' 
+            : 'bg-red-50 border-l-4 border-red-400 text-red-700'
+        }`}>
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              {toast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-green-400" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-400" />
+              )}
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium">{toast.message}</p>
+            </div>
+            <div className="ml-auto pl-3">
+              <button
+                onClick={() => setToast(null)}
+                className={`inline-flex text-sm ${
+                  toast.type === 'success' ? 'text-green-400 hover:text-green-600' : 'text-red-400 hover:text-red-600'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="p-6 border-b border-gray-200">
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-800">Services</h3>
@@ -1310,7 +1732,7 @@ const handleDeleteService = async (id) => {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Price ($)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Price (₹)</label>
                 <input 
                   type="number"
                   name="price"

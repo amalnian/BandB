@@ -27,7 +27,8 @@ const SignupPage = lazy(() => import("./Pages/user/SignUpUser"))
 const OtpVerification = lazy(() => import("./Pages/user/OtpVerificationUser"))
 const Home = lazy(() => import("./Pages/user/Home"))
 const ForgotPass = lazy(() => import("./Pages/user/ForgotPass"))
-
+const UserLayout = lazy(() => import("./Pages/user/components/UserLayout"))
+const Settings = lazy(() => import("./Pages/user/Settings"))
 
 // Admin components
 const AdminLoginPage = lazy(() => import("./Pages/admin/LoginAdmin"))
@@ -124,13 +125,23 @@ function App() {
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/otp" element={<OtpVerification />} />
           <Route path="/forgot-password" element={<ForgotPass/>} />
-          {/* Home route with proper protection */}
+          
+          {/* User routes with sidebar layout */}
           <Route path="/" element={
             <SimpleProtectedUserRoute>
-              <Home />
+              <UserLayout />
             </SimpleProtectedUserRoute>
-          } />
-          
+          }>
+            {/* Nested routes for the barber booking app */}
+            <Route index element={<Navigate to="/Home" replace />} />
+            <Route path="home" element={<Home />} />
+            {/* <Route path="find-barbers" element={<FindBarbers />} /> */}
+            {/* <Route path="bookings" element={<Bookings />} />
+            <Route path="chats" element={<Chats />} />
+            <Route path="wallet" element={<Wallet />} /> */}
+            <Route path="settings" element={<Settings />} />
+          </Route>
+
           {/* Admin routes - Nested routing structure */}
           <Route path="/admin/login" element={<AdminLoginPage />} />
           <Route 

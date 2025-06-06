@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { FaEye, FaEyeSlash, FaStore } from 'react-icons/fa';
+import { FaEye, FaEyeSlash, FaStore, FaLocationArrow, FaMapMarkerAlt } from 'react-icons/fa';
 
 export default function ShopRegisterPage() {
   // State for form fields
@@ -12,7 +12,9 @@ export default function ShopRegisterPage() {
     password: '',
     confirmPassword: '',
     description: '',
-    ownerName: ''
+    ownerName: '',
+    latitude: null,
+    longitude: null
   });
   
   // UI control states
@@ -20,10 +22,93 @@ export default function ShopRegisterPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [step, setStep] = useState(1); // For multi-step form
+  const [step, setStep] = useState(1);
   const [registrationSuccess, setRegistrationSuccess] = useState(false);
   
+  // Location states
+  const [locationLoading, setLocationLoading] = useState(false);
+  const [locationError, setLocationError] = useState("");
+  const [locationObtained, setLocationObtained] = useState(false);
+  
   const navigate = useNavigate();
+
+  // Get user's current location
+  const getCurrentLocation = useCallback(() => {
+    setLocationLoading(true);
+    setLocationError("");
+    
+    if (!navigator.geolocation) {
+      setLocationError("Geolocation is not supported by this browser");
+      setLocationLoading(false);
+      return;
+    }
+
+    const options = {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0
+    };
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude } = position.coords;
+        setFormData(prevData => ({
+          ...prevData,
+          latitude: latitude,
+          longitude: longitude
+        }));
+        setLocationObtained(true);
+        setLocationLoading(false);
+        setLocationError("");
+        
+        // Optionally, get address from coordinates
+        reverseGeocode(latitude, longitude);
+      },
+      (error) => {
+        let errorMessage = "";
+        switch(error.code) {
+          case error.PERMISSION_DENIED:
+            errorMessage = "Location access denied by user";
+            break;
+          case error.POSITION_UNAVAILABLE:
+            errorMessage = "Location information is unavailable";
+            break;
+          case error.TIMEOUT:
+            errorMessage = "Location request timed out";
+            break;
+          default:
+            errorMessage = "An unknown error occurred while retrieving location";
+        }
+        setLocationError(errorMessage);
+        setLocationLoading(false);
+      },
+      options
+    );
+  }, []);
+
+  // Reverse geocoding to get address from coordinates (optional)
+  const reverseGeocode = async (lat, lng) => {
+    try {
+      // Using a free geocoding service (you can replace with your preferred service)
+      const response = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lng}&localityLanguage=en`
+      );
+      const data = await response.json();
+      
+      if (data && data.locality) {
+        // Auto-fill address if it's empty
+        if (!formData.address) {
+          setFormData(prevData => ({
+            ...prevData,
+            address: `${data.locality}, ${data.principalSubdivision}, ${data.countryName}`
+          }));
+        }
+      }
+    } catch (error) {
+      console.log("Could not get address from coordinates:", error);
+      // Silently fail - this is just a convenience feature
+    }
+  };
 
   // Prevent unnecessary re-renders
   const handleChange = useCallback((e) => {
@@ -97,7 +182,7 @@ export default function ShopRegisterPage() {
     setIsLoading(true);
 
     try {
-      console.log("Submitting shop registration data:", {
+      const registrationData = {
         name: formData.name,
         email: formData.email,
         phone: formData.phone,
@@ -105,7 +190,15 @@ export default function ShopRegisterPage() {
         password: formData.password,
         description: formData.description || "",
         owner_name: formData.ownerName
-      });
+      };
+
+      // Add location data if available
+      if (formData.latitude && formData.longitude) {
+        registrationData.latitude = formData.latitude;
+        registrationData.longitude = formData.longitude;
+      }
+
+      console.log("Submitting shop registration data:", registrationData);
 
       // Register the shop
       const response = await fetch("http://127.0.0.1:8000/api/auth/register/", {
@@ -113,15 +206,7 @@ export default function ShopRegisterPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          name: formData.name,
-          email: formData.email,
-          phone: formData.phone,
-          address: formData.address,
-          password: formData.password,
-          description: formData.description || "", 
-          owner_name: formData.ownerName
-        }),
+        body: JSON.stringify(registrationData),
       });
 
       const data = await response.json();
@@ -183,6 +268,7 @@ export default function ShopRegisterPage() {
     setError("");
     setStep(1);
   }, []);
+
   return (
     <div className="flex h-screen bg-gray-100">
       {/* Left side - Image */}
@@ -360,6 +446,68 @@ export default function ShopRegisterPage() {
                       rows="2"
                       required
                     />
+                  </div>
+
+                  {/* Location Section */}
+                  <div className="mb-4">
+                    <label className="block text-gray-700 text-sm font-semibold mb-2">
+                      Shop Location
+                    </label>
+                    <div className="bg-gray-50 p-4 rounded-lg border">
+                      {!locationObtained ? (
+                        <>
+                          <p className="text-sm text-gray-600 mb-3">
+                            Help customers find you by sharing your shop's location. This will improve your visibility in local searches.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={getCurrentLocation}
+                            disabled={locationLoading}
+                            className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 transition duration-200 flex items-center justify-center"
+                          >
+                            {locationLoading ? (
+                              <>
+                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                                Getting Location...
+                              </>
+                            ) : (
+                              <>
+                                <FaLocationArrow className="mr-2" />
+                                Get Current Location
+                              </>
+                            )}
+                          </button>
+                          {locationError && (
+                            <p className="text-red-500 text-sm mt-2">
+                              {locationError}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div className="text-center">
+                          <div className="flex items-center justify-center text-green-600 mb-2">
+                            <FaMapMarkerAlt className="mr-2" />
+                            <span className="font-semibold">Location Obtained!</span>
+                          </div>
+                          <p className="text-sm text-gray-600 mb-2">
+                            Coordinates: {formData.latitude?.toFixed(6)}, {formData.longitude?.toFixed(6)}
+                          </p>
+                          <button
+                            type="button"
+                            onClick={getCurrentLocation}
+                            className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+                          >
+                            Update Location
+                          </button>
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-500 mt-2">
+                        Location sharing is optional but recommended for better customer reach.
+                      </p>
+                    </div>
                   </div>
                   
                   <div className="mb-4">

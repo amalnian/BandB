@@ -3,6 +3,7 @@
 import { useState } from "react"
 import { Eye, EyeOff, ShieldAlert } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
+import toast, { Toaster } from "react-hot-toast"
 import { login } from "@/endpoints/AdminAPI" // Adjust the import path based on your file structure
 
 export default function AdminLoginPage() {
@@ -17,6 +18,9 @@ export default function AdminLoginPage() {
     e.preventDefault();
     setError("");
     setLoading(true);
+  
+    // Show loading toast
+    const loadingToast = toast.loading("Signing in...");
   
     try {
       // Use your admin API function
@@ -45,8 +49,17 @@ export default function AdminLoginPage() {
         
         if (storedData) {
           console.log("Navigating to admin dashboard..."); // Debug log
-          // Navigate immediately without setTimeout
-          navigate("/admin/dashboard", { replace: true });
+          
+          // Dismiss loading toast and show success
+          toast.dismiss(loadingToast);
+          toast.success("Login successful! Redirecting...", {
+            duration: 2000,
+          });
+          
+          // Navigate after a short delay to show the success message
+          setTimeout(() => {
+            navigate("/admin/dashboard", { replace: true });
+          }, 1000);
         } else {
           throw new Error("Failed to store user data");
         }
@@ -58,20 +71,30 @@ export default function AdminLoginPage() {
     } catch (error) {
       console.error("Login error:", error);
       
+      // Dismiss loading toast
+      toast.dismiss(loadingToast);
+      
       // Handle different types of errors
+      let errorMessage;
       if (error.response) {
         // Server responded with error status
-        const errorMessage = error.response.data?.message || 
-                            error.response.data?.detail || 
-                            "Invalid credentials";
-        setError(errorMessage);
+        errorMessage = error.response.data?.message || 
+                      error.response.data?.detail || 
+                      "Invalid credentials";
       } else if (error.request) {
         // Network error
-        setError("Network error. Please check your connection.");
+        errorMessage = "Network error. Please check your connection.";
       } else {
         // Other errors
-        setError(error.message || "An unexpected error occurred");
+        errorMessage = error.message || "An unexpected error occurred";
       }
+      
+      // Show error toast
+      toast.error(errorMessage, {
+        duration: 4000,
+      });
+      
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
@@ -79,6 +102,30 @@ export default function AdminLoginPage() {
 
   return (
     <div className="flex flex-col md:flex-row h-screen">
+      {/* Toast container */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
+
       {/* Left side - Dark theme for admin */}
       <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden bg-amber-400">
         <div className="absolute left-10 top-10 z-10 text-2xl font-bold text-gray-600 md:text-3xl">

@@ -1,6 +1,6 @@
 import random
 from rest_framework import serializers
-from .models import Shop
+from .models import Shop, ShopImage
 from users.models import CustomUser
 from shop.models import Service, Appointment, Notification, SpecialClosingDay, BusinessHours
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -13,6 +13,10 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
         token['role'] = user.role  
         return token
 
+class ShopImageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ShopImage
+        fields = ['id', 'image_url', 'public_id', 'width', 'height', 'is_primary', 'order', 'created_at']
 
 class ShopSerializer(serializers.ModelSerializer):
     # Add fields for user creation
@@ -21,14 +25,15 @@ class ShopSerializer(serializers.ModelSerializer):
     email = serializers.EmailField()  # Override to make it writable during creation
     is_active = serializers.BooleanField(read_only=True)
     rating = serializers.FloatField(read_only=True, source='get_average_rating')
-    
+    images = ShopImageSerializer(many=True, read_only=True)
+
     class Meta:
         model = Shop
         fields = [
             'id', 'name', 'email', 'phone', 'address', 
             'description', 'owner_name', 'is_active', 
             'is_email_verified', 'is_approved', 'opening_hours', 'rating',
-            'username', 'password'  # Added for user creation
+            'username', 'password','images','latitude','longitude'  # Added for user creation
         ]
         read_only_fields = ['is_email_verified', 'is_approved']
 
@@ -38,6 +43,17 @@ class ShopSerializer(serializers.ModelSerializer):
         if 'opening_hours' not in representation or representation['opening_hours'] is None:
             representation['opening_hours'] = ""
         return representation
+
+    def validate(self, data):
+    # Validate coordinates if provided
+        if data.get('latitude') and data.get('longitude'):
+            lat = float(data['latitude'])
+            lng = float(data['longitude'])
+            if not (-90 <= lat <= 90):
+                raise serializers.ValidationError("Latitude must be between -90 and 90")
+            if not (-180 <= lng <= 180):
+                raise serializers.ValidationError("Longitude must be between -180 and 180")
+        return data
 
     def create(self, validated_data):
         """Create both CustomUser and Shop in a single transaction"""
@@ -232,16 +248,16 @@ class ShopForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
     def validate_email(self, value):
         if not CustomUser.objects.filter(email=value, role='shop').exists():
-            raise serializers.ValidationError("No mentor found with this email address.")
+            raise serializers.ValidationError("No shop found with this email address.")
         return value
 
     def create(self, validated_data):
         email = validated_data['email']
-        user = CustomUser.objects.get(email=email, is_mentor=True)
+        user = CustomUser.objects.get(email=email, role='shop')
         otp = f"{random.randint(100000, 999999)}"
         user.otp = otp
         user.save()
-        print(f"Mentor Password Reset OTP for {user.email}: {otp}")  # Print OTP in terminal
+        print(f"Shop Password Reset OTP for {user.email}: {otp}")  # Print OTP in terminal
         return user
 
 class ShopVerifyForgotPasswordOTPSerializer(serializers.Serializer):
@@ -257,7 +273,7 @@ class ShopVerifyForgotPasswordOTPSerializer(serializers.Serializer):
             if user.otp != otp:
                 raise serializers.ValidationError("Invalid OTP")
         except CustomUser.DoesNotExist:
-            raise serializers.ValidationError("Mentor not found")
+            raise serializers.ValidationError("Shop not found")
         
         return data
 
@@ -276,7 +292,7 @@ class ShopResetPasswordSerializer(serializers.Serializer):
             if user.otp != otp:
                 raise serializers.ValidationError("Invalid OTP")
         except CustomUser.DoesNotExist:
-            raise serializers.ValidationError("Mentor not found")
+            raise serializers.ValidationError("Shop not found")
         
         return data
 

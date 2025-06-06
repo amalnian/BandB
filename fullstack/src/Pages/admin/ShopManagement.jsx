@@ -19,6 +19,7 @@ import {
   ShieldAlert,
   Shield
 } from "lucide-react"
+import toast, { Toaster } from "react-hot-toast"
 
 // Import API functions
 import {
@@ -75,11 +76,16 @@ export default function ShopManagement() {
       setTotalPages(Math.ceil(response.data.count / itemsPerPage))
     } catch (error) {
       console.error("Error fetching shops:", error)
-      setError("Failed to fetch shops")
+      const errorMessage = "Failed to fetch shops"
+      setError(errorMessage)
+      toast.error(errorMessage)
       
       // Check if it's an authentication error
       if (error.response?.status === 401) {
-        window.location.href = "/admin/login"
+        toast.error("Session expired. Redirecting to login...")
+        setTimeout(() => {
+          window.location.href = "/admin/login"
+        }, 2000)
       }
     } finally {
       setLoading(false)
@@ -89,8 +95,13 @@ export default function ShopManagement() {
   const handleAddShop = async (e) => {
     if (e) e.preventDefault()
     
+    const loadingToast = toast.loading("Adding shop...")
+    
     try {
       await createShop(formData)
+      
+      toast.dismiss(loadingToast)
+      toast.success("Shop added successfully!")
       
       setShowAddModal(false)
       setFormData({
@@ -107,71 +118,124 @@ export default function ShopManagement() {
       setError("")
     } catch (error) {
       console.error("Error adding shop:", error)
-      setError("Failed to add shop")
+      const errorMessage = error.response?.data?.message || "Failed to add shop"
+      
+      toast.dismiss(loadingToast)
+      toast.error(errorMessage)
+      setError(errorMessage)
     }
   }
 
   const handleEditShop = async (e) => {
     if (e) e.preventDefault()
     
+    const loadingToast = toast.loading("Updating shop...")
+    
     try {
       await updateShop(currentShop.id, formData)
+      
+      toast.dismiss(loadingToast)
+      toast.success("Shop updated successfully!")
+      
       setShowEditModal(false)
       fetchShops()
       setError("")
     } catch (error) {
       console.error("Error updating shop:", error)
-      setError("Failed to update shop")
+      const errorMessage = error.response?.data?.message || "Failed to update shop"
+      
+      toast.dismiss(loadingToast)
+      toast.error(errorMessage)
+      setError(errorMessage)
     }
   }
 
   const handleDeleteShop = async () => {
+    const loadingToast = toast.loading("Deleting shop...")
+    
     try {
       await deleteShop(currentShop.id)
+      
+      toast.dismiss(loadingToast)
+      toast.success(`${currentShop.name} deleted successfully`)
+      
       setShowDeleteModal(false)
       fetchShops()
       setError("")
     } catch (error) {
       console.error("Error deleting shop:", error)
-      setError("Failed to delete shop")
+      const errorMessage = error.response?.data?.message || "Failed to delete shop"
+      
+      toast.dismiss(loadingToast)
+      toast.error(errorMessage)
+      setError(errorMessage)
     }
   }
 
   const handleBlockShop = async () => {
+    const loadingToast = toast.loading("Blocking shop...")
+    
     try {
       await blockShop(currentShop.id)
+      
+      toast.dismiss(loadingToast)
+      toast.success(`${currentShop.name} blocked successfully`)
+      
       setShowBlockModal(false)
       fetchShops()
       setError("")
     } catch (error) {
       console.error("Error blocking shop:", error)
-      setError("Failed to block shop")
+      const errorMessage = error.response?.data?.message || "Failed to block shop"
+      
+      toast.dismiss(loadingToast)
+      toast.error(errorMessage)
+      setError(errorMessage)
     }
   }
 
   const handleUnblockShop = async (shop) => {
+    const loadingToast = toast.loading("Unblocking shop...")
+    
     try {
       await unblockShop(shop.id)
+      
+      toast.dismiss(loadingToast)
+      toast.success(`${shop.name} unblocked successfully`)
+      
       fetchShops()
       setError("")
     } catch (error) {
       console.error("Error unblocking shop:", error)
-      setError("Failed to unblock shop")
+      const errorMessage = error.response?.data?.message || "Failed to unblock shop"
+      
+      toast.dismiss(loadingToast)
+      toast.error(errorMessage)
+      setError(errorMessage)
     }
   }
 
   const handleApproveShop = async () => {
+    const loadingToast = toast.loading("Approving shop...")
+    
     try {
       await approveShop(currentShop.id, { is_approved: true })
+      
+      toast.dismiss(loadingToast)
+      toast.success(`${currentShop.name} approved successfully`)
+      
       setShowApproveModal(false)
       fetchShops()
       setError("")
     } catch (error) {
       console.error("Error approving shop:", error)
-      setError("Failed to approve shop")
+      const errorMessage = error.response?.data?.message || "Failed to approve shop"
+      
+      toast.dismiss(loadingToast)
+      toast.error(errorMessage)
+      setError(errorMessage)
     }
   }
-
   const openEditModal = (shop) => {
     setCurrentShop(shop)
     setFormData({
@@ -578,13 +642,13 @@ export default function ShopManagement() {
           />
         </div>
         
-        <button
+        {/* <button
           onClick={() => setShowAddModal(true)}
           className="flex items-center rounded-md bg-blue-600 px-4 py-2 text-white hover:bg-blue-700"
         >
           <Plus className="mr-2 h-5 w-5" />
           Add Shop
-        </button>
+        </button> */}
       </div>
       
       <div className="overflow-x-auto rounded-lg border bg-white">
@@ -664,12 +728,12 @@ export default function ShopManagement() {
                       <Edit className="h-4 w-4" />
                     </button>
                     
-                    <button
+                    {/* <button
                       onClick={() => openDeleteModal(shop)}
                       className="rounded p-1 text-red-600 hover:bg-gray-100"
                     >
                       <Trash2 className="h-4 w-4" />
-                    </button>
+                    </button> */}
                     
                     {shop.is_active ? (
                       <button

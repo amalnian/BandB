@@ -14,7 +14,8 @@ class Shop(models.Model):
     description = models.TextField(blank=True)
     owner_name = models.CharField(max_length=100, blank=True)
     opening_hours = models.CharField(max_length=255, blank=True)
-    
+    latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
     # Fields for verification and approval
     is_email_verified = models.BooleanField(default=False)
     is_approved = models.BooleanField(default=False)
@@ -50,7 +51,27 @@ class Shop(models.Model):
         super().save(*args, **kwargs)
         
 
+class ShopImage(models.Model):
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='images')
+    image_url = models.URLField(max_length=500)  # Cloudinary URL
+    public_id = models.CharField(max_length=255)  # Cloudinary public_id
+    width = models.IntegerField(null=True, blank=True)
+    height = models.IntegerField(null=True, blank=True)
+    is_primary = models.BooleanField(default=False)
+    order = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
 
+    class Meta:
+        ordering = ['order', 'created_at']
+
+    def __str__(self):
+        return f"{self.shop.name} - Image {self.id}"
+
+    def save(self, *args, **kwargs):
+        # If this is set as primary, make all other images non-primary
+        if self.is_primary:
+            ShopImage.objects.filter(shop=self.shop, is_primary=True).update(is_primary=False)
+        super().save(*args, **kwargs)
 
 
 class OTP(models.Model):
