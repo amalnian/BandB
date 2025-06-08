@@ -821,3 +821,367 @@ class UserStatsView(APIView):
                 'message': 'Failed to fetch user stats',
                 'error': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+
+
+
+
+
+
+from django.shortcuts import render
+from django.http import JsonResponse
+from django.views import View
+from django.utils.decorators import method_decorator
+from django.views.decorators.csrf import csrf_exempt
+from rest_framework.decorators import authentication_classes, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from django.db.models import Q
+from django.core.serializers import serialize
+from math import radians, cos, sin, asin, sqrt
+import json
+from decimal import Decimal
+from .models import CustomUser
+from shop.models import Shop
+from .authentication import CoustomJWTAuthentication  # Import your custom JWT auth
+
+
+class UpdateUserLocationView(APIView):
+    authentication_classes = [CoustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # Handle both JSON and form data
+            if hasattr(request, 'data'):
+                data = request.data
+            else:
+                data = json.loads(request.body)
+                
+            latitude = data.get('latitude')
+            longitude = data.get('longitude')
+            
+            if not latitude or not longitude:
+                return Response({
+                    'error': 'Latitude and longitude are required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate coordinate ranges
+            try:
+                lat_float = float(latitude)
+                lng_float = float(longitude)
+                
+                if not (-90 <= lat_float <= 90):
+                    return Response({
+                        'error': 'Latitude must be between -90 and 90'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                if not (-180 <= lng_float <= 180):
+                    return Response({
+                        'error': 'Longitude must be between -180 and 180'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+            except (ValueError, TypeError):
+                return Response({
+                    'error': 'Invalid coordinate values'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update user location
+            user = request.user
+            user.current_latitude = Decimal(str(latitude))
+            user.current_longitude = Decimal(str(longitude))
+            user.location_enabled = True
+            user.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Location updated successfully',
+                'location': {
+                    'latitude': float(user.current_latitude),
+                    'longitude': float(user.current_longitude)
+                }
+            })
+            
+        except json.JSONDecodeError:
+            return Response({
+                'error': 'Invalid JSON data'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"UpdateUserLocationView error: {str(e)}")  # Debug logging
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NearbyShopsView(APIView):
+    authentication_classes = [CoustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Get parameters from query string
+            user_lat = request.GET.get('latitude')
+            user_lng = request.GET.get('longitude')
+            radius = float(request.GET.get('radius', 10))  # Default 10km
+            
+            print(f"NearbyShopsView - Received params: lat={user_lat}, lng={user_lng}, radius={radius}")  # Debug
+            
+            # If no coordinates provided, try to get from user's saved location
+            if not user_lat or not user_lng:
+                user = request.user
+                print(f"No coordinates in request, checking user saved location")  # Debug
+                
+                if user.current_latitude and user.current_longitude:
+                    user_lat = float(user.current_latitude)
+                    user_lng = float(user.current_longitude)
+                    print(f"Using saved user location: lat={user_lat}, lng={user_lng}")  # Debug
+                else:
+                    print(f"No saved user location found")  # Debug
+                    return Response({
+                        'error': 'Location coordinates are required. Please enable location access.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            else:
+                try:
+                    user_lat = float(user_lat)
+                    user_lng = float(user_lng)
+                except (ValueError, TypeError):
+                    return Response({
+                        'error': 'Invalid coordinate values'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get all shops with coordinates and approved status
+            shops = Shop.objects.filter(
+                latitude__isnull=False,
+                longitude__isnull=False,
+                is_approved=True,
+                is_active=True  # Only active shops
+            ).select_related('user')
+            
+            print(f"Found {shops.count()} approved shops with coordinates")  # Debug
+            
+            # Filter shops within radius
+            nearby_shops = []
+            for shop in shops:
+                try:
+                    shop_lat = float(shop.latitude)
+                    shop_lng = float(shop.longitude)
+                    
+                    distance = self.calculate_distance(
+                        user_lat, user_lng, shop_lat, shop_lng
+                    )
+                    
+                    print(f"Shop {shop.name}: distance = {distance:.2f}km")  # Debug
+                    
+                    if distance <= radius:
+                        # Get additional shop data
+                        try:
+                            average_rating = shop.get_average_rating() if hasattr(shop, 'get_average_rating') else 0.0
+                        except:
+                            average_rating = 0.0
+                            
+                        shop_data = {
+                            'id': shop.id,
+                            'name': shop.name,
+                            'email': shop.email,
+                            'phone': shop.phone,
+                            'address': shop.address,
+                            'description': shop.description,
+                            'owner_name': shop.owner_name,
+                            'opening_hours': shop.opening_hours,
+                            'latitude': shop_lat,
+                            'longitude': shop_lng,
+                            'distance': round(distance, 2),
+                            'average_rating': average_rating,
+                            'is_active': shop.is_active,
+                            # Add image if exists
+                            'image_url': shop.image.url if hasattr(shop, 'image') and shop.image else None,
+                        }
+                        nearby_shops.append(shop_data)
+                        
+                except (ValueError, TypeError) as e:
+                    print(f"Error processing shop {shop.id}: {e}")  # Debug
+                    continue
+            
+            # Sort by distance
+            nearby_shops.sort(key=lambda x: x['distance'])
+            
+            print(f"Found {len(nearby_shops)} shops within {radius}km")  # Debug
+            
+            return Response({
+                'success': True,
+                'shops': nearby_shops,
+                'total_count': len(nearby_shops),
+                'search_radius': radius,
+                'user_location': {
+                    'latitude': user_lat,
+                    'longitude': user_lng
+                }
+            })
+            
+        except ValueError as e:
+            print(f"ValueError in NearbyShopsView: {e}")  # Debug
+            return Response({
+                'error': 'Invalid coordinate values'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"Exception in NearbyShopsView: {e}")  # Debug
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def calculate_distance(self, lat1, lon1, lat2, lon2):
+        """
+        Calculate the great circle distance between two points 
+        on the earth (specified in decimal degrees)
+        Returns distance in kilometers
+        """
+        # Validate inputs
+        if any(coord is None for coord in [lat1, lon1, lat2, lon2]):
+            return float('inf')  # Return large distance if any coordinate is None
+            
+        try:
+            # Convert decimal degrees to radians
+            lat1, lon1, lat2, lon2 = map(radians, [float(lat1), float(lon1), float(lat2), float(lon2)])
+            
+            # Haversine formula
+            dlat = lat2 - lat1
+            dlon = lon2 - lon1
+            a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
+            c = 2 * asin(sqrt(a))
+            
+            # Radius of earth in kilometers
+            r = 6371
+            
+            return c * r
+        except (ValueError, TypeError):
+            return float('inf')
+
+
+class SearchNearbyShopsView(APIView):
+    """
+    Combined view that updates user location and returns nearby shops
+    """
+    authentication_classes = [CoustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            # Handle both JSON and form data
+            if hasattr(request, 'data'):
+                data = request.data
+            else:
+                data = json.loads(request.body)
+                
+            latitude = data.get('latitude')
+            longitude = data.get('longitude')
+            radius = float(data.get('radius', 10))
+            
+            print(f"SearchNearbyShopsView - Received: lat={latitude}, lng={longitude}, radius={radius}")  # Debug
+            
+            if not latitude or not longitude:
+                return Response({
+                    'error': 'Latitude and longitude are required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate coordinates
+            try:
+                lat_float = float(latitude)
+                lng_float = float(longitude)
+                
+                if not (-90 <= lat_float <= 90) or not (-180 <= lng_float <= 180):
+                    return Response({
+                        'error': 'Invalid coordinate range'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                    
+            except (ValueError, TypeError):
+                return Response({
+                    'error': 'Invalid coordinate format'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update user location first
+            user = request.user
+            user.current_latitude = Decimal(str(latitude))
+            user.current_longitude = Decimal(str(longitude))
+            user.location_enabled = True
+            user.save()
+            
+            print(f"Updated user location: {user.current_latitude}, {user.current_longitude}")  # Debug
+            
+            # Create a new request object for the GET call
+            from django.test import RequestFactory
+            factory = RequestFactory()
+            get_request = factory.get('/nearby-shops/', {
+                'latitude': str(latitude),
+                'longitude': str(longitude),
+                'radius': str(radius)
+            })
+            
+            # Copy authentication from original request
+            get_request.user = request.user
+            get_request.auth = getattr(request, 'auth', None)
+            
+            # Get nearby shops using the same logic as NearbyShopsView
+            nearby_view = NearbyShopsView()
+            return nearby_view.get(get_request)
+            
+        except json.JSONDecodeError:
+            return Response({
+                'error': 'Invalid JSON data'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            print(f"SearchNearbyShopsView error: {str(e)}")  # Debug
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AllShopsView(APIView):
+    authentication_classes = [CoustomJWTAuthentication]
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            shops = Shop.objects.filter(
+                is_approved=True,
+                is_active=True  # Only active shops
+            ).select_related('user')
+            
+            shops_data = []
+            for shop in shops:
+                try:
+                    average_rating = shop.get_average_rating() if hasattr(shop, 'get_average_rating') else 0.0
+                except:
+                    average_rating = 0.0
+                    
+                shop_data = {
+                    'id': shop.id,
+                    'name': shop.name,
+                    'email': shop.email,
+                    'phone': shop.phone,
+                    'address': shop.address,
+                    'description': shop.description,
+                    'owner_name': shop.owner_name,
+                    'opening_hours': shop.opening_hours,
+                    'latitude': float(shop.latitude) if shop.latitude else None,
+                    'longitude': float(shop.longitude) if shop.longitude else None,
+                    'average_rating': average_rating,
+                    'is_active': shop.is_active,
+                    'image_url': shop.image.url if hasattr(shop, 'image') and shop.image else None,
+                }
+                shops_data.append(shop_data)
+            
+            return Response({
+                'success': True,
+                'shops': shops_data,
+                'total_count': len(shops_data)
+            })
+            
+        except Exception as e:
+            print(f"AllShopsView error: {str(e)}")  # Debug
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

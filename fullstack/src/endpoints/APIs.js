@@ -167,3 +167,17 @@ export const getServices = (categoryId = null) => {
   return axios.get(url);
 };
 
+
+// Location APIs
+export const updateUserLocation = (locationData) => 
+  axios.post('user/update-location/', locationData)
+
+export const getNearbyShops = (params) => 
+  axios.get('shops/nearby/', { params })
+
+export const getShops = () => 
+  axios.get('shops/')
+
+// Alternative: Combined function that handles both location update and nearby search
+export const searchNearbyShops = (locationData) => 
+  axios.post('shops/search-nearby/', locationData)

@@ -22,7 +22,7 @@ import {
   changePassword, 
   uploadProfilePicture, 
   deleteProfilePicture,
-  deactivateAccount 
+  // deactivateAccount 
 } from "@/endpoints/APIs"
 
 export default function Settings() {
