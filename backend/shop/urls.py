@@ -1,4 +1,5 @@
 from django.urls import path
+
 from .views import (
     # CoustomTokenObtainPairView,
     # CoustomTokenRefreshView,
@@ -33,7 +34,7 @@ from .views import (
     RecentAppointmentsView,
     ShopNotificationsView,
     ShopLogoutView,
-
+    
 
     BusinessHoursView,
     BusinessHoursUpdateView,

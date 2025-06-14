@@ -1,6 +1,6 @@
 import random
 from rest_framework import serializers
-from .models import Shop, ShopImage
+from .models import Booking, Shop, ShopImage
 from users.models import CustomUser
 from shop.models import Service, Notification, SpecialClosingDay, BusinessHours
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -303,3 +303,20 @@ class ShopResetPasswordSerializer(serializers.Serializer):
         user.otp = None  # Clear the OTP after successful password reset
         user.save()
         return user 
+    
+
+class BookingSerializer(serializers.ModelSerializer):
+    user_name = serializers.CharField(source='user.username', read_only=True)
+    user_email = serializers.CharField(source='user.email', read_only=True)
+    user_phone = serializers.CharField(source='user.phone', read_only=True)
+    shop_name = serializers.CharField(source='shop.name', read_only=True)
+    services = ServiceSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = Booking
+        fields = [
+            'id', 'user_name', 'user_email', 'user_phone', 'shop_name',
+            'services', 'appointment_date', 'appointment_time', 'total_amount',
+            'booking_status', 'payment_status', 'payment_method', 'notes',
+            'created_at', 'updated_at'
+        ]

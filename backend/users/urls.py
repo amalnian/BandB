@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AllShopsView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
+from .views import AllShopsView,BookingStatsAPIView, BookingStatusUpdateAPIView, ShopBookingsAPIView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
 
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -43,6 +43,11 @@ urlpatterns = [
     path('payment/razorpay/create-order/', CreateRazorpayOrderView.as_view(), name='create-razorpay-order'),
     path('payment/razorpay/verify/', VerifyRazorpayPaymentView.as_view(), name='verify-razorpay-payment'),
     path('payment/razorpay/failure/', HandlePaymentFailureView.as_view(), name='handle-payment-failure'),
+
+    path('shop/bookings/', ShopBookingsAPIView.as_view(), name='shop_bookings'),
+    path('shop/bookings/<int:booking_id>/status/', BookingStatusUpdateAPIView.as_view(), name='update_booking_status'),
+    path('shop/bookings/stats/', BookingStatsAPIView.as_view(), name='booking_stats'),
+    
 ]
 
 

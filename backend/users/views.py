@@ -2563,3 +2563,271 @@ class HandlePaymentFailureView(APIView):
                 'success': False,
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
+        
+
+from rest_framework import status, generics
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from django.db.models import Q
+from rest_framework.views import APIView
+from datetime import datetime, date
+import logging
+
+from shop.models import Booking, Shop
+from shop.serializers import BookingSerializer
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
+class ShopBookingsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            # Check if user is authenticated
+            if not request.user.is_authenticated:
+                return Response({'success': False, 'message': 'Authentication required'}, 
+                              status=status.HTTP_401_UNAUTHORIZED)
+
+            # Get shop - handle case where shop doesn't exist
+            try:
+                shop = Shop.objects.get(user=request.user)
+            except Shop.DoesNotExist:
+                logger.error(f"Shop not found for user: {request.user.id}")
+                return Response({'success': False, 'message': 'Shop not found for this user'}, 
+                              status=status.HTTP_404_NOT_FOUND)
+
+            # Get query parameters
+            booking_status = request.GET.get('status', None)
+            date_filter = request.GET.get('date', None)
+            search = request.GET.get('search', None)
+
+            # Start with base queryset - be more careful with related fields
+            try:
+                bookings = Booking.objects.filter(shop=shop)
+                
+                # Only add select_related/prefetch_related if the relationships exist
+                # Remove or adjust these based on your actual model structure
+                bookings = bookings.select_related('user', 'shop')
+                # Only uncomment if 'services' relationship exists
+                # bookings = bookings.prefetch_related('services')
+            except Exception as e:
+                logger.error(f"Error building base queryset: {str(e)}")
+                return Response({'success': False, 'message': 'Database query error'}, 
+                              status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # Apply status filter
+            if booking_status and booking_status != 'all':
+                # Validate status values
+                valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
+                if booking_status in valid_statuses:
+                    bookings = bookings.filter(booking_status=booking_status)
+
+            # Apply date filter
+            if date_filter:
+                try:
+                    filter_date = datetime.strptime(date_filter, '%Y-%m-%d').date()
+                    bookings = bookings.filter(appointment_date=filter_date)
+                except ValueError:
+                    logger.warning(f"Invalid date format: {date_filter}")
+                    # Don't fail, just skip the filter
+
+            # Apply search filter - be careful about field names
+            if search:
+                search_filters = Q()
+                
+                # Check if these fields exist before using them
+                try:
+                    # Basic user fields that should exist
+                    search_filters |= Q(user__username__icontains=search)
+                    search_filters |= Q(user__email__icontains=search)
+                    
+                    # Only add phone if the field exists
+                    # Remove this line if your User model doesn't have a phone field
+                    # search_filters |= Q(user__phone__icontains=search)
+                    
+                    # Only add notes if the field exists on Booking model
+                    search_filters |= Q(notes__icontains=search)
+                    
+                    bookings = bookings.filter(search_filters)
+                except Exception as e:
+                    logger.error(f"Error applying search filters: {str(e)}")
+                    # Continue without search filter rather than failing
+
+            # Order results
+            try:
+                bookings = bookings.order_by('-appointment_date', '-appointment_time')
+            except Exception as e:
+                logger.error(f"Error ordering bookings: {str(e)}")
+                # Use default ordering or no ordering
+                bookings = bookings.order_by('-id')
+
+            # Serialize data
+            try:
+                serializer = BookingSerializer(bookings, many=True)
+                booking_data = serializer.data
+            except Exception as e:
+                logger.error(f"Serialization error: {str(e)}")
+                return Response({'success': False, 'message': 'Data serialization error'}, 
+                              status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # Get count
+            try:
+                total_count = bookings.count()
+            except Exception as e:
+                logger.error(f"Error getting booking count: {str(e)}")
+                total_count = len(booking_data)
+
+            return Response({
+                'success': True,
+                'bookings': booking_data,
+                'total_count': total_count
+            })
+
+        except Exception as e:
+            logger.error(f"Unexpected error in ShopBookingsAPIView: {str(e)}", exc_info=True)
+            return Response({'success': False, 'message': 'An unexpected error occurred'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class BookingStatusUpdateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def patch(self, request, booking_id):
+        try:
+            # Get shop
+            try:
+                shop = Shop.objects.get(user=request.user)
+            except Shop.DoesNotExist:
+                return Response({'success': False, 'message': 'Shop not found for this user'}, 
+                              status=status.HTTP_404_NOT_FOUND)
+
+            # Get booking
+            try:
+                booking = Booking.objects.get(id=booking_id, shop=shop)
+            except Booking.DoesNotExist:
+                return Response({'success': False, 'message': 'Booking not found'}, 
+                              status=status.HTTP_404_NOT_FOUND)
+
+            new_status = request.data.get('status')
+
+            # Validate status
+            valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
+            if new_status not in valid_statuses:
+                return Response({'success': False, 'message': 'Invalid status'}, 
+                              status=status.HTTP_400_BAD_REQUEST)
+
+            # Update status based on value
+            try:
+                if new_status == 'confirmed':
+                    if hasattr(booking, 'mark_confirmed'):
+                        booking.mark_confirmed()
+                    else:
+                        booking.booking_status = new_status
+                        booking.save()
+                elif new_status == 'completed':
+                    if hasattr(booking, 'mark_completed'):
+                        booking.mark_completed()
+                    else:
+                        booking.booking_status = new_status
+                        booking.save()
+                elif new_status == 'cancelled':
+                    if hasattr(booking, 'cancel_booking'):
+                        booking.cancel_booking()
+                    else:
+                        booking.booking_status = new_status
+                        booking.save()
+                else:
+                    booking.booking_status = new_status
+                    booking.save()
+            except Exception as e:
+                logger.error(f"Error updating booking status: {str(e)}")
+                return Response({'success': False, 'message': 'Failed to update booking status'}, 
+                              status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+            # Serialize updated booking
+            try:
+                serializer = BookingSerializer(booking)
+                return Response({
+                    'success': True,
+                    'message': f'Booking status updated to {new_status}',
+                    'booking': serializer.data
+                })
+            except Exception as e:
+                logger.error(f"Error serializing updated booking: {str(e)}")
+                return Response({
+                    'success': True,
+                    'message': f'Booking status updated to {new_status}',
+                    'booking': None
+                })
+
+        except Exception as e:
+            logger.error(f"Unexpected error in BookingStatusUpdateAPIView: {str(e)}", exc_info=True)
+            return Response({'success': False, 'message': 'An unexpected error occurred'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class BookingStatsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        try:
+            # Get shop
+            try:
+                shop = Shop.objects.get(user=request.user)
+            except Shop.DoesNotExist:
+                logger.error(f"Shop not found for user: {request.user.id}")
+                return Response({'success': False, 'message': 'Shop not found for this user'}, 
+                              status=status.HTTP_404_NOT_FOUND)
+
+            today = date.today()
+
+            # Get all stats with individual error handling
+            stats = {}
+            
+            try:
+                stats['total'] = Booking.objects.filter(shop=shop).count()
+            except Exception as e:
+                logger.error(f"Error getting total bookings: {str(e)}")
+                stats['total'] = 0
+
+            try:
+                stats['pending'] = Booking.objects.filter(shop=shop, booking_status='pending').count()
+            except Exception as e:
+                logger.error(f"Error getting pending bookings: {str(e)}")
+                stats['pending'] = 0
+
+            try:
+                stats['confirmed'] = Booking.objects.filter(shop=shop, booking_status='confirmed').count()
+            except Exception as e:
+                logger.error(f"Error getting confirmed bookings: {str(e)}")
+                stats['confirmed'] = 0
+
+            try:
+                stats['completed'] = Booking.objects.filter(shop=shop, booking_status='completed').count()
+            except Exception as e:
+                logger.error(f"Error getting completed bookings: {str(e)}")
+                stats['completed'] = 0
+
+            try:
+                stats['cancelled'] = Booking.objects.filter(shop=shop, booking_status='cancelled').count()
+            except Exception as e:
+                logger.error(f"Error getting cancelled bookings: {str(e)}")
+                stats['cancelled'] = 0
+
+            try:
+                stats['today'] = Booking.objects.filter(shop=shop, appointment_date=today).count()
+            except Exception as e:
+                logger.error(f"Error getting today's bookings: {str(e)}")
+                stats['today'] = 0
+
+            return Response({
+                'success': True,
+                'stats': stats
+            })
+
+        except Exception as e:
+            logger.error(f"Unexpected error in BookingStatsAPIView: {str(e)}", exc_info=True)
+            return Response({'success': False, 'message': 'An unexpected error occurred'}, 
+                          status=status.HTTP_500_INTERNAL_SERVER_ERROR)
