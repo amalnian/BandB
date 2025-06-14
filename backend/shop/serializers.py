@@ -2,7 +2,7 @@ import random
 from rest_framework import serializers
 from .models import Shop, ShopImage
 from users.models import CustomUser
-from shop.models import Service, Appointment, Notification, SpecialClosingDay, BusinessHours
+from shop.models import Service, Notification, SpecialClosingDay, BusinessHours
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 
 
@@ -154,28 +154,28 @@ class ServiceSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['shop']  # Ensure shop cannot be set via API
 
-class AppointmentSerializer(serializers.ModelSerializer):
-    """
-    Serializer for appointments, with some nested data for display.
-    """
-    customer_name = serializers.CharField(source='customer.name', read_only=True)
-    service_name = serializers.CharField(source='service.name', read_only=True)
+# class AppointmentSerializer(serializers.ModelSerializer):
+#     """
+#     Serializer for appointments, with some nested data for display.
+#     """
+#     customer_name = serializers.CharField(source='customer.name', read_only=True)
+#     service_name = serializers.CharField(source='service.name', read_only=True)
     
-    class Meta:
-        model = Appointment
-        fields = [
-            'id', 'customer', 'customer_name', 'service', 'service_name',
-            'start_time', 'end_time', 'status', 'notes', 'price'
-        ]
+#     class Meta:
+#         model = Appointment
+#         fields = [
+#             'id', 'customer', 'customer_name', 'service', 'service_name',
+#             'start_time', 'end_time', 'status', 'notes', 'price'
+#         ]
         
-    def to_representation(self, instance):
-        # Override to format data as expected by the frontend
-        data = super().to_representation(instance)
-        # Format time as expected by frontend (e.g., "10:00 AM")
-        data['time'] = instance.start_time.strftime("%I:%M %p") if instance.start_time else None
-        # Keep both service (ID) and service_name (display name)
-        data['service_display'] = data.pop('service_name')
-        return data
+#     def to_representation(self, instance):
+#         # Override to format data as expected by the frontend
+#         data = super().to_representation(instance)
+#         # Format time as expected by frontend (e.g., "10:00 AM")
+#         data['time'] = instance.start_time.strftime("%I:%M %p") if instance.start_time else None
+#         # Keep both service (ID) and service_name (display name)
+#         data['service_display'] = data.pop('service_name')
+#         return data
 
 
 class NotificationSerializer(serializers.ModelSerializer):
@@ -232,6 +232,7 @@ class BusinessHoursSerializer(serializers.ModelSerializer):
                 
         return data
     
+
 
 class SpecialClosingDaySerializer(serializers.ModelSerializer):
     class Meta:

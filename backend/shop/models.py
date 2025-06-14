@@ -159,47 +159,6 @@ class Service(models.Model):
         super().save(*args, **kwargs)
 
 
-class Appointment(models.Model):
-    """
-    Appointments made with shops.
-    """
-    STATUS_CHOICES = (
-        ('pending', 'Pending'),
-        ('confirmed', 'Confirmed'),
-        ('cancelled', 'Cancelled'),
-        ('completed', 'Completed'),
-    )
-    
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='appointments')
-    customer = models.ForeignKey(CustomUser, on_delete=models.CASCADE, related_name='appointments')
-    service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='appointments')
-    start_time = models.DateTimeField()
-    end_time = models.DateTimeField()
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
-    notes = models.TextField(blank=True, null=True)
-    price = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-    
-    def __str__(self):
-        return f"{self.customer.name} - {self.service.name} - {self.start_time.strftime('%Y-%m-%d %H:%M')}"
-    
-    def save(self, *args, **kwargs):
-        # If price is not specified, use the service price
-        if not self.price and self.service:
-            self.price = self.service.price
-            
-        # Calculate end time based on service duration
-        if not self.end_time and self.start_time and self.service:
-            from datetime import timedelta
-            self.end_time = self.start_time + timedelta(minutes=self.service.duration_minutes)
-            
-        super().save(*args, **kwargs)
-    
-    class Meta:
-        ordering = ['-start_time']
-
-
 class BusinessHours(models.Model):
     """Model to store the barbershop's opening and closing hours for each day of the week."""
     DAYS_OF_WEEK = (
@@ -211,21 +170,86 @@ class BusinessHours(models.Model):
         (5, 'Saturday'),
         (6, 'Sunday'),
     )
-    
+
+    shop = models.ForeignKey('Shop', on_delete=models.CASCADE, related_name='business_hours')  # Added missing shop relationship
     day_of_week = models.IntegerField(choices=DAYS_OF_WEEK)
-    opening_time = models.TimeField()
-    closing_time = models.TimeField()
+    opening_time = models.TimeField(null=True, blank=True)  # Allow null for closed days
+    closing_time = models.TimeField(null=True, blank=True)  # Allow null for closed days
     is_closed = models.BooleanField(default=False)
-    
+
     class Meta:
-        unique_together = ('day_of_week',)
+        unique_together = ('shop', 'day_of_week')  # Updated to include shop
         ordering = ['day_of_week']
-    
+
     def __str__(self):
         if self.is_closed:
-            return f"{self.get_day_of_week_display()}: Closed"
-        return f"{self.get_day_of_week_display()}: {self.opening_time.strftime('%H:%M')} - {self.closing_time.strftime('%H:%M')}"
+            return f"{self.shop.name} - {self.get_day_of_week_display()}: Closed"
+        return f"{self.shop.name} - {self.get_day_of_week_display()}: {self.opening_time.strftime('%H:%M') if self.opening_time else 'N/A'} - {self.closing_time.strftime('%H:%M') if self.closing_time else 'N/A'}"
 
+class Booking(models.Model):
+    BOOKING_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('confirmed', 'Confirmed'),
+        ('completed', 'Completed'),
+        ('cancelled', 'Cancelled'),
+    ]
+
+    PAYMENT_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('paid', 'Paid'),
+        ('refunded', 'Refunded'),
+    ]
+
+    PAYMENT_METHOD_CHOICES = [
+        ('razorpay', 'Razorpay'),
+        ('wallet', 'Wallet'),
+    ]
+
+    # Basic booking info
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
+    services = models.ManyToManyField('Service')
+    appointment_date = models.DateField()
+    appointment_time = models.TimeField()
+    total_amount = models.DecimalField(max_digits=10, decimal_places=2)
+
+    # Status tracking
+    booking_status = models.CharField(max_length=20, choices=BOOKING_STATUS_CHOICES, default='pending')
+    payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default='razorpay')
+
+    # Payment details
+    razorpay_order_id = models.CharField(max_length=100, blank=True)
+    razorpay_payment_id = models.CharField(max_length=100, blank=True)
+
+    # Additional info
+    notes = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Booking {self.id} - {self.shop.name} - {self.appointment_date}"
+
+    def mark_confirmed(self):
+        self.booking_status = 'confirmed'
+        self.save()
+
+    def mark_completed(self):
+        self.booking_status = 'completed'
+        self.save()
+
+    def cancel_booking(self):
+        self.booking_status = 'cancelled'
+        self.save()
+
+    def mark_payment_successful(self, payment_id, order_id):
+        self.payment_status = 'paid'
+        self.razorpay_payment_id = payment_id
+        self.razorpay_order_id = order_id
+        self.save()
 
 
 
@@ -287,77 +311,77 @@ def get_weekday_mapping():
     }
 
 
-def get_available_slots(date, barber=None, slot_duration=30):
-    """
-    Generate available 30-minute time slots for a specific date based on business hours
-    and existing appointments.
+# def get_available_slots(date, barber=None, slot_duration=30):
+#     """
+#     Generate available 30-minute time slots for a specific date based on business hours
+#     and existing appointments.
     
-    Args:
-        date: The date to check for available slots
-        barber: Optional barber to filter slots by
-        slot_duration: Duration of each slot in minutes (default: 30)
+#     Args:
+#         date: The date to check for available slots
+#         barber: Optional barber to filter slots by
+#         slot_duration: Duration of each slot in minutes (default: 30)
         
-    Returns:
-        List of available time slot tuples (start_time, end_time)
-    """
-    # Check if it's a special closing day
-    if SpecialClosingDay.objects.filter(date=date).exists():
-        return []
+#     Returns:
+#         List of available time slot tuples (start_time, end_time)
+#     """
+#     # Check if it's a special closing day
+#     if SpecialClosingDay.objects.filter(date=date).exists():
+#         return []
     
-    # Get business hours for the day
-    weekday = date.weekday()  # 0 is Monday, 6 is Sunday
-    try:
-        hours = BusinessHours.objects.get(day_of_week=weekday)
-        if hours.is_closed:
-            return []
-    except BusinessHours.DoesNotExist:
-        # No hours defined for this day
-        return []
+#     # Get business hours for the day
+#     weekday = date.weekday()  # 0 is Monday, 6 is Sunday
+#     try:
+#         hours = BusinessHours.objects.get(day_of_week=weekday)
+#         if hours.is_closed:
+#             return []
+#     except BusinessHours.DoesNotExist:
+#         # No hours defined for this day
+#         return []
     
-    # Create datetime objects for opening and closing times
-    opening_datetime = datetime.combine(date, hours.opening_time)
-    closing_datetime = datetime.combine(date, hours.closing_time)
+#     # Create datetime objects for opening and closing times
+#     opening_datetime = datetime.combine(date, hours.opening_time)
+#     closing_datetime = datetime.combine(date, hours.closing_time)
     
-    # Generate all possible 30-minute slots
-    all_slots = []
-    slot_delta = timedelta(minutes=slot_duration)
+#     # Generate all possible 30-minute slots
+#     all_slots = []
+#     slot_delta = timedelta(minutes=slot_duration)
     
-    # Use rrule to generate time slots
-    slots = rrule(
-        DAILY,
-        dtstart=opening_datetime,
-        until=closing_datetime - slot_delta,  # Ensure the last slot ends before closing
-        interval=slot_duration // 30  # Convert slot_duration to number of 30-min intervals
-    )
+#     # Use rrule to generate time slots
+#     slots = rrule(
+#         DAILY,
+#         dtstart=opening_datetime,
+#         until=closing_datetime - slot_delta,  # Ensure the last slot ends before closing
+#         interval=slot_duration // 30  # Convert slot_duration to number of 30-min intervals
+#     )
     
-    for slot_start in slots:
-        slot_end = slot_start + slot_delta
-        all_slots.append((slot_start, slot_end))
+#     for slot_start in slots:
+#         slot_end = slot_start + slot_delta
+#         all_slots.append((slot_start, slot_end))
     
-    # Filter out slots that already have appointments
-    available_slots = []
-    appointments_query = Appointment.objects.filter(
-        start_time__date=date,
-        status__in=['scheduled']  # Only consider active appointments
-    )
+#     # Filter out slots that already have appointments
+#     available_slots = []
+#     appointments_query = Appointment.objects.filter(
+#         start_time__date=date,
+#         status__in=['scheduled']  # Only consider active appointments
+#     )
     
-    if barber:
-        appointments_query = appointments_query.filter(barber=barber)
+#     if barber:
+#         appointments_query = appointments_query.filter(barber=barber)
     
-    booked_appointments = list(appointments_query.values_list('start_time', 'end_time'))
+#     booked_appointments = list(appointments_query.values_list('start_time', 'end_time'))
     
-    for slot_start, slot_end in all_slots:
-        is_available = True
-        for appt_start, appt_end in booked_appointments:
-            # Check if slot overlaps with any appointment
-            if (slot_start < appt_end and slot_end > appt_start):
-                is_available = False
-                break
+#     for slot_start, slot_end in all_slots:
+#         is_available = True
+#         for appt_start, appt_end in booked_appointments:
+#             # Check if slot overlaps with any appointment
+#             if (slot_start < appt_end and slot_end > appt_start):
+#                 is_available = False
+#                 break
         
-        if is_available:
-            available_slots.append((slot_start, slot_end))
+#         if is_available:
+#             available_slots.append((slot_start, slot_end))
     
-    return available_slots
+#     return available_slots
 
 
 class Barber(models.Model):

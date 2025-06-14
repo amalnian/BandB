@@ -78,3 +78,5 @@ class CustomUser(AbstractUser):
         self.current_longitude = longitude
         self.location_enabled = True
         self.save()
+
+        

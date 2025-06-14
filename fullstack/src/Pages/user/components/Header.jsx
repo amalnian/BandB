@@ -1,7 +1,8 @@
-"use client"
-
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Search, Bell, Menu } from "lucide-react"
+import { 
+  getUserProfile 
+} from "@/endpoints/APIs"
 
 // Custom Avatar component to replace shadcn/ui
 const Avatar = ({ children, src, alt }) => (
@@ -46,6 +47,104 @@ const Input = ({ className = "", ...props }) => (
 
 export default function Header() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
+  const [userProfile, setUserProfile] = useState(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetchUserProfile()
+  }, [])
+
+  const fetchUserProfile = async () => {
+    try {
+      setLoading(true)
+      const response = await getUserProfile()
+      
+      if (response.data && response.data.success) {
+        setUserProfile(response.data.data)
+      } else {
+        // Fallback to localStorage if API fails
+        const userData = localStorage.getItem("user_data")
+        if (userData) {
+          setUserProfile(JSON.parse(userData))
+        }
+      }
+    } catch (error) {
+      console.error("Failed to fetch user profile:", error)
+      
+      // Fallback to localStorage if API fails
+      const userData = localStorage.getItem("user_data")
+      if (userData) {
+        try {
+          setUserProfile(JSON.parse(userData))
+        } catch (parseError) {
+          console.error("Failed to parse user data from localStorage:", parseError)
+        }
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // Get user display name
+  const getUserDisplayName = () => {
+    if (!userProfile) return "Guest User"
+    
+    if (userProfile.name) return userProfile.name
+    if (userProfile.first_name && userProfile.last_name) {
+      return `${userProfile.first_name} ${userProfile.last_name}`
+    }
+    if (userProfile.first_name) return userProfile.first_name
+    if (userProfile.email) return userProfile.email
+    
+    return "Guest User"
+  }
+
+  // Get user avatar initials
+  const getUserInitials = () => {
+    if (!userProfile) return "GU"
+    
+    if (userProfile.name) {
+      const names = userProfile.name.split(' ')
+      return names.length > 1 
+        ? `${names[0][0]}${names[1][0]}`.toUpperCase()
+        : names[0].substring(0, 2).toUpperCase()
+    }
+    
+    if (userProfile.first_name && userProfile.last_name) {
+      return `${userProfile.first_name[0]}${userProfile.last_name[0]}`.toUpperCase()
+    }
+    
+    if (userProfile.first_name) {
+      return userProfile.first_name.substring(0, 2).toUpperCase()
+    }
+    
+    if (userProfile.email) {
+      return userProfile.email.substring(0, 2).toUpperCase()
+    }
+    
+    return "GU"
+  }
+
+  // Get user location
+  const getUserLocation = () => {
+    if (!userProfile) return "Location not set"
+    
+    // Check if the API response has location fields
+    if (userProfile.city && userProfile.state) {
+      return `${userProfile.city}, ${userProfile.state}`
+    }
+    if (userProfile.city && userProfile.country) {
+      return `${userProfile.city}, ${userProfile.country}`
+    }
+    if (userProfile.location) {
+      return userProfile.location
+    }
+    if (userProfile.address) {
+      return userProfile.address
+    }
+    
+    // return "Location not set"
+  }
 
   return (
     <header className="bg-white border-b border-gray-200 py-4 px-6 flex items-center justify-between">
@@ -96,12 +195,23 @@ export default function Header() {
         </Button>
 
         <div className="flex items-center ml-4">
-          <div className="mr-4 text-right hidden sm:block">
-            <p className="text-sm font-medium">Hi, Guest User</p>
-            <p className="text-xs text-gray-500">California, US</p>
-          </div>
-          <Avatar src="https://via.placeholder.com/40" alt="User">
-            U
+          {loading ? (
+            <div className="mr-4 text-right hidden sm:block">
+              <div className="h-4 bg-gray-200 rounded animate-pulse mb-1 w-24"></div>
+              <div className="h-3 bg-gray-200 rounded animate-pulse w-20"></div>
+            </div>
+          ) : (
+            <div className="mr-4 text-right hidden sm:block">
+              <p className="text-sm font-medium">Hi, {getUserDisplayName()}</p>
+              <p className="text-xs text-gray-500">{getUserLocation()}</p>
+            </div>
+          )}
+          
+          <Avatar 
+            src={userProfile?.profile_picture || userProfile?.avatar} 
+            alt={getUserDisplayName()}
+          >
+            {getUserInitials()}
           </Avatar>
         </div>
       </div>

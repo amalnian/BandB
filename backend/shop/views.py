@@ -23,10 +23,10 @@ from rest_framework_simplejwt.views import TokenViewBase
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.authentication import JWTAuthentication
-from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken, OutstandingToken
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
 from rest_framework.permissions import AllowAny
 from users.models import CustomUser
-from shop.models import Shop, Appointment, Notification, Service, OTP
+from shop.models import Shop, Notification, Service, OTP
 from shop.serializers import (
     CustomTokenObtainPairSerializer,
     ShopForgotPasswordSerializer,
@@ -34,7 +34,6 @@ from shop.serializers import (
     ShopSerializer,
     ShopUpdateSerializer,
     # ShopProfileSerializer,
-    AppointmentSerializer,
     NotificationSerializer,
     ServiceSerializer,
     ShopVerifyForgotPasswordOTPSerializer
@@ -47,12 +46,9 @@ from rest_framework.permissions import IsAuthenticated
 from dateutil.parser import parse
 
 from .models import (
-    BusinessHours, Barber, Service, Appointment, SpecialClosingDay,
-    get_available_slots
-)
+    BusinessHours, Barber, Service, SpecialClosingDay)
 from shop.serializers import (
     BusinessHoursSerializer,
-    AppointmentSerializer,
     SpecialClosingDaySerializer
 )
 # views.py

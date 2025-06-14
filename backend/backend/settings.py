@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     'djoser',
     'corsheaders',
     'social_django',
+    'rest_framework_simplejwt.token_blacklist',
 
 
     'admin_panel',
@@ -140,7 +141,7 @@ AUTH_PASSWORD_VALIDATORS = [
 
 LANGUAGE_CODE = 'en-us'
 
-TIME_ZONE = 'UTC'
+TIME_ZONE = 'Asia/Kolkata'
 
 USE_I18N = True
 
@@ -283,3 +284,9 @@ cloudinary.config(
     api_secret=os.getenv('CLOUDINARY_API_SECRET'),
     secure=True
 )
+
+
+# settings.py
+RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY')
+RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_SECRET')
+

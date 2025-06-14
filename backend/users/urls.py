@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import AllShopsView, ChangePasswordView, CoustomTokenObtainPairView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, UpdateUserLocationView, UpdateUserProfileView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView
+from .views import AllShopsView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
 
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -30,6 +30,19 @@ urlpatterns = [
     path('shops/nearby/', NearbyShopsView.as_view(), name='nearby-shops'),
     path('shops/search-nearby/', SearchNearbyShopsView.as_view(), name='search-nearby-shops'),
     path('shops/', AllShopsView.as_view(), name='all-shops'),
+    path('shopdetail/<int:id>/', ShopDetailView.as_view(), name='shop-detail'),
+
+
+    path('shops/<int:shop_id>/services/', ShopServicesView.as_view(), name='shop-services'),
+    path('shops/<int:shop_id>/business-hours/', ShopBusinessHoursView.as_view(), name='shop-business-hours'),
+    path('shops/<int:shop_id>/available-slots/', AvailableTimeSlotsView.as_view(), name='available-slots'),
+    path('shops/<int:shop_id>/service-duration/', ServiceDurationView.as_view(), name='service-duration'),
+    path('bookings/create/', CreateBookingView.as_view(), name='create-booking'),
+
+
+    path('payment/razorpay/create-order/', CreateRazorpayOrderView.as_view(), name='create-razorpay-order'),
+    path('payment/razorpay/verify/', VerifyRazorpayPaymentView.as_view(), name='verify-razorpay-payment'),
+    path('payment/razorpay/failure/', HandlePaymentFailureView.as_view(), name='handle-payment-failure'),
 ]
 
 

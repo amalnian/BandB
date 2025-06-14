@@ -14,18 +14,18 @@ export const googleSignIn = (credential) => {
 };
 
 // Barber Shop APIs
-export const getBarbers = (params = {}) => {
-  // Add query parameters for filtering, sorting, pagination
-  const queryParams = new URLSearchParams({
-    page: params.page || 1,
-    limit: params.limit || 20,
-    sort_by: params.sort_by || 'rating', // rating, distance, name, price
-    order: params.order || 'desc',
-    status: 'approved' // Only get approved barber shops
-  }).toString();
+// export const getBarbers = (params = {}) => {
+//   // Add query parameters for filtering, sorting, pagination
+//   const queryParams = new URLSearchParams({
+//     page: params.page || 1,
+//     limit: params.limit || 20,
+//     sort_by: params.sort_by || 'rating', // rating, distance, name, price
+//     order: params.order || 'desc',
+//     status: 'approved' // Only get approved barber shops
+//   }).toString();
   
-  return axios.get(`barber-shops/?${queryParams}`);
-};
+//   return axios.get(`barber-shops/?${queryParams}`);
+// };
 
 export const getNearbyBarbers = (locationData) => {
   return axios.post('barber-shops/nearby/', {
@@ -69,15 +69,15 @@ export const getAvailableSlots = (barberId, date) => {
   });
 };
 
-export const createBooking = (bookingData) => {
-  return axios.post('bookings/', {
-    barber_shop_id: bookingData.barber_shop_id,
-    service_ids: bookingData.service_ids,
-    booking_date: bookingData.booking_date,
-    booking_time: bookingData.booking_time,
-    notes: bookingData.notes
-  });
-};
+// export const createBooking = (bookingData) => {
+//   return axios.post('bookings/', {
+//     barber_shop_id: bookingData.barber_shop_id,
+//     service_ids: bookingData.service_ids,
+//     booking_date: bookingData.booking_date,
+//     booking_time: bookingData.booking_time,
+//     notes: bookingData.notes
+//   });
+// };
 
 export const getUserBookings = (params = {}) => {
   const queryParams = new URLSearchParams({
@@ -178,6 +178,30 @@ export const getNearbyShops = (params) =>
 export const getShops = () => 
   axios.get('shops/')
 
+export const shopDetail = (shopId) => 
+  axios.get(`shopdetail/${shopId}/`)
+
 // Alternative: Combined function that handles both location update and nearby search
 export const searchNearbyShops = (locationData) => 
   axios.post('shops/search-nearby/', locationData)
+
+// Shop APIs
+export const getShopServices = (shopId) => axios.get(`shops/${shopId}/services/`)
+export const getShopBusinessHours = (shopId) => axios.get(`shops/${shopId}/business-hours/`)
+
+// Booking APIs
+export const getAvailableTimeSlots = (shopId, params = {}) => {
+    return axios.get(`shops/${shopId}/available-slots/`, { params })
+}
+
+export const createBooking = (bookingData) => axios.post('bookings/create/', bookingData)
+
+export const getServiceDuration = (shopId, serviceIds) => {
+    return axios.post(`shops/${shopId}/service-duration/`, { services: serviceIds })
+}
+
+
+// Payment APIs
+export const createRazorpayOrder = (orderData) => axios.post('payment/razorpay/create-order/', orderData)
+export const verifyRazorpayPayment = (verificationData) => axios.post('payment/razorpay/verify/', verificationData)
+export const handlePaymentFailure = (failureData) => axios.post('payment/razorpay/failure/', failureData)

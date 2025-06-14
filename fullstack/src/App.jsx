@@ -4,6 +4,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-route
 import { lazy, Suspense, useState, useEffect } from "react"
 import axios from "axios"
 import ForgotPasswordFlow from "./Pages/user/ForgotPass"
+import BookingAppointment from "./Pages/user/bookingAppointments"
 
 // Create a loading component for Suspense fallback
 const LoadingSpinner = () => (
@@ -26,6 +27,7 @@ const LoginPage = lazy(() => import("./Pages/user/LoginPageUser"))
 const SignupPage = lazy(() => import("./Pages/user/SignUpUser"))
 const OtpVerification = lazy(() => import("./Pages/user/OtpVerificationUser"))
 const Home = lazy(() => import("./Pages/user/Home"))
+const ShopDetail = lazy(() => import("./Pages/user/ShopDetails"))
 const ForgotPass = lazy(() => import("./Pages/user/ForgotPass"))
 const UserLayout = lazy(() => import("./Pages/user/components/UserLayout"))
 const Settings = lazy(() => import("./Pages/user/Settings"))
@@ -135,6 +137,8 @@ function App() {
             {/* Nested routes for the barber booking app */}
             <Route index element={<Navigate to="/Home" replace />} />
             <Route path="home" element={<Home />} />
+            <Route path="shop/:shopId" element={<ShopDetail />} />
+            <Route path="booking/:shopId" element={<BookingAppointment />} />
             {/* <Route path="find-barbers" element={<FindBarbers />} /> */}
             {/* <Route path="bookings" element={<Bookings />} />
             <Route path="chats" element={<Chats />} />

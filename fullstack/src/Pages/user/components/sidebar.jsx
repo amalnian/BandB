@@ -13,7 +13,7 @@ export default function Sidebar() {
 
   const menuItems = [
     { id: "home", label: "Home", icon: Home, path: "/home" },
-    { id: "find-barbers", label: "Find Barbers", icon: Users, path: "/find-barbers" },
+    // { id: "find-barbers", label: "Find Barbers", icon: Users, path: "/find-barbers" },
     { id: "bookings", label: "Bookings", icon: Calendar, path: "/bookings" },
     { id: "chats", label: "Chats", icon: MessageSquare, path: "/chats" },
     { id: "wallet", label: "Wallet", icon: Wallet, path: "/wallet" },

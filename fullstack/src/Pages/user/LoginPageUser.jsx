@@ -163,20 +163,21 @@ export default function LoginPageUser() {
   const { renderGoogleButton, isGoogleLoading } = useGoogleSignIn()
 
   // Check if user is already logged in on component mount
-  useEffect(() => {
-    const userData = localStorage.getItem("user_data")
-    if (userData) {
-      try {
-        const user = JSON.parse(userData)
-        // User is already logged in, redirect to home
-        toast.success(`Welcome back, ${user.name || user.email}!`)
-        navigate("/", { replace: true })
-      } catch (error) {
-        // Invalid data, clear it
-        localStorage.removeItem("user_data")
-      }
+// Check if user is already logged in on component mount
+useEffect(() => {
+  const userData = localStorage.getItem("user_data")
+  if (userData) {
+    try {
+      const user = JSON.parse(userData)
+      // User is already logged in, redirect to home
+      // Remove this line: toast.success(`Welcome back, ${user.name || user.email}!`)
+      navigate("/", { replace: true })
+    } catch (error) {
+      // Invalid data, clear it
+      localStorage.removeItem("user_data")
     }
-  }, [navigate])
+  }
+}, [navigate])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
