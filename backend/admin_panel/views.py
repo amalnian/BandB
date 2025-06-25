@@ -1,22 +1,41 @@
-# views.py file
-from rest_framework import viewsets, status, permissions, filters
+# views.py
+
+from django.conf import settings
+from django.utils import timezone
+
+from rest_framework import (
+    viewsets, status, permissions, filters
+)
 from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
-from django_filters.rest_framework import DjangoFilterBackend
-from django.utils import timezone
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.exceptions import AuthenticationFailed
 
-from users.models import CustomUser
-from users.serializers import AdminUserSerializer, CustomTokenObtainPairSerializer, UserStatusSerializer
-from shop.models import Shop
-from admin_panel.serializers import AdminShopSerializer
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
 )
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
+
+from django_filters.rest_framework import DjangoFilterBackend
+
+import jwt
+
+# App imports
+from users.models import CustomUser
+from shop.models import Shop
+from users.serializers import (
+    AdminUserSerializer,
+    CustomTokenObtainPairSerializer,
+    UserStatusSerializer
+)
+from admin_panel.serializers import AdminShopSerializer
+
+
+
 class AdminTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
@@ -134,27 +153,47 @@ class AdminTokenRefreshView(TokenRefreshView):
             return Response({"success":False,"message":f"An error occured: {str(e)}"},status=status.HTTP_400_BAD_REQUEST)
         
 class Logout(APIView):
-    permission_classes=[IsAdminUser]
-    def post(self,request):
+    permission_classes = [IsAdminUser]
+    
+    def post(self, request):
         try:
+            # Get tokens from cookies
+            access_token = request.COOKIES.get('access_token')
+            refresh_token = request.COOKIES.get('refresh_token')
+            
+            # Blacklist the refresh token if it exists
+            if refresh_token:
+                try:
+                    token = RefreshToken(refresh_token)
+                    token.blacklist()
+                    print(f"Admin refresh token blacklisted successfully")
+                except TokenError as e:
+                    # Token might already be blacklisted or invalid
+                    print(f"Admin token blacklist error: {str(e)}")
+            
+            # Create response
             res = Response(status=status.HTTP_200_OK)
-            res.data = {"success":True, "message":"logout successfully"}
+            res.data = {"success": True, "message": "logout successfully"}
+            
+            # Delete cookies
             res.delete_cookie(
                 key="access_token",
                 path='/',
                 samesite='None',
-                
             )
             res.delete_cookie(
                 key="refresh_token",
                 path='/',
                 samesite='None',
-                
             )
 
             return res
+            
         except Exception as e:
-            return Response({"success":False , "message": f"Logout failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": f"Logout failed: {str(e)}"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 
 class StandardResultsSetPagination(PageNumberPagination):

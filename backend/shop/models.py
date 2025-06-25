@@ -14,8 +14,8 @@ class Shop(models.Model):
     description = models.TextField(blank=True)
     owner_name = models.CharField(max_length=100, blank=True)
     opening_hours = models.CharField(max_length=255, blank=True)
-    latitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
-    longitude = models.DecimalField(max_digits=9, decimal_places=6, blank=True, null=True)
+    latitude = models.DecimalField(max_digits=15, decimal_places=12, blank=True, null=True)
+    longitude = models.DecimalField(max_digits=15, decimal_places=12, blank=True, null=True)
     # Fields for verification and approval
     is_email_verified = models.BooleanField(default=False)
     is_approved = models.BooleanField(default=False)
@@ -310,78 +310,6 @@ def get_weekday_mapping():
         6: SU,  # Sunday
     }
 
-
-# def get_available_slots(date, barber=None, slot_duration=30):
-#     """
-#     Generate available 30-minute time slots for a specific date based on business hours
-#     and existing appointments.
-    
-#     Args:
-#         date: The date to check for available slots
-#         barber: Optional barber to filter slots by
-#         slot_duration: Duration of each slot in minutes (default: 30)
-        
-#     Returns:
-#         List of available time slot tuples (start_time, end_time)
-#     """
-#     # Check if it's a special closing day
-#     if SpecialClosingDay.objects.filter(date=date).exists():
-#         return []
-    
-#     # Get business hours for the day
-#     weekday = date.weekday()  # 0 is Monday, 6 is Sunday
-#     try:
-#         hours = BusinessHours.objects.get(day_of_week=weekday)
-#         if hours.is_closed:
-#             return []
-#     except BusinessHours.DoesNotExist:
-#         # No hours defined for this day
-#         return []
-    
-#     # Create datetime objects for opening and closing times
-#     opening_datetime = datetime.combine(date, hours.opening_time)
-#     closing_datetime = datetime.combine(date, hours.closing_time)
-    
-#     # Generate all possible 30-minute slots
-#     all_slots = []
-#     slot_delta = timedelta(minutes=slot_duration)
-    
-#     # Use rrule to generate time slots
-#     slots = rrule(
-#         DAILY,
-#         dtstart=opening_datetime,
-#         until=closing_datetime - slot_delta,  # Ensure the last slot ends before closing
-#         interval=slot_duration // 30  # Convert slot_duration to number of 30-min intervals
-#     )
-    
-#     for slot_start in slots:
-#         slot_end = slot_start + slot_delta
-#         all_slots.append((slot_start, slot_end))
-    
-#     # Filter out slots that already have appointments
-#     available_slots = []
-#     appointments_query = Appointment.objects.filter(
-#         start_time__date=date,
-#         status__in=['scheduled']  # Only consider active appointments
-#     )
-    
-#     if barber:
-#         appointments_query = appointments_query.filter(barber=barber)
-    
-#     booked_appointments = list(appointments_query.values_list('start_time', 'end_time'))
-    
-#     for slot_start, slot_end in all_slots:
-#         is_available = True
-#         for appt_start, appt_end in booked_appointments:
-#             # Check if slot overlaps with any appointment
-#             if (slot_start < appt_end and slot_end > appt_start):
-#                 is_available = False
-#                 break
-        
-#         if is_available:
-#             available_slots.append((slot_start, slot_end))
-    
-#     return available_slots
 
 
 class Barber(models.Model):

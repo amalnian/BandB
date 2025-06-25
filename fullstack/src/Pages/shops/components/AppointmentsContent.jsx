@@ -27,12 +27,22 @@ const AppointmentsContent = () => {
     refunded: 'bg-gray-100 text-gray-800'
   };
 
+  // Sort bookings by appointment date and time
+  const sortBookings = (bookings) => {
+    return bookings.sort((a, b) => {
+      const dateTimeA = new Date(`${a.appointment_date}T${a.appointment_time}`);
+      const dateTimeB = new Date(`${b.appointment_date}T${b.appointment_time}`);
+      return dateTimeA - dateTimeB; // Ascending order (earliest first)
+    });
+  };
+
   const fetchBookings = async () => {
     try {
       setLoading(true);
       const response = await getShopBookings(filters);
       if (response.data.success) {
-        setBookings(response.data.bookings);
+        const sortedBookings = sortBookings(response.data.bookings);
+        setBookings(sortedBookings);
       }
     } catch (error) {
       console.error('Error fetching bookings:', error);
@@ -58,14 +68,23 @@ const AppointmentsContent = () => {
       const response = await updateBookingStatus(bookingId, newStatus);
       
       if (response.data.success) {
-        // Update the booking in the list
-        setBookings(prev => 
-          prev.map(booking => 
+        // Update the booking in the list with current timestamp for status changes
+        const currentTimestamp = new Date().toISOString();
+        setBookings(prev => {
+          const updatedBookings = prev.map(booking => 
             booking.id === bookingId 
-              ? { ...booking, booking_status: newStatus }
+              ? { 
+                  ...booking, 
+                  booking_status: newStatus,
+                  // Add timestamp fields based on status
+                  ...(newStatus === 'cancelled' && { cancelled_at: currentTimestamp }),
+                  ...(newStatus === 'completed' && { completed_at: currentTimestamp }),
+                  ...(newStatus === 'confirmed' && { confirmed_at: currentTimestamp })
+                }
               : booking
-          )
-        );
+          );
+          return sortBookings(updatedBookings);
+        });
         // Refresh stats
         fetchStats();
       }
@@ -98,6 +117,17 @@ const AppointmentsContent = () => {
       year: 'numeric',
       month: 'short',
       day: 'numeric'
+    });
+  };
+
+  const formatDateTime = (dateTimeString) => {
+    return new Date(dateTimeString).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      hour12: true
     });
   };
 
@@ -221,7 +251,7 @@ const AppointmentsContent = () => {
         <div className="space-y-4">
           {bookings.map((booking) => (
             <div key={booking.id} className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
-              <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between">
                 <div className="flex-1">
                   <div className="flex items-center mb-2">
                     <h4 className="text-lg font-semibold text-gray-800 mr-3">
@@ -235,24 +265,57 @@ const AppointmentsContent = () => {
                     </span>
                   </div>
                   
-                  <div className="text-sm text-gray-600 space-y-1">
+                  <div className="text-sm text-gray-600 space-y-2">
+                    {/* Contact Information */}
                     <div className="flex flex-wrap gap-4">
                       <span>📧 {booking.user_email}</span>
                       {booking.user_phone && <span>📞 {booking.user_phone}</span>}
                     </div>
+                    
+                    {/* Appointment Details */}
                     <div className="flex flex-wrap gap-4">
-                      <span>📅 {formatDate(booking.appointment_date)}</span>
+                      <span>📅 Appointment: {formatDate(booking.appointment_date)}</span>
                       <span>🕒 {formatTime(booking.appointment_time)}</span>
                       <span>💰 ₹{booking.total_amount}</span>
                     </div>
-                    {booking.services.length > 0 && (
+                    
+                    {/* Booking Timeline */}
+                    <div className="space-y-1">
+                      <div className="text-blue-600">
+                        📋 Booked: {booking.created_at ? formatDateTime(booking.created_at) : 'N/A'}
+                      </div>
+                      
+                      {booking.confirmed_at && (
+                        <div className="text-blue-600">
+                          ✅ Confirmed: {formatDateTime(booking.confirmed_at)}
+                        </div>
+                      )}
+                      
+                      {booking.completed_at && (
+                        <div className="text-green-600">
+                          ✅ Completed: {formatDateTime(booking.completed_at)}
+                        </div>
+                      )}
+                      
+                      {booking.cancelled_at && (
+                        <div className="text-red-600">
+                          ❌ Cancelled: {formatDateTime(booking.cancelled_at)}
+                        </div>
+                      )}
+                    </div>
+                    
+                    {/* Services */}
+                    {booking.services && booking.services.length > 0 && (
                       <div>
                         <span>🛍️ Services: {booking.services.map(s => s.name).join(', ')}</span>
                       </div>
                     )}
+                    
+                    {/* Notes - Separate line */}
                     {booking.notes && (
-                      <div>
-                        <span>📝 Notes: {booking.notes}</span>
+                      <div className="mt-2 p-2 bg-gray-50 rounded">
+                        <span className="font-medium">📝 Notes:</span>
+                        <div className="mt-1 text-gray-700">{booking.notes}</div>
                       </div>
                     )}
                   </div>

@@ -319,16 +319,16 @@ const selectDate = (day) => {
   }
 
   const calculateTotal = () => {
-    if (!Array.isArray(services) || services.length === 0) {
-      return 25
-    }
+    // if (!Array.isArray(services) || services.length === 0) {
+    //   return 25
+    // }
     
     const serviceTotal = selectedServices.reduce((total, serviceId) => {
       const service = services.find((s) => s.id === serviceId)
       return total + (service ? parseFloat(service.price) : 0)
     }, 0)
-    const serviceFee = 25
-    return serviceTotal + serviceFee
+    // const serviceFee = 25
+    return serviceTotal 
   }
 
   const getSelectedServiceDetails = () => {
@@ -622,7 +622,7 @@ const handleBooking = async (paymentMethod) => {
 
                       {/* Service Info */}
                       <h3 className="text-sm font-medium text-gray-900 text-center mb-1">{service.name}</h3>
-                      <p className="text-sm text-gray-600">${service.price}</p>
+                      <p className="text-sm text-gray-600">₹{service.price}</p>
                       <p className="text-xs text-gray-500">{service.duration_minutes} min</p>
                     </div>
                   </div>
@@ -647,7 +647,7 @@ const handleBooking = async (paymentMethod) => {
 
             {timeSlots.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500 mb-2">No time slots available for selected date</p>
+                <p className="text-gray-500 mb-2">Shop is close today </p>
                 <p className="text-sm text-gray-400">Try selecting a different date or fewer services</p>
               </div>
             ) : (
@@ -698,18 +698,19 @@ const handleBooking = async (paymentMethod) => {
                     <span className="text-gray-700">{service.name}</span>
                     <span className="text-xs text-gray-500 ml-2">({service.duration_minutes} min)</span>
                   </div>
-                  <span className="font-semibold text-gray-900">${service.price}</span>
+                  <span className="font-semibold text-gray-900">₹
+{service.price}</span>
                 </div>
               ))}
 
-              <div className="flex justify-between items-center pt-4 border-t border-gray-200">
+              {/* <div className="flex justify-between items-center pt-4 border-t border-gray-200">
                 <span className="text-gray-700">Service fee</span>
                 <span className="font-semibold text-gray-900">$25</span>
-              </div>
+              </div> */}
 
               <div className="flex justify-between items-center pt-2 border-t border-gray-300 text-lg font-bold">
                 <span className="text-gray-900">Total</span>
-                <span className="text-gray-900">${calculateTotal()}</span>
+                <span className="text-gray-900">₹{calculateTotal()}</span>
               </div>
 
               {/* Appointment Summary */}

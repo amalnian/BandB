@@ -253,12 +253,12 @@ const SignupPage = () => {
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-gray-300"></div>
                 </div>
-                <div className="relative flex justify-center">
+                {/* <div className="relative flex justify-center">
                   <span className="bg-white px-4 text-xs text-gray-500">SIGN UP WITH</span>
-                </div>
+                </div> */}
               </div>
 
-              <div className="flex justify-center">
+              {/* <div className="flex justify-center">
                 <button
                   type="button"
                   className="flex items-center gap-2 rounded-md border border-gray-300 px-6 py-2.5 text-sm transition-colors hover:bg-gray-50"
@@ -270,7 +270,7 @@ const SignupPage = () => {
                   />
                   Google
                 </button>
-              </div>
+              </div> */}
             </div>
           </form>
         </div>

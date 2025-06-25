@@ -13,20 +13,6 @@ export const googleSignIn = (credential) => {
   return axios.post('google/', { credential });
 };
 
-// Barber Shop APIs
-// export const getBarbers = (params = {}) => {
-//   // Add query parameters for filtering, sorting, pagination
-//   const queryParams = new URLSearchParams({
-//     page: params.page || 1,
-//     limit: params.limit || 20,
-//     sort_by: params.sort_by || 'rating', // rating, distance, name, price
-//     order: params.order || 'desc',
-//     status: 'approved' // Only get approved barber shops
-//   }).toString();
-  
-//   return axios.get(`barber-shops/?${queryParams}`);
-// };
-
 export const getNearbyBarbers = (locationData) => {
   return axios.post('barber-shops/nearby/', {
     latitude: locationData.latitude,
@@ -79,19 +65,19 @@ export const getAvailableSlots = (barberId, date) => {
 //   });
 // };
 
-export const getUserBookings = (params = {}) => {
-  const queryParams = new URLSearchParams({
-    page: params.page || 1,
-    limit: params.limit || 10,
-    status: params.status || 'all' // upcoming, completed, cancelled, all
-  }).toString();
+// export const getUserBookings = (params = {}) => {
+//   const queryParams = new URLSearchParams({
+//     page: params.page || 1,
+//     limit: params.limit || 10,
+//     status: params.status || 'all' // upcoming, completed, cancelled, all
+//   }).toString();
   
-  return axios.get(`user/bookings/?${queryParams}`);
-};
+//   return axios.get(`user/bookings/?${queryParams}`);
+// };
 
-export const cancelBooking = (bookingId, reason) => {
-  return axios.patch(`bookings/${bookingId}/cancel/`, { reason });
-};
+// export const cancelBooking = (bookingId, reason) => {
+//   return axios.patch(`bookings/${bookingId}/cancel/`, { reason });
+// };
 
 // Review APIs
 export const createReview = (reviewData) => {
@@ -238,3 +224,11 @@ export const updateBookingStatus = (bookingId, status) => {
 export const getBookingStats = () => {
   return axios.get('shop/bookings/stats/');
 };
+
+
+// Get user's bookings
+export const getUserBookings = () => axios.get('bookings/')
+
+// Cancel a booking
+export const cancelBooking = (bookingId, reason) => 
+    axios.patch(`bookings/${bookingId}/cancel/`, { reason })

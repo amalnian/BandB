@@ -7,8 +7,8 @@ from .views import (
     CustomShopTokenRefreshView,
     PublicShopDetailView,
     PublicShopListView,
-    RecentAppointmentsView,
-    ShopDashboardStatsView,
+    # RecentAppointmentsView,
+    # ShopDashboardStatsView,
     ShopForgotPasswordView,
     ShopImageAddView,
     ShopImageRemoveView,
@@ -31,7 +31,7 @@ from .views import (
         # New views
     ShopUpdateView,
     # TokenRefreshView,
-    RecentAppointmentsView,
+    # RecentAppointmentsView,
     ShopNotificationsView,
     ShopLogoutView,
     
@@ -58,7 +58,7 @@ urlpatterns = [
     path('resend-otp/', ShopResendOTPView.as_view(), name='shop-resend-otp'),
     path('shop/token/', CustomShopTokenObtainPairView.as_view(), name='shop-login'),
     path('shop/token/refresh/', CustomShopTokenRefreshView.as_view(), name='token-refresh'),
-    path('dashboard/stats/', ShopDashboardStatsView.as_view(), name='shop-dashboard-stats'),
+    # path('dashboard/stats/', ShopDashboardStatsView.as_view(), name='shop-dashboard-stats'),
 
     #     # New endpoints required by the Shop Dashboard component
     path('shop/profile/', ShopProfileView.as_view(), name='shop-profile'),
@@ -74,7 +74,7 @@ urlpatterns = [
     path('public/shops/', PublicShopListView.as_view(), name='public_shop_list'),
 
 
-    path('appointments/recent/', RecentAppointmentsView.as_view(), name='recent-appointments'),
+    # path('appointments/recent/', RecentAppointmentsView.as_view(), name='recent-appointments'),
     path('notifications/', ShopNotificationsView.as_view(), name='shop-notifications'),
     path('shop/logout/', ShopLogoutView.as_view(), name='shop-logout'),
 

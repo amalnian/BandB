@@ -3,8 +3,6 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom"
 import { lazy, Suspense, useState, useEffect } from "react"
 import axios from "axios"
-import ForgotPasswordFlow from "./Pages/user/ForgotPass"
-import BookingAppointment from "./Pages/user/bookingAppointments"
 
 // Create a loading component for Suspense fallback
 const LoadingSpinner = () => (
@@ -31,6 +29,8 @@ const ShopDetail = lazy(() => import("./Pages/user/ShopDetails"))
 const ForgotPass = lazy(() => import("./Pages/user/ForgotPass"))
 const UserLayout = lazy(() => import("./Pages/user/components/UserLayout"))
 const Settings = lazy(() => import("./Pages/user/Settings"))
+const BookingAppointment = lazy(() => import("./Pages/user/bookingAppointments"))
+const Bookings = lazy(() => import("./Pages/user/Bookings"))
 
 // Admin components
 const AdminLoginPage = lazy(() => import("./Pages/admin/LoginAdmin"))
@@ -44,6 +44,12 @@ const ShopLoginPage = lazy(() => import("./Pages/shops/ShopLogin"))
 const ShopRegisterPage = lazy(() => import("./Pages/shops/ShopSignup"))
 const ShopDashboard = lazy(() => import("./Pages/shops/ShopDashboard"))
 const ShopOtpVerification = lazy(() => import("./Pages/shops/ShopOtpVerify"))
+const ShopLayout = lazy(() => import("./Pages/shops/components/layout/ShopLayout"))
+const ShopAppointments = lazy(() => import("./Pages/shops/ShopAppointments"))
+const ShopServices = lazy(() => import("./Pages/shops/ShopServices"))
+const ShopCustomers = lazy(() => import("./Pages/shops/ShopCustomers"))
+const ShopAnalytics = lazy(() => import("./Pages/shops/ShopAnalytics"))
+const ShopSettings = lazy(() => import("./Pages/shops/ShopSettings"))
 
 // Enhanced Protected Route for HttpOnly Cookies
 const SimpleProtectedUserRoute = ({ children }) => {
@@ -97,21 +103,42 @@ const ProtectedAdminRoute = ({ children }) => {
   }
 };
 
-// Shop Protection
+// Shop Protection - Fixed incomplete implementation
 const ProtectedShopRoute = ({ children }) => {
-  const shopData = localStorage.getItem("shop_data");
-  
-  if (!shopData) {
+  const [isAuthenticated, setIsAuthenticated] = useState(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    checkAuth();
+  }, []);
+
+  const checkAuth = async () => {
+    try {
+      // You need to implement getShopProfile or use your authentication method
+      const shopData = localStorage.getItem("shop_data");
+      if (shopData) {
+        const parsed = JSON.parse(shopData);
+        setIsAuthenticated(true);
+      } else {
+        setIsAuthenticated(false);
+      }
+    } catch (error) {
+      console.error("Shop auth check error:", error);
+      setIsAuthenticated(false);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  if (isLoading) {
+    return <LoadingSpinner />;
+  }
+
+  if (!isAuthenticated) {
     return <Navigate to="/shop/login" replace />;
   }
-  
-  try {
-    JSON.parse(shopData);
-    return children;
-  } catch (error) {
-    localStorage.removeItem("shop_data");
-    return <Navigate to="/shop/login" replace />;
-  }
+
+  return children;
 };
 
 function App() {
@@ -126,7 +153,7 @@ function App() {
           <Route path="/login" element={<LoginPage />} />
           <Route path="/signup" element={<SignupPage />} />
           <Route path="/otp" element={<OtpVerification />} />
-          <Route path="/forgot-password" element={<ForgotPass/>} />
+          <Route path="/forgot-password" element={<ForgotPass />} />
           
           {/* User routes with sidebar layout */}
           <Route path="/" element={
@@ -135,15 +162,12 @@ function App() {
             </SimpleProtectedUserRoute>
           }>
             {/* Nested routes for the barber booking app */}
-            <Route index element={<Navigate to="/Home" replace />} />
+            <Route index element={<Navigate to="/home" replace />} />
             <Route path="home" element={<Home />} />
             <Route path="shop/:shopId" element={<ShopDetail />} />
             <Route path="booking/:shopId" element={<BookingAppointment />} />
-            {/* <Route path="find-barbers" element={<FindBarbers />} /> */}
-            {/* <Route path="bookings" element={<Bookings />} />
-            <Route path="chats" element={<Chats />} />
-            <Route path="wallet" element={<Wallet />} /> */}
             <Route path="settings" element={<Settings />} />
+            <Route path="bookings" element={<Bookings />} />
           </Route>
 
           {/* Admin routes - Nested routing structure */}
@@ -166,14 +190,23 @@ function App() {
           <Route path="/shop/login" element={<ShopLoginPage />} />
           <Route path="/shop/register" element={<ShopRegisterPage />} />
           <Route path="/shop/otp" element={<ShopOtpVerification />} />
-          <Route path="/shop/forgot-password" element={<ForgotPass/>} />
-          <Route path="/shop/dashboard" element={
+          <Route path="/shop/forgot-password" element={<ForgotPass />} />
+
+          <Route path="/shop" element={
             <ProtectedShopRoute>
-              <ShopDashboard />
+              <ShopLayout />
             </ProtectedShopRoute>
-          } />
-          
-          {/* Redirect any unknown routes to home */}
+          }>
+            <Route index element={<Navigate to="/shop/dashboard" replace />} />
+            <Route path="dashboard" element={<ShopDashboard />} />
+            <Route path="appointments" element={<ShopAppointments />} />
+            <Route path="services" element={<ShopServices />} />
+            <Route path="customers" element={<ShopCustomers />} />
+            <Route path="analytics" element={<ShopAnalytics />} />
+            <Route path="settings" element={<ShopSettings />} />
+          </Route>
+
+          {/* Redirect any unknown routes to login */}
           <Route path="*" element={<Navigate to="/login" replace />} />
         </Routes>
       </Suspense>

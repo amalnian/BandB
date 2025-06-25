@@ -1,5 +1,6 @@
 import { useNavigate, useLocation } from "react-router-dom"
 import { Home, Users, Calendar, MessageSquare, Wallet, Settings, LogOut } from "lucide-react"
+import { logout } from '@/endpoints/APIs'
 
 export default function Sidebar() {
   const navigate = useNavigate()
@@ -21,26 +22,31 @@ export default function Sidebar() {
   ]
 
   // Function to handle logout with API call
-  const handleLogout = async () => {
-    try {
-      // Call the logout API endpoint if you have one
-      console.log("Logging out user...")
-    } catch (error) {
-      console.error("Logout error:", error)
-    } finally {
-      // Clear localStorage and redirect to login
+    const handleLogout = async () => {
       try {
-        localStorage.removeItem('user_data')
-        localStorage.removeItem('isAuthenticated')
-        console.log("Local storage cleared")
-      } catch (storageError) {
-        console.error("Error clearing localStorage:", storageError)
+        // Call the logout API endpoint
+        console.log("Calling logout API...")
+        await logout() // This calls your axios.post('logout/', {})
+        console.log("Logout API call successful")
+        
+        // Only clear localStorage and redirect if API call was successful
+        try {
+          localStorage.removeItem('user_data')
+          localStorage.removeItem('isAuthenticated')
+          console.log("Local storage cleared")
+        } catch (storageError) {
+          console.error("Error clearing localStorage:", storageError)
+        }
+        
+        // Navigate to login page using React Router
+        navigate("/login")
+        
+      } catch (error) {
+        console.error("Logout API error:", error)
+        // Handle the error - maybe show a toast/notification to user
+        // Don't clear localStorage or navigate if API fails
       }
-      
-      // Navigate to login page using React Router
-      navigate("/login")
     }
-  }
 
   // Handle menu item click with React Router navigation
   const handleMenuClick = (item) => {

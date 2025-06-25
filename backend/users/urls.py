@@ -1,5 +1,6 @@
 from django.urls import path
-from .views import AllShopsView,BookingStatsAPIView, BookingStatusUpdateAPIView, ShopBookingsAPIView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
+from . import views
+from .views import AllShopsView,BookingStatsAPIView, BookingStatusUpdateAPIView, ShopBookingsAPIView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserBookingListView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
 
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -48,6 +49,9 @@ urlpatterns = [
     path('shop/bookings/<int:booking_id>/status/', BookingStatusUpdateAPIView.as_view(), name='update_booking_status'),
     path('shop/bookings/stats/', BookingStatsAPIView.as_view(), name='booking_stats'),
     
+
+    path('bookings/', UserBookingListView.as_view(), name='user-bookings'),
+    path('bookings/<int:booking_id>/cancel/', views.cancel_booking, name='cancel-booking'),
 ]
 
 

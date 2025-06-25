@@ -1,63 +1,61 @@
-
+// Required React imports
 import React, { useState, useEffect } from 'react';
-import { Save, Edit, Trash2, Plus, X, AlertCircle } from 'lucide-react';
 
-export default function ServicesContent() {
+// Required icon imports (assuming you're using lucide-react)
+import { 
+  Plus, 
+  Edit, 
+  Trash2, 
+  Save, 
+  X, 
+  CheckCircle, 
+  AlertCircle 
+} from 'lucide-react';
+
+// Required API function imports
+import { 
+  getShopServices, 
+  createShopService, 
+  updateShopService, 
+  deleteShopService 
+} from '@/endpoints/ShopAPI';
+
+const ServicesContent = ({ shopId }) => {
   const [services, setServices] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState('');
   const [isAddingService, setIsAddingService] = useState(false);
   const [isEditingService, setIsEditingService] = useState(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
     price: '',
-    duration_minutes: 30,
+    duration_minutes: '',
     is_active: true
   });
 
-  // Fetch services from the API
-  const fetchServices = async () => {
-    setIsLoading(true);
-    try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
-      
-      const response = await fetch("http://127.0.0.1:8000/api/auth/shop/services/", {
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) throw new Error("Failed to fetch services");
-      
-      const data = await response.json();
-      setServices(data);
-    } catch (error) {
-      console.error("Error fetching services:", error);
-      setError(error.message);
-    } finally {
-      setIsLoading(false);
-    }
+  // Toast state
+  const [toast, setToast] = useState(null);
+
+  // Toast helper function
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 5000); // Auto-hide after 5 seconds
   };
 
-  // Load services on component mount
-  useEffect(() => {
-    fetchServices();
-  }, []);
-
-  // Reset form data
+  // Reset form helper
   const resetForm = () => {
     setFormData({
       name: '',
       description: '',
       price: '',
-      duration_minutes: 30,
+      duration_minutes: '',
       is_active: true
     });
+    setError('');
   };
 
-  // Handle form input changes
+  // Handle input changes
   const handleInputChange = (e) => {
     const { name, value, type, checked } = e.target;
     setFormData(prev => ({
@@ -66,85 +64,130 @@ export default function ServicesContent() {
     }));
   };
 
+  // Fetch services on component mount
+  useEffect(() => {
+    fetchServices();
+  }, [shopId]);
+
+  // Fetch all services for the shop
+  const fetchServices = async () => {
+    try {
+      setIsLoading(true);
+      setError('');
+      const response = await getShopServices(); // Remove shopId parameter
+      setServices(response.data || []);
+    } catch (error) {
+      console.error('Error fetching services:', error);
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to view these services.');
+        showToast('You do not have permission to view these services.', 'error');
+      } else {
+        const errorMessage = error.response?.data?.message || 'Failed to load services';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   // Add new service
   const handleAddService = async (e) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
-      
-      const response = await fetch("http://127.0.0.1:8000/api/auth/shop/services/create/", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(formData)
-      });
-      
-      if (!response.ok) throw new Error("Failed to create service");
-      
-      const newService = await response.json();
-      setServices([...services, newService]);
+      setError('');
+      const response = await createShopService(formData); // Remove shopId parameter
+      setServices([...services, response.data]);
       setIsAddingService(false);
       resetForm();
+      showToast(`Service "${response.data.name}" has been created successfully!`, 'success');
     } catch (error) {
-      console.error("Error adding service:", error);
-      setError(error.message);
+      console.error('Error adding service:', error);
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to create services.');
+        showToast('You do not have permission to create services.', 'error');
+      } else {
+        const errorMessage = error.response?.data?.message || 'Failed to create service';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
     }
   };
 
-  // Update existing service
   const handleUpdateService = async (e) => {
     e.preventDefault();
     try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
+      setError('');
       
-      const response = await fetch(`http://127.0.0.1:8000/api/auth/shop/services/${isEditingService}/update/`, {
-        method: "PUT",
-        headers: {
-          "Authorization": `Bearer ${token}`,
-          "Content-Type": "application/json"
-        },
-        body: JSON.stringify(formData)
-      });
+      // Make sure we're passing the service ID correctly
+      const response = await updateShopService(isEditingService, formData);
       
-      if (!response.ok) throw new Error("Failed to update service");
-      
-      const updatedService = await response.json();
       setServices(services.map(service => 
-        service.id === updatedService.id ? updatedService : service
+        service.id === isEditingService ? response.data : service
       ));
       setIsEditingService(null);
       resetForm();
+      showToast(`Service "${response.data.name}" has been updated successfully!`, 'success');
     } catch (error) {
-      console.error("Error updating service:", error);
-      setError(error.message);
+      console.error('Error updating service:', error);
+      console.error('Error details:', error.response?.data); // Add this for debugging
+      
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to update this service.');
+        showToast('You do not have permission to update this service.', 'error');
+      } else if (error.response?.status === 404) {
+        setError('Service not found.');
+        showToast('Service not found.', 'error');
+      } else {
+        // Show more detailed error message
+        const errorMessage = error.response?.data?.detail || 
+                            error.response?.data?.message || 
+                            Object.values(error.response?.data || {}).flat().join(', ') ||
+                            'Failed to update service';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
     }
   };
 
-  // Delete service
   const handleDeleteService = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this service?")) return;
+    const serviceToDelete = services.find(service => service.id === id);
+    if (!window.confirm(`Are you sure you want to delete "${serviceToDelete?.name}"?`)) return;
     
     try {
-      const token = localStorage.getItem("shop_access_token");
-      if (!token) throw new Error("Not authenticated");
-      
-      const response = await fetch(`http://127.0.0.1:8000/api/auth/shop/services/${id}/delete/`, {
-        method: "DELETE",
-        headers: {
-          "Authorization": `Bearer ${token}`
-        }
-      });
-      
-      if (!response.ok) throw new Error("Failed to delete service");
-      
+      setError('');
+      await deleteShopService(id);
       setServices(services.filter(service => service.id !== id));
+      showToast(`Service "${serviceToDelete?.name}" has been deleted successfully!`, 'success');
     } catch (error) {
-      console.error("Error deleting service:", error);
-      setError(error.message);
+      console.error('Error deleting service:', error);
+      console.error('Error details:', error.response?.data); // Add this for debugging
+      
+      if (error.response?.status === 401) {
+        setError('Authentication required. Please log in again.');
+        showToast('Authentication required. Please log in again.', 'error');
+      } else if (error.response?.status === 403) {
+        setError('You do not have permission to delete this service.');
+        showToast('You do not have permission to delete this service.', 'error');
+      } else if (error.response?.status === 404) {
+        setError('Service not found.');
+        showToast('Service not found.', 'error');
+      } else {
+        const errorMessage = error.response?.data?.detail || 
+                            error.response?.data?.message || 
+                            'Failed to delete service';
+        setError(errorMessage);
+        showToast(errorMessage, 'error');
+      }
     }
   };
 
@@ -181,6 +224,38 @@ export default function ServicesContent() {
 
   return (
     <div className="bg-white rounded-lg shadow">
+      {/* Toast Notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg max-w-sm ${
+          toast.type === 'success' 
+            ? 'bg-green-50 border-l-4 border-green-400 text-green-700' 
+            : 'bg-red-50 border-l-4 border-red-400 text-red-700'
+        }`}>
+          <div className="flex items-start">
+            <div className="flex-shrink-0">
+              {toast.type === 'success' ? (
+                <CheckCircle className="w-5 h-5 text-green-400" />
+              ) : (
+                <AlertCircle className="w-5 h-5 text-red-400" />
+              )}
+            </div>
+            <div className="ml-3">
+              <p className="text-sm font-medium">{toast.message}</p>
+            </div>
+            <div className="ml-auto pl-3">
+              <button
+                onClick={() => setToast(null)}
+                className={`inline-flex text-sm ${
+                  toast.type === 'success' ? 'text-green-400 hover:text-green-600' : 'text-red-400 hover:text-red-600'
+                }`}
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="p-6 border-b border-gray-200">
         <div className="flex justify-between items-center">
           <h3 className="text-lg font-semibold text-gray-800">Services</h3>
@@ -230,7 +305,7 @@ export default function ServicesContent() {
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Price ($)</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Price (₹)</label>
                 <input 
                   type="number"
                   name="price"
@@ -344,7 +419,7 @@ export default function ServicesContent() {
                       )}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      ${Number(service.price).toFixed(2)}
+                      ₹{Number(service.price).toFixed(2)}
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                       {service.duration_minutes} mins
@@ -402,4 +477,6 @@ export default function ServicesContent() {
       </div>
     </div>
   );
-}
+};
+
+export default ServicesContent

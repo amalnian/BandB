@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { FaEye, FaEyeSlash, FaStore, FaLocationArrow, FaMapMarkerAlt } from 'react-icons/fa';
+import { FaEye, FaEyeSlash, FaStore, FaLocationArrow, FaMapMarkerAlt, FaEdit } from 'react-icons/fa';
 
 export default function ShopRegisterPage() {
   // State for form fields
@@ -29,6 +29,9 @@ export default function ShopRegisterPage() {
   const [locationLoading, setLocationLoading] = useState(false);
   const [locationError, setLocationError] = useState("");
   const [locationObtained, setLocationObtained] = useState(false);
+  const [showManualLocation, setShowManualLocation] = useState(false);
+  const [manualLatitude, setManualLatitude] = useState('');
+  const [manualLongitude, setManualLongitude] = useState('');
   
   const navigate = useNavigate();
 
@@ -60,6 +63,7 @@ export default function ShopRegisterPage() {
         setLocationObtained(true);
         setLocationLoading(false);
         setLocationError("");
+        setShowManualLocation(false);
         
         // Optionally, get address from coordinates
         reverseGeocode(latitude, longitude);
@@ -84,6 +88,64 @@ export default function ShopRegisterPage() {
       },
       options
     );
+  }, []);
+
+  // Handle manual location input
+  const handleManualLocationSubmit = useCallback(() => {
+    const lat = parseFloat(manualLatitude);
+    const lng = parseFloat(manualLongitude);
+    
+    // Validate coordinates
+    if (isNaN(lat) || isNaN(lng)) {
+      setLocationError("Please enter valid latitude and longitude values");
+      return;
+    }
+    
+    if (lat < -90 || lat > 90) {
+      setLocationError("Latitude must be between -90 and 90");
+      return;
+    }
+    
+    if (lng < -180 || lng > 180) {
+      setLocationError("Longitude must be between -180 and 180");
+      return;
+    }
+    
+    setFormData(prevData => ({
+      ...prevData,
+      latitude: lat,
+      longitude: lng
+    }));
+    setLocationObtained(true);
+    setLocationError("");
+    setShowManualLocation(false);
+    
+    // Optionally, get address from coordinates
+    reverseGeocode(lat, lng);
+  }, [manualLatitude, manualLongitude]);
+
+  // Toggle manual location input
+  const toggleManualLocation = useCallback(() => {
+    setShowManualLocation(!showManualLocation);
+    setLocationError("");
+    if (!showManualLocation && locationObtained) {
+      setManualLatitude(formData.latitude?.toString() || '');
+      setManualLongitude(formData.longitude?.toString() || '');
+    }
+  }, [showManualLocation, locationObtained, formData.latitude, formData.longitude]);
+
+  // Clear location data
+  const clearLocation = useCallback(() => {
+    setFormData(prevData => ({
+      ...prevData,
+      latitude: null,
+      longitude: null
+    }));
+    setLocationObtained(false);
+    setShowManualLocation(false);
+    setManualLatitude('');
+    setManualLongitude('');
+    setLocationError("");
   }, []);
 
   // Reverse geocoding to get address from coordinates (optional)
@@ -459,27 +521,110 @@ export default function ShopRegisterPage() {
                           <p className="text-sm text-gray-600 mb-3">
                             Help customers find you by sharing your shop's location. This will improve your visibility in local searches.
                           </p>
-                          <button
-                            type="button"
-                            onClick={getCurrentLocation}
-                            disabled={locationLoading}
-                            className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 transition duration-200 flex items-center justify-center"
-                          >
-                            {locationLoading ? (
-                              <>
-                                <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
-                                Getting Location...
-                              </>
-                            ) : (
-                              <>
-                                <FaLocationArrow className="mr-2" />
-                                Get Current Location
-                              </>
-                            )}
-                          </button>
+                          
+                          {!showManualLocation ? (
+                            <div className="space-y-3">
+                              <button
+                                type="button"
+                                onClick={getCurrentLocation}
+                                disabled={locationLoading}
+                                className="w-full bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 transition duration-200 flex items-center justify-center"
+                              >
+                                {locationLoading ? (
+                                  <>
+                                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                    </svg>
+                                    Getting Location...
+                                  </>
+                                ) : (
+                                  <>
+                                    <FaLocationArrow className="mr-2" />
+                                    Get Current Location
+                                  </>
+                                )}
+                              </button>
+                              
+                              <div className="text-center">
+                                <span className="text-gray-500 text-sm">or</span>
+                              </div>
+                              
+                              <button
+                                type="button"
+                                onClick={toggleManualLocation}
+                                className="w-full bg-blue-500 hover:bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-400 focus:ring-opacity-50 transition duration-200 flex items-center justify-center"
+                              >
+                                <FaEdit className="mr-2" />
+                                Enter Location Manually
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="space-y-4">
+                              <div className="flex items-center justify-between">
+                                <h4 className="font-semibold text-gray-700">Manual Location Entry</h4>
+                                <button
+                                  type="button"
+                                  onClick={toggleManualLocation}
+                                  className="text-gray-500 hover:text-gray-700"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                              
+                              <div className="grid grid-cols-1 gap-3">
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Latitude*
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={manualLatitude}
+                                    onChange={(e) => setManualLatitude(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="e.g., 40.7128"
+                                  />
+                                </div>
+                                
+                                <div>
+                                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Longitude*
+                                  </label>
+                                  <input
+                                    type="number"
+                                    step="any"
+                                    value={manualLongitude}
+                                    onChange={(e) => setManualLongitude(e.target.value)}
+                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                    placeholder="e.g., -74.0060"
+                                  />
+                                </div>
+                              </div>
+                              
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={handleManualLocationSubmit}
+                                  className="flex-1 bg-green-500 hover:bg-green-600 text-white font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 transition duration-200"
+                                >
+                                  Set Location
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={toggleManualLocation}
+                                  className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-700 font-semibold py-2 px-4 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-400 focus:ring-opacity-50 transition duration-200"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                              
+                              <p className="text-xs text-gray-500">
+                                Tip: You can get coordinates from Google Maps by right-clicking on your location.
+                              </p>
+                            </div>
+                          )}
+                          
                           {locationError && (
                             <p className="text-red-500 text-sm mt-2">
                               {locationError}
@@ -490,18 +635,36 @@ export default function ShopRegisterPage() {
                         <div className="text-center">
                           <div className="flex items-center justify-center text-green-600 mb-2">
                             <FaMapMarkerAlt className="mr-2" />
-                            <span className="font-semibold">Location Obtained!</span>
+                            <span className="font-semibold">Location Set!</span>
                           </div>
-                          <p className="text-sm text-gray-600 mb-2">
+                          <p className="text-sm text-gray-600 mb-3">
                             Coordinates: {formData.latitude?.toFixed(6)}, {formData.longitude?.toFixed(6)}
                           </p>
-                          <button
-                            type="button"
-                            onClick={getCurrentLocation}
-                            className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
-                          >
-                            Update Location
-                          </button>
+                          <div className="flex gap-2 justify-center">
+                            <button
+                              type="button"
+                              onClick={getCurrentLocation}
+                              className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+                            >
+                              Use Current Location
+                            </button>
+                            <span className="text-gray-400">|</span>
+                            <button
+                              type="button"
+                              onClick={toggleManualLocation}
+                              className="text-blue-600 hover:text-blue-800 text-sm font-semibold"
+                            >
+                              Edit Manually
+                            </button>
+                            <span className="text-gray-400">|</span>
+                            <button
+                              type="button"
+                              onClick={clearLocation}
+                              className="text-red-600 hover:text-red-800 text-sm font-semibold"
+                            >
+                              Clear
+                            </button>
+                          </div>
                         </div>
                       )}
                       <p className="text-xs text-gray-500 mt-2">

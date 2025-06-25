@@ -12,6 +12,7 @@ import { transformShopData } from "./utils/shopUtils"
 export default function Home() {
   const [searchRadius, setSearchRadius] = useState(10)
   const [isInitialized, setIsInitialized] = useState(false)
+  const [searchQuery, setSearchQuery] = useState("") // Add search query state
   
   const {
     location: userLocation,
@@ -30,6 +31,16 @@ export default function Home() {
     retryFetch,
     setError: setShopsError
   } = useShops()
+
+  // Handle search from Header component
+  const handleSearch = useCallback((query) => {
+    setSearchQuery(query)
+  }, [])
+
+  // Clear search
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("")
+  }, [])
 
   // Initialize app - try to get location and fetch shops
   const initializeApp = useCallback(async () => {
@@ -120,12 +131,30 @@ export default function Home() {
   // Determine error state
   const hasError = shopsError && !isLoading
 
+  // Get search results count for display
+  const getResultsCount = () => {
+    if (!searchQuery.trim()) return transformedShops.length
+    
+    const query = searchQuery.toLowerCase().trim()
+    return transformedShops.filter(shop => {
+      return (shop.name && shop.name.toLowerCase().includes(query)) ||
+             (shop.owner_name && shop.owner_name.toLowerCase().includes(query)) ||
+             (shop.address && shop.address.toLowerCase().includes(query)) ||
+             (shop.description && shop.description.toLowerCase().includes(query)) ||
+             (shop.category && shop.category.toLowerCase().includes(query))
+    }).length
+  }
+
   return (
     <div className="flex h-screen bg-gray-50">
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
-        <Header />
+        {/* Header with search functionality */}
+        <Header 
+          onSearch={handleSearch}
+          searchQuery={searchQuery}
+          onClearSearch={handleClearSearch}
+        />
 
         {/* Main content area */}
         <main className="flex-1 overflow-y-auto">
@@ -167,17 +196,25 @@ export default function Home() {
             <div className="container mx-auto">
               <div className="flex justify-between items-center mb-8">
                 <h2 className="text-3xl font-bold">
-                  {userLocation ? `Popular Shops Near You! (${transformedShops.length} found)` : 'Popular Shops!'}
+                  {searchQuery ? (
+                    `Search Results (${getResultsCount()} found)`
+                  ) : userLocation ? (
+                    `Popular Shops Near You! (${transformedShops.length} found)`
+                  ) : (
+                    'Popular Shops!'
+                  )}
                 </h2>
                 
-                {/* Location Controls */}
-                <LocationControls
-                  userLocation={userLocation}
-                  searchRadius={searchRadius}
-                  onRadiusChange={handleRadiusChange}
-                  onEnableLocation={enableLocation}
-                  locationLoading={locationLoading}
-                />
+                {/* Location Controls - hide when searching */}
+                {!searchQuery && (
+                  <LocationControls
+                    userLocation={userLocation}
+                    searchRadius={searchRadius}
+                    onRadiusChange={handleRadiusChange}
+                    onEnableLocation={enableLocation}
+                    locationLoading={locationLoading}
+                  />
+                )}
               </div>
 
               {/* Loading State */}
@@ -197,14 +234,18 @@ export default function Home() {
                 />
               )}
 
-              {/* Shops Grid */}
+              {/* Shops Grid with search functionality */}
               {!isLoading && !hasError && (
                 <ShopsGrid
                   shops={transformedShops}
                   userLocation={userLocation}
                   searchRadius={searchRadius}
+                  searchQuery={searchQuery}
                   onExpandSearch={() => handleRadiusChange(50)}
-                  onShowAll={showAllShops}
+                  onShowAll={() => {
+                    handleClearSearch()
+                    showAllShops()
+                  }}
                 />
               )}
             </div>

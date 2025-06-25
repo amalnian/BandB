@@ -119,7 +119,7 @@ const OtpVerification = () => {
     try {
       console.log('Resending OTP to:', userEmail);
       
-      const response = await axios.post('http://localhost:8000/api/auth/resend-otp/', {
+      const response = await axios.post('http://localhost:8000/api/resend-otp/', {
         email: userEmail,
       }, {
         headers: {

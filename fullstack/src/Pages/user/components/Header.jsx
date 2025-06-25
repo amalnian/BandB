@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react"
-import { Search, Bell, Menu } from "lucide-react"
+import { Search, Bell, Menu, X } from "lucide-react"
 import { 
   getUserProfile 
 } from "@/endpoints/APIs"
@@ -45,14 +45,19 @@ const Input = ({ className = "", ...props }) => (
   />
 )
 
-export default function Header() {
+export default function Header({ onSearch, searchQuery, onClearSearch }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [userProfile, setUserProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [localSearchQuery, setLocalSearchQuery] = useState(searchQuery || "")
 
   useEffect(() => {
     fetchUserProfile()
   }, [])
+
+  useEffect(() => {
+    setLocalSearchQuery(searchQuery || "")
+  }, [searchQuery])
 
   const fetchUserProfile = async () => {
     try {
@@ -82,6 +87,38 @@ export default function Header() {
       }
     } finally {
       setLoading(false)
+    }
+  }
+
+  // Handle search input changes
+  const handleSearchChange = (e) => {
+    const value = e.target.value
+    setLocalSearchQuery(value)
+    
+    // Debounce search - trigger search after user stops typing for 300ms
+    if (onSearch) {
+      clearTimeout(window.searchTimeout)
+      window.searchTimeout = setTimeout(() => {
+        onSearch(value.trim())
+      }, 300)
+    }
+  }
+
+  // Handle search form submission
+  const handleSearchSubmit = (e) => {
+    e.preventDefault()
+    if (onSearch) {
+      onSearch(localSearchQuery.trim())
+    }
+  }
+
+  // Handle clear search
+  const handleClearSearch = () => {
+    setLocalSearchQuery("")
+    if (onClearSearch) {
+      onClearSearch()
+    } else if (onSearch) {
+      onSearch("")
     }
   }
 
@@ -143,7 +180,7 @@ export default function Header() {
       return userProfile.address
     }
     
-    // return "Location not set"
+    return "Location not set"
   }
 
   return (
@@ -181,10 +218,34 @@ export default function Header() {
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
           <Input
             type="search"
-            placeholder="Search"
-            className="pl-10 pr-4 py-2 w-full rounded-md border border-gray-300 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+            placeholder="Search shops by name..."
+            value={localSearchQuery}
+            onChange={handleSearchChange}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault()
+                handleSearchSubmit(e)
+              }
+            }}
+            className="pl-10 pr-10 py-2 w-full rounded-md border border-gray-300 focus:ring-2 focus:ring-amber-500 focus:border-transparent"
           />
+          {localSearchQuery && (
+            <button
+              type="button"
+              onClick={handleClearSearch}
+              className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <X size={16} />
+            </button>
+          )}
         </div>
+        
+        {/* Search results indicator */}
+        {localSearchQuery && (
+          <div className="absolute top-full left-0 right-0 bg-white border border-t-0 border-gray-200 rounded-b-md shadow-sm px-3 py-2 text-sm text-gray-600 z-10">
+            Searching for: <span className="font-medium text-amber-600">"{localSearchQuery}"</span>
+          </div>
+        )}
       </div>
 
       {/* User profile */}

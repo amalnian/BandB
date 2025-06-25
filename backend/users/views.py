@@ -1,35 +1,95 @@
-# views.py
-import re
-from users.serializers import CustomTokenObtainPairSerializer, UserProfileSerializer
-from rest_framework_simplejwt.views import TokenObtainPairView
-from users.serializers import CustomUserCreateSerializer, EmailOTPVerifySerializer, ForgotPasswordSerializer, ResetPasswordSerializer, VerifyForgotPasswordOTPSerializer
-from rest_framework import generics, status
-from rest_framework.response import Response
-from .models import CustomUser
-from rest_framework import permissions
+import json
+import math
+import hmac
+import jwt
+import logging
+import random
+import string
+import hashlib
+from datetime import datetime, date, timedelta
+from decimal import Decimal
+from math import radians, cos, sin, asin, sqrt
+
+import cloudinary.uploader
+from cloudinary.exceptions import Error as CloudinaryError
+
+from django.conf import settings
+from django.core.mail import send_mail
+from django.core.exceptions import ValidationError
+from django.contrib.auth import authenticate, update_session_auth_hash
+from django.contrib.auth.password_validation import validate_password
+from django.db import transaction
+from django.db.models import Q, Sum
+from django.forms import ValidationError as DjangoValidationError
+from django.http import JsonResponse, Http404
+from django.shortcuts import get_object_or_404, render
+from django.utils import timezone
+from django.utils.decorators import method_decorator
+from django.utils.translation import gettext_lazy as _
+from django.views import View
+from django.views.decorators.csrf import csrf_exempt
+
+
+from google.oauth2 import id_token
+from google.auth.transport import requests
+
+from rest_framework import status, permissions, generics
+from rest_framework.decorators import authentication_classes, permission_classes, api_view
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
+from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
     TokenRefreshView,
+    TokenViewBase,
 )
-from rest_framework_simplejwt.exceptions import TokenError, InvalidToken
-import cloudinary.uploader
-from cloudinary.exceptions import Error as CloudinaryError
-from django.contrib.auth import update_session_auth_hash
-from django.contrib.auth.password_validation import validate_password
-from django.core.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
 
-# from .serializers import EmailOTPVerifySerializer
-from rest_framework.views import APIView
-from django.core.mail import send_mail
-import random
-import string  # Added missing import
-from datetime import datetime, timedelta
-from django.utils import timezone
-from rest_framework.permissions import AllowAny
-from django.conf import settings
-import logging
+import razorpay
+
+# Project-specific
+from .models import CustomUser
+from .authentication import CoustomJWTAuthentication
+
+from users.serializers import (
+    CustomTokenObtainPairSerializer,
+    UserProfileSerializer,
+    CustomUserCreateSerializer,
+    EmailOTPVerifySerializer,
+    ForgotPasswordSerializer,
+    ResetPasswordSerializer,
+    VerifyForgotPasswordOTPSerializer,
+)
+
+from shop.models import (
+    Shop,
+    ShopImage,
+    Notification,
+    Service,
+    OTP,
+    BusinessHours,
+    Barber,
+    SpecialClosingDay,
+    Booking,
+)
+
+from shop.serializers import (
+    ShopSerializer,
+    ShopUpdateSerializer,
+    ShopImageSerializer,
+    NotificationSerializer,
+    ServiceSerializer,
+    BusinessHoursSerializer,
+    BookingSerializer,
+)
+
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -240,24 +300,6 @@ class EmailOTPVerifyView(generics.GenericAPIView):
                 return Response({'error': 'User not found.'}, status=status.HTTP_404_NOT_FOUND)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-# class CheckJwtTokenView(APIView):
-#     """View to check what's in a JWT token"""
-    
-#     def get(self, request):
-#         """Returns information about the authenticated user from the JWT token"""
-#         if not request.user.is_authenticated:
-#             return Response({'error': 'Not authenticated'}, status=status.HTTP_401_UNAUTHORIZED)
-        
-#         user = request.user
-#         return Response({
-#             'user_id': user.id,
-#             'email': user.email,
-#             'username': user.username,
-#             'is_active': user.is_active,
-#             'is_staff': user.is_staff,
-#             'is_superuser': user.is_superuser,
-#             'role': user.role,  # Added role to the response
-#         })
 
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]
@@ -301,28 +343,46 @@ class ResendOTPView(APIView):
         
 
 class Logout(APIView):
-    permission_classes=[AllowAny]
+    permission_classes = [IsAuthenticated]
     
-    def post(self,request):
+    def post(self, request):
         try:
+            # Get tokens from cookies
+            access_token = request.COOKIES.get('access_token')
+            refresh_token = request.COOKIES.get('refresh_token')
+            
+            # Blacklist the refresh token if it exists
+            if refresh_token:
+                try:
+                    token = RefreshToken(refresh_token)
+                    token.blacklist()
+                except TokenError as e:
+                    # Token might already be blacklisted or invalid
+                    print(f"Token blacklist error: {str(e)}")
+            
+            # Create response
             res = Response(status=status.HTTP_200_OK)
-            res.data = {"success":True, "message":"logout successfully"}
+            res.data = {"success": True, "message": "Logout successfully"}
+            
+            # Delete cookies
             res.delete_cookie(
                 key="access_token",
                 path='/',
                 samesite='None',
-                
             )
             res.delete_cookie(
                 key="refresh_token",
                 path='/',
                 samesite='None',
-                
             )
 
             return res
+            
         except Exception as e:
-            return Response({"success":False , "message": f"Logout failed: {str(e)}"}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": f"Logout failed: {str(e)}"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
 
 
@@ -335,6 +395,7 @@ class ForgotPasswordView(APIView):
             serializer.save()
             return Response({"message": "OTP has been sent to your email"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
 
 class VerifyForgotPasswordOTPView(APIView):
     permission_classes = [AllowAny]
@@ -393,12 +454,6 @@ class ResetPasswordView(APIView):
             except CustomUser.DoesNotExist:
                 return Response({"error": "User not found"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-from google.oauth2 import id_token
-from google.auth.transport import requests
-from rest_framework_simplejwt.tokens import RefreshToken
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
 
 @method_decorator(csrf_exempt, name='dispatch')
 class GoogleAuthView(APIView):
@@ -836,28 +891,6 @@ class UserStatsView(APIView):
 
 
 
-
-
-from django.shortcuts import render
-from django.http import JsonResponse
-from django.views import View
-from django.utils.decorators import method_decorator
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework.decorators import authentication_classes, permission_classes
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from django.db.models import Q
-from django.core.serializers import serialize
-from math import radians, cos, sin, asin, sqrt
-import json
-from decimal import Decimal
-from .models import CustomUser
-from shop.models import Shop
-from .authentication import CoustomJWTAuthentication  # Import your custom JWT auth
-
-
 class UpdateUserLocationView(APIView):
     authentication_classes = [CoustomJWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -1226,14 +1259,7 @@ class AllShopsView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# views.py
-from rest_framework import generics, status
-from rest_framework.response import Response
-from rest_framework.permissions import AllowAny
-from django.shortcuts import get_object_or_404
-from shop.models import Shop
-from shop.serializers import ShopSerializer
-from django.http import Http404
+
 
 class ShopDetailView(generics.RetrieveAPIView):
     """
@@ -1301,15 +1327,7 @@ class ShopDetailView(generics.RetrieveAPIView):
 
 
 
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from datetime import datetime, timedelta
-from django.utils import timezone
-from django.shortcuts import get_object_or_404
-from shop.models import Shop, Service, BusinessHours, Booking
-from shop.serializers import ServiceSerializer, BusinessHoursSerializer
+
 
 
 class ShopServicesView(APIView):
@@ -1387,297 +1405,20 @@ class ShopBusinessHoursView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# class AvailableTimeSlotsView(APIView):
-#     """
-#     Generate available time slots based on business hours and existing bookings
-#     """
-#     permission_classes = [IsAuthenticated]  # Add if authentication required
-    
-#     def get(self, request, shop_id):
-#         """Generate available time slots for a specific date"""
-#         date_str = request.GET.get('date')
-        
-#         if not date_str:
-#             return Response({
-#                 'success': False,
-#                 'error': 'Date parameter is required (format: YYYY-MM-DD)'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-        
-#         try:
-#             # Verify shop exists
-#             shop = get_object_or_404(Shop, id=shop_id)
-            
-#             # Parse the date
-#             selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-#             day_of_week = selected_date.weekday()  # Monday is 0
-            
-#             # Check if date is in the past
-#             if selected_date < timezone.now().date():
-#                 return Response({
-#                     'success': False,
-#                     'error': 'Cannot book appointments for past dates'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Get business hours for the day
-#             try:
-#                 business_hours = BusinessHours.objects.get(
-#                     shop_id=shop_id,
-#                     day_of_week=day_of_week
-#                 )
-#             except BusinessHours.DoesNotExist:
-#                 return Response({
-#                     'success': False,
-#                     'error': 'Business hours not configured for this day'
-#                 }, status=status.HTTP_404_NOT_FOUND)
-            
-#             # If shop is closed on this day
-#             if business_hours.is_closed:
-#                 return Response({
-#                     'success': True,
-#                     'data': {
-#                         'time_slots': [],
-#                         'message': f'Shop is closed on {business_hours.get_day_of_week_display()}'
-#                     }
-#                 })
-            
-#             # Generate time slots
-#             slots = self._generate_time_slots(
-#                 business_hours, 
-#                 selected_date, 
-#                 shop_id
-#             )
-            
-#             return Response({
-#                 'success': True,
-#                 'data': {
-#                     'time_slots': slots,
-#                     'date': date_str,
-#                     'day': business_hours.get_day_of_week_display(),
-#                     'shop_name': shop.name
-#                 }
-#             }, status=status.HTTP_200_OK)
-            
-#         except ValueError:
-#             return Response({
-#                 'success': False,
-#                 'error': 'Invalid date format. Use YYYY-MM-DD'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-            
-#         except Shop.DoesNotExist:
-#             return Response({
-#                 'success': False,
-#                 'error': 'Shop not found'
-#             }, status=status.HTTP_404_NOT_FOUND)
-            
-#         except Exception as e:
-#             return Response({
-#                 'success': False,
-#                 'error': f'An error occurred: {str(e)}'
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-#     def _generate_time_slots(self, business_hours, selected_date, shop_id):
-#         """Generate time slots based on business hours and check availability"""
-#         slots = []
-#         current_time = business_hours.opening_time
-#         closing_time = business_hours.closing_time
-#         slot_duration = timedelta(minutes=30)
-        
-#         # Get current time if the selected date is today
-#         now = timezone.now()
-#         is_today = selected_date == now.date()
-#         current_hour_minute = now.time() if is_today else None
-        
-#         while current_time < closing_time:
-#             # Check if slot is in the past (for today only)
-#             is_past_slot = False
-#             if is_today and current_hour_minute:
-#                 is_past_slot = current_time <= current_hour_minute
-            
-#             # Check if slot is available (not booked)
-#             is_available = self._is_slot_available(
-#                 shop_id, 
-#                 selected_date, 
-#                 current_time
-#             ) and not is_past_slot
-            
-#             slots.append({
-#                 'time': current_time.strftime('%H:%M'),
-#                 'available': is_available,
-#                 'is_past': is_past_slot
-#             })
-            
-#             # Add 30 minutes to current time
-#             current_datetime = datetime.combine(selected_date, current_time)
-#             current_datetime += slot_duration
-#             current_time = current_datetime.time()
-            
-#             # Prevent infinite loop
-#             if current_time <= current_datetime.time():
-#                 break
-        
-#         return slots
-    
-#     def _is_slot_available(self, shop_id, date, time):
-#         """
-#         Check if a time slot is available (not booked)
-#         You can customize this logic based on your Booking model
-#         """
-#         try:
-#             # Example booking conflict check
-#             # Adjust this query based on your Booking model structure
-#             existing_bookings = Booking.objects.filter(
-#                 shop_id=shop_id,
-#                 appointment_date=date,
-#                 appointment_time=time,
-#                 status__in=['confirmed', 'pending']  # Adjust based on your status choices
-#             ).exists()
-            
-#             return not existing_bookings
-            
-#         except Exception:
-#             # If Booking model doesn't exist or has different structure
-#             # Return True for now (all slots available)
-#             return True
 
 
-# class CreateBookingView(APIView):
-#     """
-#     Create a new booking
-#     """
-#     permission_classes = [IsAuthenticated]
-    
-#     def post(self, request):
-#         """Create a new booking"""
-#         try:
-#             booking_data = request.data
-            
-#             # Validate required fields
-#             required_fields = ['shop', 'services', 'appointment_date', 'appointment_time']
-#             missing_fields = [field for field in required_fields if field not in booking_data]
-            
-#             if missing_fields:
-#                 return Response({
-#                     'success': False,
-#                     'error': f'Missing required fields: {", ".join(missing_fields)}'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Validate shop exists
-#             shop_id = booking_data.get('shop')
-#             shop = get_object_or_404(Shop, id=shop_id)
-            
-#             # Validate services exist
-#             service_ids = booking_data.get('services', [])
-#             if not service_ids:
-#                 return Response({
-#                     'success': False,
-#                     'error': 'At least one service must be selected'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             services = Service.objects.filter(
-#                 id__in=service_ids,
-#                 shop_id=shop_id,
-#                 is_active=True
-#             )
-            
-#             if len(services) != len(service_ids):
-#                 return Response({
-#                     'success': False,
-#                     'error': 'One or more selected services are invalid'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Validate date and time
-#             try:
-#                 appointment_date = datetime.strptime(
-#                     booking_data['appointment_date'], '%Y-%m-%d'
-#                 ).date()
-#                 appointment_time = datetime.strptime(
-#                     booking_data['appointment_time'], '%H:%M'
-#                 ).time()
-#             except ValueError:
-#                 return Response({
-#                     'success': False,
-#                     'error': 'Invalid date or time format'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Check if slot is still available
-#             time_slots_view = AvailableTimeSlotsView()
-#             is_available = time_slots_view._is_slot_available(
-#                 shop_id, 
-#                 appointment_date, 
-#                 appointment_time
-#             )
-            
-#             if not is_available:
-#                 return Response({
-#                     'success': False,
-#                     'error': 'Selected time slot is no longer available'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Calculate total amount
-#             total_amount = sum(service.price for service in services)
-#             service_fee = booking_data.get('service_fee', 25)  # Default service fee
-#             total_amount += service_fee
-            
-#             # Create booking (adjust based on your Booking model)
-#             booking_data_processed = {
-#                 'user': request.user,  # Assuming authenticated user
-#                 'shop': shop,
-#                 'appointment_date': appointment_date,
-#                 'appointment_time': appointment_time,
-#                 'total_amount': total_amount,
-#                 'payment_method': booking_data.get('payment_method', 'wallet'),
-#                 'status': 'pending',  # Default status
-#                 'notes': booking_data.get('notes', '')
-#             }
-            
-#             # If you have a Booking model, create it here
-#             # booking = Booking.objects.create(**booking_data_processed)
-#             # booking.services.set(services)  # If many-to-many relationship
-            
-#             # For now, return success response with mock data
-#             response_data = {
-#                 'success': True,
-#                 'data': {
-#                     'id': 1,  # Replace with actual booking.id
-#                     'message': 'Booking created successfully',
-#                     'shop_name': shop.name,
-#                     'appointment_date': appointment_date.strftime('%Y-%m-%d'),
-#                     'appointment_time': appointment_time.strftime('%H:%M'),
-#                     'services': [service.name for service in services],
-#                     'total_amount': float(total_amount),
-#                     'status': 'pending'
-#                 }
-#             }
-            
-#             return Response(response_data, status=status.HTTP_201_CREATED)
-            
-#         except Shop.DoesNotExist:
-#             return Response({
-#                 'success': False,
-#                 'error': 'Shop not found'
-#             }, status=status.HTTP_404_NOT_FOUND)
-            
-#         except Exception as e:
-#             return Response({
-#                 'success': False,
-#                 'error': f'An error occurred: {str(e)}'
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-
-# views.py - Enhanced version with duration-based slot booking
-
+# Alternative approach using Django's built-in timezone support
+from django.utils import timezone
+from django.conf import settings
+from datetime import datetime, timedelta
+from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
-from datetime import datetime, timedelta
-from django.utils import timezone
-from django.shortcuts import get_object_or_404
 from django.db.models import Q
-from shop.models import Shop, Service, BusinessHours, Booking
-from shop.serializers import ServiceSerializer, BusinessHoursSerializer
 import math
-
+import zoneinfo  # Python 3.9+ (or use pytz for older versions)
 
 class AvailableTimeSlotsView(APIView):
     """
@@ -1700,16 +1441,44 @@ class AvailableTimeSlotsView(APIView):
             # Verify shop exists
             shop = get_object_or_404(Shop, id=shop_id)
             
+            # Get shop's timezone (you can set this in settings or shop model)
+            # For India, use 'Asia/Kolkata'
+            shop_timezone_str = getattr(shop, 'timezone', 'Asia/Kolkata')
+            
+            try:
+                shop_timezone = zoneinfo.ZoneInfo(shop_timezone_str)
+            except:
+                # Fallback to UTC if timezone is invalid
+                shop_timezone = zoneinfo.ZoneInfo('UTC')
+            
             # Parse the date
             selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
             day_of_week = selected_date.weekday()  # Monday is 0
             
-            # Check if date is in the past
-            if selected_date < timezone.now().date():
+            # Get current time in shop's timezone
+            now_utc = timezone.now()
+            now_local = now_utc.astimezone(shop_timezone)
+            today_local = now_local.date()
+            
+            # Check if date is in the past (using local date)
+            if selected_date < today_local:
                 return Response({
                     'success': False,
                     'error': 'Cannot book appointments for past dates'
                 }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check for special closing days
+            special_closing = SpecialClosingDay.objects.filter(date=selected_date).first()
+            if special_closing:
+                return Response({
+                    'success': True,
+                    'data': {
+                        'time_slots': [],
+                        'message': f'Shop is closed on this date: {special_closing.reason or "Special closing day"}',
+                        'is_special_closing_day': True,
+                        'closing_reason': special_closing.reason
+                    }
+                })
             
             # Get business hours for the day
             try:
@@ -1746,12 +1515,13 @@ class AvailableTimeSlotsView(APIView):
                 )
                 total_duration = sum(service.duration_minutes for service in selected_services)
             
-            # Generate time slots
+            # Generate time slots with local time context
             slots = self._generate_time_slots_with_duration(
                 business_hours, 
                 selected_date, 
                 shop_id,
-                total_duration
+                total_duration,
+                now_local
             )
             
             return Response({
@@ -1762,7 +1532,8 @@ class AvailableTimeSlotsView(APIView):
                     'day': business_hours.get_day_of_week_display(),
                     'shop_name': shop.name,
                     'total_duration': total_duration,
-                    'slots_needed': math.ceil(total_duration / 30) if total_duration > 0 else 1
+                    'slots_needed': math.ceil(total_duration / 30) if total_duration > 0 else 1,
+                    'timezone': shop_timezone_str
                 }
             }, status=status.HTTP_200_OK)
             
@@ -1784,8 +1555,8 @@ class AvailableTimeSlotsView(APIView):
                 'error': f'An error occurred: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    def _generate_time_slots_with_duration(self, business_hours, selected_date, shop_id, total_duration):
-        """Generate time slots considering service duration"""
+    def _generate_time_slots_with_duration(self, business_hours, selected_date, shop_id, total_duration, now_local):
+        """Generate time slots considering service duration and local time"""
         slots = []
         
         # Check if business hours has opening and closing times
@@ -1799,10 +1570,9 @@ class AvailableTimeSlotsView(APIView):
         # Calculate how many 30-minute slots are needed
         slots_needed = math.ceil(total_duration / 30) if total_duration > 0 else 1
         
-        # Get current time if the selected date is today
-        now = timezone.now()
-        is_today = selected_date == now.date()
-        current_hour_minute = now.time() if is_today else None
+        # Check if the selected date is today (in local timezone)
+        is_today = selected_date == now_local.date()
+        current_hour_minute = now_local.time() if is_today else None
         
         while current_time < closing_time:
             # Calculate slot end time (always 30 minutes)
@@ -1815,10 +1585,13 @@ class AvailableTimeSlotsView(APIView):
             if service_end_time > closing_time:
                 break
             
-            # Check if slot is in the past (for today only)
+            # Check if slot is in the past (for today only, using local time)
             is_past_slot = False
             if is_today and current_hour_minute:
-                is_past_slot = current_time <= current_hour_minute
+                # Add buffer time (e.g., 15 minutes) to prevent booking slots that are about to start
+                buffer_minutes = 15
+                current_time_with_buffer = self._add_minutes_to_time(current_hour_minute, buffer_minutes)
+                is_past_slot = current_time <= current_time_with_buffer
             
             # Check if consecutive slots are available
             is_available = self._are_consecutive_slots_available(
@@ -1830,8 +1603,8 @@ class AvailableTimeSlotsView(APIView):
             
             slots.append({
                 'time': current_time.strftime('%H:%M'),
-                'end_time': slot_end_time.strftime('%H:%M'),  # Changed from service_end_time to slot_end_time
-                'service_end_time': service_end_time.strftime('%H:%M'),  # Add this for reference
+                'end_time': slot_end_time.strftime('%H:%M'),
+                'service_end_time': service_end_time.strftime('%H:%M'),
                 'available': is_available,
                 'is_past': is_past_slot,
                 'slots_needed': slots_needed,
@@ -1864,11 +1637,10 @@ class AvailableTimeSlotsView(APIView):
                 slot_time = self._add_minutes_to_time(start_time, i * 30)
                 
                 # Check if this specific slot is booked
-                # FIXED: Changed 'status' to 'booking_status'
                 existing_booking = Booking.objects.filter(
                     shop_id=shop_id,
                     appointment_date=date,
-                    booking_status__in=['confirmed', 'pending']  # Changed from status to booking_status
+                    booking_status__in=['confirmed', 'pending']
                 ).filter(
                     Q(appointment_time__lte=slot_time) & 
                     Q(appointment_time__gt=self._add_minutes_to_time(slot_time, -30))
@@ -1878,11 +1650,10 @@ class AvailableTimeSlotsView(APIView):
                     return False
                     
                 # Also check if any existing booking overlaps with this slot
-                # FIXED: Changed 'status' to 'booking_status'
                 overlapping_bookings = Booking.objects.filter(
                     shop_id=shop_id,
                     appointment_date=date,
-                    booking_status__in=['confirmed', 'pending']  # Changed from status to booking_status
+                    booking_status__in=['confirmed', 'pending']
                 )
                 
                 for booking in overlapping_bookings:
@@ -1905,7 +1676,6 @@ class AvailableTimeSlotsView(APIView):
         for service in booking.services.all():
             total_duration += service.duration_minutes
         return total_duration if total_duration > 0 else 30
-
 
 class CreateBookingView(APIView):
     """
@@ -2092,20 +1862,6 @@ class ServiceDurationView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
-# views.py
-import razorpay
-from django.conf import settings
-from django.http import JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from django.utils.decorators import method_decorator
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
-import json
-import hmac
-import hashlib
-from django.db import transaction  # Add this line
 
 
 # Initialize Razorpay client
@@ -2323,222 +2079,222 @@ class VerifyRazorpayPaymentView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-class AvailableTimeSlotsView(APIView):
-    """
-    Generate available time slots based on business hours and existing bookings
-    """
-    permission_classes = [IsAuthenticated]
+# class AvailableTimeSlotsView(APIView):
+#     """
+#     Generate available time slots based on business hours and existing bookings
+#     """
+#     permission_classes = [IsAuthenticated]
     
-    def get(self, request, shop_id):
-        """Generate available time slots for a specific date"""
-        try:
-            date_str = request.GET.get('date')
-            service_ids = request.GET.getlist('services', [])
+#     def get(self, request, shop_id):
+#         """Generate available time slots for a specific date"""
+#         try:
+#             date_str = request.GET.get('date')
+#             service_ids = request.GET.getlist('services', [])
             
-            if not date_str:
-                return Response({
-                    'success': False,
-                    'error': 'Date parameter is required (format: YYYY-MM-DD)'
-                }, status=status.HTTP_400_BAD_REQUEST)
+#             if not date_str:
+#                 return Response({
+#                     'success': False,
+#                     'error': 'Date parameter is required (format: YYYY-MM-DD)'
+#                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Verify shop exists
-            shop = get_object_or_404(Shop, id=shop_id)
+#             # Verify shop exists
+#             shop = get_object_or_404(Shop, id=shop_id)
             
-            # Parse the date
-            selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-            day_of_week = selected_date.weekday()
+#             # Parse the date
+#             selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
+#             day_of_week = selected_date.weekday()
             
-            # Check if date is in the past
-            if selected_date < timezone.now().date():
-                return Response({
-                    'success': False,
-                    'error': 'Cannot book appointments for past dates'
-                }, status=status.HTTP_400_BAD_REQUEST)
+#             # Check if date is in the past
+#             if selected_date < timezone.now().date():
+#                 return Response({
+#                     'success': False,
+#                     'error': 'Cannot book appointments for past dates'
+#                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Get business hours for the day
-            try:
-                business_hours = BusinessHours.objects.get(
-                    shop=shop,
-                    day_of_week=day_of_week
-                )
-            except BusinessHours.DoesNotExist:
-                return Response({
-                    'success': True,
-                    'data': {
-                        'time_slots': [],
-                        'message': 'Business hours not configured for this day'
-                    }
-                })
+#             # Get business hours for the day
+#             try:
+#                 business_hours = BusinessHours.objects.get(
+#                     shop=shop,
+#                     day_of_week=day_of_week
+#                 )
+#             except BusinessHours.DoesNotExist:
+#                 return Response({
+#                     'success': True,
+#                     'data': {
+#                         'time_slots': [],
+#                         'message': 'Business hours not configured for this day'
+#                     }
+#                 })
             
-            # If shop is closed on this day
-            if business_hours.is_closed:
-                return Response({
-                    'success': True,
-                    'data': {
-                        'time_slots': [],
-                        'message': f'Shop is closed on {business_hours.get_day_of_week_display()}'
-                    }
-                })
+#             # If shop is closed on this day
+#             if business_hours.is_closed:
+#                 return Response({
+#                     'success': True,
+#                     'data': {
+#                         'time_slots': [],
+#                         'message': f'Shop is closed on {business_hours.get_day_of_week_display()}'
+#                     }
+#                 })
             
-            # Calculate total duration needed for selected services
-            total_duration = 0
-            if service_ids:
-                selected_services = Service.objects.filter(
-                    id__in=service_ids,
-                    shop=shop,
-                    is_active=True
-                )
-                total_duration = sum(service.duration_minutes for service in selected_services)
+#             # Calculate total duration needed for selected services
+#             total_duration = 0
+#             if service_ids:
+#                 selected_services = Service.objects.filter(
+#                     id__in=service_ids,
+#                     shop=shop,
+#                     is_active=True
+#                 )
+#                 total_duration = sum(service.duration_minutes for service in selected_services)
             
-            # Generate time slots
-            slots = self._generate_time_slots_with_duration(
-                business_hours, 
-                selected_date, 
-                shop_id,
-                total_duration
-            )
+#             # Generate time slots
+#             slots = self._generate_time_slots_with_duration(
+#                 business_hours, 
+#                 selected_date, 
+#                 shop_id,
+#                 total_duration
+#             )
             
-            return Response({
-                'success': True,
-                'data': {
-                    'time_slots': slots,
-                    'date': date_str,
-                    'day': business_hours.get_day_of_week_display(),
-                    'shop_name': shop.name,
-                    'total_duration': total_duration,
-                    'slots_needed': math.ceil(total_duration / 30) if total_duration > 0 else 1
-                }
-            }, status=status.HTTP_200_OK)
+#             return Response({
+#                 'success': True,
+#                 'data': {
+#                     'time_slots': slots,
+#                     'date': date_str,
+#                     'day': business_hours.get_day_of_week_display(),
+#                     'shop_name': shop.name,
+#                     'total_duration': total_duration,
+#                     'slots_needed': math.ceil(total_duration / 30) if total_duration > 0 else 1
+#                 }
+#             }, status=status.HTTP_200_OK)
             
-        except ValueError:
-            return Response({
-                'success': False,
-                'error': 'Invalid date format. Use YYYY-MM-DD'
-            }, status=status.HTTP_400_BAD_REQUEST)
+#         except ValueError:
+#             return Response({
+#                 'success': False,
+#                 'error': 'Invalid date format. Use YYYY-MM-DD'
+#             }, status=status.HTTP_400_BAD_REQUEST)
             
-        except Exception as e:
-            logger.error(f"Available slots error: {str(e)}")
-            return Response({
-                'success': False,
-                'error': f'An error occurred: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#         except Exception as e:
+#             logger.error(f"Available slots error: {str(e)}")
+#             return Response({
+#                 'success': False,
+#                 'error': f'An error occurred: {str(e)}'
+#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
-    def _are_consecutive_slots_available(self, shop_id, date, start_time, slots_needed):
-        """
-        Check if consecutive time slots are available for booking
-        """
-        try:
-            for i in range(slots_needed):
-                slot_time = self._add_minutes_to_time(start_time, i * 30)
+#     def _are_consecutive_slots_available(self, shop_id, date, start_time, slots_needed):
+#         """
+#         Check if consecutive time slots are available for booking
+#         """
+#         try:
+#             for i in range(slots_needed):
+#                 slot_time = self._add_minutes_to_time(start_time, i * 30)
                 
-                # Check if this specific slot is booked
-                # FIXED: Use correct field name
-                existing_booking = Booking.objects.filter(
-                    shop_id=shop_id,
-                    appointment_date=date,
-                    booking_status__in=['confirmed', 'pending']  # Fixed field name
-                ).filter(
-                    Q(appointment_time__lte=slot_time) & 
-                    Q(appointment_time__gt=self._add_minutes_to_time(slot_time, -30))
-                ).exists()
+#                 # Check if this specific slot is booked
+#                 # FIXED: Use correct field name
+#                 existing_booking = Booking.objects.filter(
+#                     shop_id=shop_id,
+#                     appointment_date=date,
+#                     booking_status__in=['confirmed', 'pending']  # Fixed field name
+#                 ).filter(
+#                     Q(appointment_time__lte=slot_time) & 
+#                     Q(appointment_time__gt=self._add_minutes_to_time(slot_time, -30))
+#                 ).exists()
                 
-                if existing_booking:
-                    return False
+#                 if existing_booking:
+#                     return False
                     
-                # Also check if any existing booking overlaps with this slot
-                overlapping_bookings = Booking.objects.filter(
-                    shop_id=shop_id,
-                    appointment_date=date,
-                    booking_status__in=['confirmed', 'pending']  # Fixed field name
-                )
+#                 # Also check if any existing booking overlaps with this slot
+#                 overlapping_bookings = Booking.objects.filter(
+#                     shop_id=shop_id,
+#                     appointment_date=date,
+#                     booking_status__in=['confirmed', 'pending']  # Fixed field name
+#                 )
                 
-                for booking in overlapping_bookings:
-                    booking_duration = self._get_booking_total_duration(booking)
-                    booking_end_time = self._add_minutes_to_time(booking.appointment_time, booking_duration)
+#                 for booking in overlapping_bookings:
+#                     booking_duration = self._get_booking_total_duration(booking)
+#                     booking_end_time = self._add_minutes_to_time(booking.appointment_time, booking_duration)
                     
-                    # Check if there's an overlap
-                    if (booking.appointment_time <= slot_time < booking_end_time):
-                        return False
+#                     # Check if there's an overlap
+#                     if (booking.appointment_time <= slot_time < booking_end_time):
+#                         return False
             
-            return True
+#             return True
             
-        except Exception as e:
-            logger.error(f"Error checking consecutive slots availability: {e}")
-            return False
+#         except Exception as e:
+#             logger.error(f"Error checking consecutive slots availability: {e}")
+#             return False
     
-    def _generate_time_slots_with_duration(self, business_hours, selected_date, shop_id, total_duration):
-        """Generate time slots considering service duration"""
-        slots = []
+#     def _generate_time_slots_with_duration(self, business_hours, selected_date, shop_id, total_duration):
+#         """Generate time slots considering service duration"""
+#         slots = []
         
-        # Check if business hours has opening and closing times
-        if not business_hours.opening_time or not business_hours.closing_time:
-            return slots
+#         # Check if business hours has opening and closing times
+#         if not business_hours.opening_time or not business_hours.closing_time:
+#             return slots
         
-        current_time = business_hours.opening_time
-        closing_time = business_hours.closing_time
-        slot_duration = timedelta(minutes=30)
+#         current_time = business_hours.opening_time
+#         closing_time = business_hours.closing_time
+#         slot_duration = timedelta(minutes=30)
         
-        # Calculate how many 30-minute slots are needed
-        slots_needed = math.ceil(total_duration / 30) if total_duration > 0 else 1
+#         # Calculate how many 30-minute slots are needed
+#         slots_needed = math.ceil(total_duration / 30) if total_duration > 0 else 1
         
-        # Get current time if the selected date is today
-        now = timezone.now()
-        is_today = selected_date == now.date()
-        current_hour_minute = now.time() if is_today else None
+#         # Get current time if the selected date is today
+#         now = timezone.now()
+#         is_today = selected_date == now.date()
+#         current_hour_minute = now.time() if is_today else None
         
-        while current_time < closing_time:
-            # Check if there's enough time before closing for the entire service
-            service_end_time = self._add_minutes_to_time(current_time, total_duration if total_duration > 0 else 30)
+#         while current_time < closing_time:
+#             # Check if there's enough time before closing for the entire service
+#             service_end_time = self._add_minutes_to_time(current_time, total_duration if total_duration > 0 else 30)
             
-            # Skip if service would end after closing time
-            if service_end_time > closing_time:
-                break
+#             # Skip if service would end after closing time
+#             if service_end_time > closing_time:
+#                 break
             
-            # Check if slot is in the past (for today only)
-            is_past_slot = False
-            if is_today and current_hour_minute:
-                is_past_slot = current_time <= current_hour_minute
+#             # Check if slot is in the past (for today only)
+#             is_past_slot = False
+#             if is_today and current_hour_minute:
+#                 is_past_slot = current_time <= current_hour_minute
             
-            # Check if consecutive slots are available
-            is_available = self._are_consecutive_slots_available(
-                shop_id, 
-                selected_date, 
-                current_time,
-                slots_needed
-            ) and not is_past_slot
+#             # Check if consecutive slots are available
+#             is_available = self._are_consecutive_slots_available(
+#                 shop_id, 
+#                 selected_date, 
+#                 current_time,
+#                 slots_needed
+#             ) and not is_past_slot
             
-            slots.append({
-                'time': current_time.strftime('%H:%M'),
-                'end_time': service_end_time.strftime('%H:%M'),
-                'available': is_available,
-                'is_past': is_past_slot,
-                'slots_needed': slots_needed,
-                'duration': total_duration if total_duration > 0 else 30
-            })
+#             slots.append({
+#                 'time': current_time.strftime('%H:%M'),
+#                 'end_time': service_end_time.strftime('%H:%M'),
+#                 'available': is_available,
+#                 'is_past': is_past_slot,
+#                 'slots_needed': slots_needed,
+#                 'duration': total_duration if total_duration > 0 else 30
+#             })
             
-            # Add 30 minutes to current time
-            current_datetime = datetime.combine(selected_date, current_time)
-            current_datetime += slot_duration
-            current_time = current_datetime.time()
+#             # Add 30 minutes to current time
+#             current_datetime = datetime.combine(selected_date, current_time)
+#             current_datetime += slot_duration
+#             current_time = current_datetime.time()
             
-            # Prevent infinite loop
-            if len(slots) > 48:
-                break
+#             # Prevent infinite loop
+#             if len(slots) > 48:
+#                 break
         
-        return slots
+#         return slots
     
-    def _add_minutes_to_time(self, time_obj, minutes):
-        """Add minutes to a time object"""
-        datetime_obj = datetime.combine(datetime.today(), time_obj)
-        datetime_obj += timedelta(minutes=minutes)
-        return datetime_obj.time()
+#     def _add_minutes_to_time(self, time_obj, minutes):
+#         """Add minutes to a time object"""
+#         datetime_obj = datetime.combine(datetime.today(), time_obj)
+#         datetime_obj += timedelta(minutes=minutes)
+#         return datetime_obj.time()
     
-    def _get_booking_total_duration(self, booking):
-        """Calculate total duration of a booking based on its services"""
-        total_duration = 0
-        for service in booking.services.all():
-            total_duration += service.duration_minutes
-        return total_duration if total_duration > 0 else 30
+#     def _get_booking_total_duration(self, booking):
+#         """Calculate total duration of a booking based on its services"""
+#         total_duration = 0
+#         for service in booking.services.all():
+#             total_duration += service.duration_minutes
+#         return total_duration if total_duration > 0 else 30
 
 
 class HandlePaymentFailureView(APIView):
@@ -2564,21 +2320,6 @@ class HandlePaymentFailureView(APIView):
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         
-
-from rest_framework import status, generics
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from django.shortcuts import get_object_or_404
-from django.db.models import Q
-from rest_framework.views import APIView
-from datetime import datetime, date
-import logging
-
-from shop.models import Booking, Shop
-from shop.serializers import BookingSerializer
-
-# Set up logging
-logger = logging.getLogger(__name__)
 
 class ShopBookingsAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -2831,3 +2572,182 @@ class BookingStatsAPIView(APIView):
             logger.error(f"Unexpected error in BookingStatsAPIView: {str(e)}", exc_info=True)
             return Response({'success': False, 'message': 'An unexpected error occurred'}, 
                           status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class UserBookingListView(generics.ListAPIView):
+    """
+    List all bookings for the authenticated user
+    """
+    serializer_class = BookingSerializer
+    permission_classes = [IsAuthenticated]
+    
+    def get_queryset(self):
+        return Booking.objects.filter(user=self.request.user).select_related('shop', 'user').prefetch_related('services')
+
+@api_view(['PATCH'])
+@permission_classes([IsAuthenticated])
+def cancel_booking(request, booking_id):
+    """
+    Cancel a booking with a reason - only allowed until 1 hour before appointment time
+    """
+    try:
+        booking = get_object_or_404(Booking, id=booking_id, user=request.user)
+        
+        # Check if booking can be cancelled based on status
+        if booking.booking_status in ['completed', 'cancelled']:
+            return Response(
+                {'error': 'Cannot cancel a booking that is already completed or cancelled'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Get cancellation reason from request
+        cancellation_reason = request.data.get('reason', '').strip()
+        
+        if not cancellation_reason:
+            return Response(
+                {'error': 'Cancellation reason is required'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Check if cancellation is allowed based on time
+        try:
+            # Handle different date field types
+            if hasattr(booking.appointment_date, 'date'):
+                # If it's a datetime field
+                appointment_date = booking.appointment_date.date()
+            else:
+                # If it's already a date object
+                appointment_date = booking.appointment_date
+            
+            # Parse appointment time - handle different formats
+            appointment_time_str = str(booking.appointment_time)
+            
+            # Try different time parsing approaches
+            appointment_datetime = None
+            
+            # Method 1: Try with common formats
+            time_formats = [
+                '%H:%M:%S',      # 14:30:00
+                '%H:%M',         # 14:30
+                '%I:%M %p',      # 2:30 PM
+                '%I:%M:%S %p',   # 2:30:00 PM
+            ]
+            
+            for time_format in time_formats:
+                try:
+                    time_obj = datetime.strptime(appointment_time_str, time_format).time()
+                    # Combine date and time
+                    appointment_datetime = datetime.combine(appointment_date, time_obj)
+                    break
+                except ValueError:
+                    continue
+            
+            # Method 2: If appointment_time is already a time object
+            if appointment_datetime is None:
+                try:
+                    if hasattr(booking.appointment_time, 'hour'):
+                        # It's already a time object
+                        appointment_datetime = datetime.combine(appointment_date, booking.appointment_time)
+                    else:
+                        raise ValueError("Could not parse appointment time")
+                except Exception:
+                    pass
+            
+            # If we still couldn't parse the time, return error
+            if appointment_datetime is None:
+                logger.error(f"Could not parse appointment time: {appointment_time_str} for booking {booking_id}")
+                return Response(
+                    {'error': 'Invalid appointment time format in booking data'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Make datetime timezone aware
+            if timezone.is_naive(appointment_datetime):
+                appointment_datetime = timezone.make_aware(appointment_datetime)
+            
+            # Calculate the cutoff time (1 hour before appointment)
+            cutoff_time = appointment_datetime - timedelta(hours=1)
+            current_time = timezone.now()
+            
+            # Check if current time is past the cutoff
+            if current_time >= cutoff_time:
+                time_remaining = appointment_datetime - current_time
+                if time_remaining.total_seconds() > 0:
+                    hours_remaining = int(time_remaining.total_seconds() // 3600)
+                    minutes_remaining = int((time_remaining.total_seconds() % 3600) // 60)
+                    return Response(
+                        {
+                            'error': f'Cancellation not allowed. You can only cancel bookings until 1 hour before the appointment time. Your appointment is in {hours_remaining}h {minutes_remaining}m.'
+                        }, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                else:
+                    return Response(
+                        {
+                            'error': 'Cancellation not allowed. The appointment time has already passed.'
+                        }, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+        
+        except Exception as e:
+            logger.error(f"Error parsing appointment datetime for booking {booking_id}: {str(e)}")
+            # If there's any issue with time parsing, allow cancellation but log the error
+            # You can change this behavior based on your requirements
+            pass
+        
+        # Update booking status
+        booking.booking_status = 'cancelled'
+        
+        # Add cancellation reason to notes
+        current_notes = booking.notes or ""
+        cancellation_note = f"Cancellation Reason: {cancellation_reason}"
+        
+        if current_notes:
+            booking.notes = f"{current_notes}\n\n{cancellation_note}"
+        else:
+            booking.notes = cancellation_note
+        
+        # Add cancellation timestamp
+        try:
+            cancellation_timestamp = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+            booking.notes = f"{booking.notes}\nCancelled on: {cancellation_timestamp}"
+        except Exception:
+            # If timestamp formatting fails, just skip it
+            pass
+        
+        booking.save()
+        
+        # If payment was made, initiate refund process
+        if booking.payment_status == 'paid':
+            try:
+                booking.payment_status = 'refunded'
+                booking.save()
+                # Add your refund logic here
+                # refund_response = initiate_refund(booking.payment_id, booking.total_amount)
+            except Exception as e:
+                logger.error(f"Error updating payment status for booking {booking_id}: {str(e)}")
+        
+        # Serialize the booking data
+        try:
+            serializer = BookingSerializer(booking)
+            booking_data = serializer.data
+        except Exception as e:
+            logger.error(f"Error serializing booking data for booking {booking_id}: {str(e)}")
+            booking_data = {
+                'id': booking.id,
+                'booking_status': booking.booking_status,
+                'payment_status': booking.payment_status
+            }
+        
+        return Response({
+            'message': 'Booking cancelled successfully',
+            'booking': booking_data
+        }, status=status.HTTP_200_OK)
+        
+    except Exception as e:
+        logger.error(f"Unexpected error in cancel_booking for booking_id {booking_id}: {str(e)}")
+        return Response(
+            {'error': 'An error occurred while cancelling the booking. Please try again later.'}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
