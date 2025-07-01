@@ -16,6 +16,7 @@ const SignupPage = () => {
 
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [isLoading, setIsLoading] = useState(false)
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target
@@ -39,6 +40,8 @@ const SignupPage = () => {
       return
     }
 
+    setIsLoading(true)
+
     // Here you would typically send the data to your Django backend
     try {
       // Example fetch request to your Django API
@@ -60,18 +63,23 @@ const SignupPage = () => {
       const data = await response.json()
 
       if (response.ok) {
-        // Store email in localStorage before redirecting
-        localStorage.setItem('registrationEmail', formData.email);
+        // Store email in memory for OTP verification
+        console.log('Registration successful, email:', formData.email);
         
-        // Redirect to OTP verification page
-        window.location.href = "/otp"
+        // Add a small delay to show the loading state
+        setTimeout(() => {
+          // Redirect to OTP verification page with email as URL parameter
+          window.location.href = `/otp?email=${encodeURIComponent(formData.email)}`
+        }, 1000) // 1 second delay to show loading
       } else {
         // Handle errors from backend
         alert(data.message || "Registration failed")
+        setIsLoading(false)
       }
     } catch (error) {
       console.error("Error:", error)
       alert("An error occurred during registration")
+      setIsLoading(false)
     }
   }
 
@@ -97,7 +105,7 @@ const SignupPage = () => {
         <div className="w-full max-w-lg">
           <h1 className="mb-10 text-3xl font-bold text-gray-800">Create your account</h1>
 
-          <form onSubmit={handleSubmit}>
+          <div onSubmit={handleSubmit}>
             {/* First Name & Last Name */}
             <div className="mb-6 flex flex-col gap-6 md:flex-row">
               <div className="flex-1">
@@ -112,7 +120,8 @@ const SignupPage = () => {
                   value={formData.firstName}
                   onChange={handleChange}
                   required
-                  className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none"
+                  disabled={isLoading}
+                  className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none disabled:bg-gray-50 disabled:opacity-50"
                 />
               </div>
 
@@ -128,7 +137,8 @@ const SignupPage = () => {
                   value={formData.lastName}
                   onChange={handleChange}
                   required
-                  className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none"
+                  disabled={isLoading}
+                  className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none disabled:bg-gray-50 disabled:opacity-50"
                 />
               </div>
             </div>
@@ -146,7 +156,8 @@ const SignupPage = () => {
                 value={formData.username}
                 onChange={handleChange}
                 required
-                className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none"
+                disabled={isLoading}
+                className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none disabled:bg-gray-50 disabled:opacity-50"
               />
             </div>
 
@@ -163,7 +174,8 @@ const SignupPage = () => {
                 value={formData.email}
                 onChange={handleChange}
                 required
-                className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none"
+                disabled={isLoading}
+                className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none disabled:bg-gray-50 disabled:opacity-50"
               />
             </div>
 
@@ -182,12 +194,14 @@ const SignupPage = () => {
                     value={formData.password}
                     onChange={handleChange}
                     required
-                    className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none"
+                    disabled={isLoading}
+                    className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none disabled:bg-gray-50 disabled:opacity-50"
                   />
                   <button
                     type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 disabled:opacity-50"
                     onClick={() => setShowPassword(!showPassword)}
+                    disabled={isLoading}
                   >
                     {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                   </button>
@@ -207,12 +221,14 @@ const SignupPage = () => {
                     value={formData.confirmPassword}
                     onChange={handleChange}
                     required
-                    className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none"
+                    disabled={isLoading}
+                    className="w-full rounded-md border border-gray-300 px-4 py-3 text-sm focus:border-amber-400 focus:outline-none disabled:bg-gray-50 disabled:opacity-50"
                   />
                   <button
                     type="button"
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 disabled:opacity-50"
                     onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                    disabled={isLoading}
                   >
                     {showConfirmPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                   </button>
@@ -229,7 +245,8 @@ const SignupPage = () => {
                 checked={formData.agreeTerms}
                 onChange={handleChange}
                 required
-                className="h-5 w-5 cursor-pointer"
+                disabled={isLoading}
+                className="h-5 w-5 cursor-pointer disabled:opacity-50"
               />
               <label htmlFor="agreeTerms" className="text-sm text-gray-600">
                 I Agree with all of your{" "}
@@ -242,9 +259,18 @@ const SignupPage = () => {
             {/* Submit Button */}
             <button
               type="submit"
-              className="mt-2 w-full rounded-md bg-amber-400 py-3.5 text-base font-semibold text-white transition-colors hover:bg-amber-500 focus:outline-none"
+              onClick={handleSubmit}
+              disabled={isLoading}
+              className="mt-2 w-full rounded-md bg-amber-400 py-3.5 text-base font-semibold text-white transition-colors hover:bg-amber-500 focus:outline-none disabled:bg-amber-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
-              Create Account
+              {isLoading ? (
+                <>
+                  <div className="h-5 w-5 animate-spin rounded-full border-2 border-white border-t-transparent"></div>
+                  Creating Account...
+                </>
+              ) : (
+                "Create Account"
+              )}
             </button>
 
             {/* Social Sign-up */}
@@ -253,26 +279,9 @@ const SignupPage = () => {
                 <div className="absolute inset-0 flex items-center">
                   <div className="w-full border-t border-gray-300"></div>
                 </div>
-                {/* <div className="relative flex justify-center">
-                  <span className="bg-white px-4 text-xs text-gray-500">SIGN UP WITH</span>
-                </div> */}
               </div>
-
-              {/* <div className="flex justify-center">
-                <button
-                  type="button"
-                  className="flex items-center gap-2 rounded-md border border-gray-300 px-6 py-2.5 text-sm transition-colors hover:bg-gray-50"
-                >
-                  <img
-                    src="https://upload.wikimedia.org/wikipedia/commons/5/53/Google_%22G%22_Logo.svg"
-                    alt="Google"
-                    className="h-4 w-4"
-                  />
-                  Google
-                </button>
-              </div> */}
             </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>

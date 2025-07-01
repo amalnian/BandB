@@ -34,33 +34,67 @@ const UserBookings = () => {
     setCancellationReason('');
   };
 
-  const handleCancelConfirm = async () => {
-    if (!cancellationReason.trim()) {
-      alert('Please provide a reason for cancellation');
-      return;
-    }
+const handleCancelConfirm = async () => {
+  if (!cancellationReason.trim()) {
+    // You'll need to import toast or replace with your error handling method
+    // toast.error('Please provide a cancellation reason');
+    setError('Please provide a cancellation reason');
+    return;
+  }
 
-    try {
-      setCancelling(true);
-      await cancelBooking(selectedBooking.id, cancellationReason);
-      
-      // Update the booking in the list
-      setBookings(bookings.map(booking => 
-        booking.id === selectedBooking.id 
-          ? { ...booking, booking_status: 'cancelled' }
-          : booking
-      ));
-      
-      setShowCancelModal(false);
-      setSelectedBooking(null);
-      setCancellationReason('');
-    } catch (err) {
-      alert('Failed to cancel booking. Please try again.');
-      console.error('Error cancelling booking:', err);
-    } finally {
-      setCancelling(false);
+  try {
+    setCancelling(true);
+    
+    // Log the request data for debugging
+    console.log('Canceling booking:', {
+      bookingId: selectedBooking.id,
+      reason: cancellationReason.trim()
+    });
+    
+    const response = await cancelBooking(selectedBooking.id, cancellationReason.trim());
+    
+    console.log('Cancel response:', response);
+    
+    // Handle success
+    if (response.data.refund) {
+      // Replace with your success notification method
+      console.log(`${response.data.message}. ${response.data.refund.message}`);
+    } else {
+      console.log(response.data.message);
     }
-  };
+    
+    // Refresh bookings list
+    fetchBookings();
+    
+    // Close modal and reset state
+    setShowCancelModal(false);
+    setCancellationReason('');
+    setSelectedBooking(null);
+    
+  } catch (error) {
+    console.error('Error cancelling booking:', error);
+    
+    // Enhanced error handling
+    let errorMessage = 'Failed to cancel booking. Please try again.';
+    
+    if (error.response) {
+      console.log('Error response:', error.response.data);
+      
+      if (error.response.data.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.response.data.message) {
+        errorMessage = error.response.data.message;
+      }
+    } else if (error.request) {
+      errorMessage = 'Network error. Please check your connection.';
+    }
+    
+    // Replace with your error handling method
+    setError(errorMessage);
+  } finally {
+    setCancelling(false);
+  }
+};
 
   const formatDate = (dateString) => {
     const date = new Date(dateString);

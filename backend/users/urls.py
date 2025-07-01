@@ -52,6 +52,16 @@ urlpatterns = [
 
     path('bookings/', UserBookingListView.as_view(), name='user-bookings'),
     path('bookings/<int:booking_id>/cancel/', views.cancel_booking, name='cancel-booking'),
+
+
+        # Wallet balance endpoint
+    path('wallet/balance/', views.WalletBalanceView.as_view(), name='wallet_balance'),
+    
+    # Wallet transactions endpoint  
+    path('wallet/transactions/', views.WalletTransactionsView.as_view(), name='wallet_transactions'),
+    
+    # Add money to wallet endpoint
+    path('wallet/add-money/', views.AddMoneyToWalletView.as_view(), name='add_money_to_wallet'),
 ]
 
 

@@ -113,7 +113,7 @@ export default function AdminLayout() {
                 {sidebarOpen && <span className="ml-3">Shops</span>}
               </Link>
             </li>
-            <li>
+            {/* <li>
               <Link to="/admin/requests" className="flex items-center p-2 rounded-md hover:bg-gray-800">
                 <Scissors size={20} />
                 {sidebarOpen && <span className="ml-3">Requests</span>}
@@ -124,7 +124,7 @@ export default function AdminLayout() {
                 <ShoppingBag size={20} />
                 {sidebarOpen && <span className="ml-3">Products</span>}
               </Link>
-            </li>
+            </li> */}
             <li>
               <Link to="/admin/settings" className="flex items-center p-2 rounded-md hover:bg-gray-800">
                 <Settings size={20} />

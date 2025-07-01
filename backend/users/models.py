@@ -80,3 +80,37 @@ class CustomUser(AbstractUser):
         self.save()
 
         
+class Wallet(models.Model):
+    user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='wallet')
+    balance = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.user}'s Wallet"
+
+
+class WalletTransaction(models.Model):
+    TRANSACTION_TYPE_CHOICES = [
+        ('credit', 'Credit'),
+        ('debit', 'Debit'),
+    ]
+
+    wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE, related_name='transactions')
+    transaction_type = models.CharField(max_length=6, choices=TRANSACTION_TYPE_CHOICES)
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    timestamp = models.DateTimeField(auto_now_add=True)
+    description = models.TextField(blank=True, null=True)
+
+    def save(self, *args, **kwargs):
+        if not self.pk: 
+            if self.transaction_type == 'credit':
+                self.wallet.balance += self.amount
+            elif self.transaction_type == 'debit':
+                if self.wallet.balance < self.amount:
+                    raise ValueError("Insufficient wallet balance.")
+                self.wallet.balance -= self.amount
+            self.wallet.save()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.transaction_type} ₹{self.amount} on {self.timestamp.strftime('%Y-%m-%d')}"

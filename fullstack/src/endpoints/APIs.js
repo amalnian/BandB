@@ -229,6 +229,69 @@ export const getBookingStats = () => {
 // Get user's bookings
 export const getUserBookings = () => axios.get('bookings/')
 
+
+
 // Cancel a booking
-export const cancelBooking = (bookingId, reason) => 
-    axios.patch(`bookings/${bookingId}/cancel/`, { reason })
+export const cancelBooking = async (bookingId, reason) => {
+  try {
+    console.log('API Call - Cancel booking:', { bookingId, reason });
+    
+    const response = await axios.patch(`bookings/${bookingId}/cancel/`, { 
+      reason: reason.trim() 
+    });
+    
+    console.log('API Response - Cancel booking:', response.data);
+    return response;
+    
+  } catch (error) {
+    console.error('API Error - Cancel booking:', {
+      status: error.response?.status,
+      data: error.response?.data,
+      message: error.message
+    });
+    throw error;
+  }
+};
+
+
+
+export const getWalletBalance = async () => {
+  try {
+    const response = await axios.get('/wallet/balance/')
+    return response.data
+  } catch (error) {
+    console.error('Error fetching wallet balance:', error)
+    throw error
+  }
+}
+
+// Get wallet transactions
+export const getWalletTransactions = async (params = {}) => {
+  try {
+    const queryParams = new URLSearchParams()
+    
+    if (params.page) queryParams.append('page', params.page)
+    if (params.limit) queryParams.append('limit', params.limit)
+    if (params.type) queryParams.append('type', params.type)
+    
+    const response = await axios.get(`/wallet/transactions/?${queryParams.toString()}`)
+    return response.data
+  } catch (error) {
+    console.error('Error fetching wallet transactions:', error)
+    throw error
+  }
+}
+
+// Add money to wallet
+export const addMoneyToWallet = async (data) => {
+  try {
+    const response = await axios.post('/wallet/add-money/', data)
+    return response.data
+  } catch (error) {
+    console.error('Error adding money to wallet:', error)
+    throw error
+  }
+}
+
+
+

@@ -53,11 +53,13 @@ INSTALLED_APPS = [
     'corsheaders',
     'social_django',
     'rest_framework_simplejwt.token_blacklist',
+    'channels',
 
 
     'admin_panel',
     'shop',
     'users', 
+    'chat',
 
 ]
 
@@ -290,3 +292,25 @@ cloudinary.config(
 RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY')
 RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_SECRET')
 
+
+ASGI_APPLICATION = 'backend.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels_redis.core.RedisChannelLayer',
+        'CONFIG': {
+            "hosts": [('127.0.0.1', 6379)],
+        },
+    },
+}
+
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django_redis.cache.RedisCache',
+        'LOCATION': 'redis://127.0.0.1:6379/1',
+        'OPTIONS': {
+            'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+        }
+    }
+}

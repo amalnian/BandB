@@ -83,3 +83,13 @@ export const deleteUser = (id) => axios.delete(`users/${id}/`);
 // User status management
 export const toggleUserStatus = (id, statusData) => 
   axios.patch(`users/${id}/toggle_status/`, statusData);
+
+
+
+
+
+export const getAdminProfile = () => axios.get('settings/profile/');
+
+export const updateAdminProfile = (formData) => axios.put('settings/profile/', formData);
+
+export const changeAdminPassword = (passwordData) => axios.post('settings/change-password/', passwordData);

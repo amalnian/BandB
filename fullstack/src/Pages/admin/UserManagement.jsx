@@ -213,13 +213,13 @@ export default function UsersManagement() {
               className="pl-10 w-full p-2.5 border border-gray-300 rounded-md focus:ring-blue-500 focus:border-blue-500"
             />
           </div>
-          <button
+          {/* <button
             onClick={openCreateModal}
             className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
           >
             <Plus size={18} className="mr-2" />
             Add User
-          </button>
+          </button> */}
         </div>
         
         {/* Users table */}
@@ -283,12 +283,12 @@ export default function UsersManagement() {
                         >
                           <Edit size={18} />
                         </button>
-                        <button 
+                        {/* <button 
                           onClick={() => handleDelete(user.id)}
                           className="p-1.5 text-red-600 hover:bg-red-100 rounded-full"
                         >
                           <Trash2 size={18} />
-                        </button>
+                        </button> */}
                       </div>
                     </td>
                   </tr>

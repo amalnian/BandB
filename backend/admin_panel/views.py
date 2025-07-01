@@ -12,6 +12,7 @@ from rest_framework.views import APIView
 from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.exceptions import AuthenticationFailed
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
 from rest_framework_simplejwt.views import (
     TokenObtainPairView,
@@ -112,45 +113,49 @@ class AdminTokenObtainPairView(TokenObtainPairView):
 
 class AdminTokenRefreshView(TokenRefreshView):
     permission_classes = [permissions.AllowAny]
-    def post(self,request,*args,**kwargs):
-        
+    
+    def post(self, request, *args, **kwargs):
         try:
             refresh_token = request.COOKIES.get("refresh_token")
             if not refresh_token:
                 return Response(
-                    {"success":False,"message":"referesh token not Found"},
+                    {"success": False, "message": "Refresh token not found"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            request.data["refresh"] = refresh_token
+            # Use the serializer directly instead of modifying request
+            serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
+            
+            if serializer.is_valid():
+                access_token = serializer.validated_data["access"]
+                
+                res = Response(
+                    {"success": True, "message": "Access token refreshed"},
+                    status=status.HTTP_200_OK
+                )
 
-            response = super().post(request,*args,**kwargs)
+                res.set_cookie(
+                    key="access_token",
+                    value=access_token,
+                    httponly=True,
+                    secure=True,
+                    samesite="None",
+                    path='/',
+                    max_age=3600
+                )
 
-            if not "access" in response.data:
+                return res
+            else:
                 return Response(
-                    {"success":False,"message":"refresh token expired or invalid"},
+                    {"success": False, "message": "Refresh token expired or invalid"},
                     status=status.HTTP_401_UNAUTHORIZED
                 )
-            
-            token = response.data
-            access_token = token["access"]
-            res = Response(status=status.HTTP_201_CREATED)
-
-            res.data = {"success":True,"message":"Access token refreshed"}
-
-            res.set_cookie(
-                key = "access_token",
-                value=access_token,
-                httponly=True,
-                secure=True,
-                samesite="None",
-                path='/',
-                max_age=3600
-            )
-
-            return res
+                
         except Exception as e:
-            return Response({"success":False,"message":f"An error occured: {str(e)}"},status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": f"An error occurred: {str(e)}"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
         
 class Logout(APIView):
     permission_classes = [IsAdminUser]
@@ -379,3 +384,203 @@ class RecentAppointmentsView(APIView):
         return Response({
             'appointments': []
         })
+    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
+from django.db import transaction
+from rest_framework_simplejwt.authentication import JWTAuthentication
+from django.contrib.auth.hashers import check_password
+from django.core.exceptions import ValidationError
+from django.contrib.auth.password_validation import validate_password
+import re
+
+
+class AdminProfileView(APIView):
+    """
+    Get and update admin profile information
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        """Get current admin profile"""
+        try:
+            user = request.user
+            
+            # Check if user is admin/staff
+            if not (user.is_staff or user.is_superuser):
+                return Response(
+                    {'error': 'Access denied. Admin privileges required.'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            profile_data = {
+                'username': user.username,
+                'email': user.email,
+                'phone': user.phone or '',
+            }
+            
+            return Response(profile_data, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to fetch profile data: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def put(self, request):
+        """Update admin profile"""
+        try:
+            user = request.user
+            
+            # Check if user is admin/staff
+            if not (user.is_staff or user.is_superuser):
+                return Response(
+                    {'error': 'Access denied. Admin privileges required.'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            data = request.data
+            errors = {}
+            
+            # Validate required fields
+            if not data.get('username', '').strip():
+                errors['username'] = 'Username is required'
+            elif data.get('username') != user.username:
+                # Check if username already exists - use CustomUser instead of User
+                from django.contrib.auth import get_user_model
+                User = get_user_model()
+                if User.objects.filter(username=data.get('username')).exclude(id=user.id).exists():
+                    errors['username'] = 'Username already exists'
+            
+            if not data.get('email', '').strip():
+                errors['email'] = 'Email is required'
+            else:
+                # Validate email format
+                email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+                if not re.match(email_pattern, data.get('email')):
+                    errors['email'] = 'Email is invalid'
+                elif data.get('email') != user.email:
+                    # Check if email already exists
+                    User = get_user_model()
+                    if User.objects.filter(email=data.get('email')).exclude(id=user.id).exists():
+                        errors['email'] = 'Email already exists'
+            
+            # Validate phone if provided (using the regex from CustomUser model)
+            phone = data.get('phone', '').strip()
+            if phone:
+                phone_pattern = r'^\+?1?\d{9,15}$'  # Match the CustomUser regex
+                if not re.match(phone_pattern, phone):
+                    errors['phone'] = "Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
+            
+            if errors:
+                return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update user data
+            with transaction.atomic():
+                user.username = data.get('username').strip()
+                user.email = data.get('email').strip()
+                
+                # Update phone if provided
+                if phone is not None:
+                    user.phone = phone
+                
+                user.save()
+            
+            # Return updated profile data
+            updated_profile = {
+                'username': user.username,
+                'email': user.email,
+                'phone': user.phone or '',
+            }
+            
+            return Response(updated_profile, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to update profile: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminChangePasswordView(APIView):
+    """
+    Change admin password
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """Change admin password"""
+        try:
+            user = request.user
+            
+            # Check if user is admin/staff
+            if not (user.is_staff or user.is_superuser):
+                return Response(
+                    {'error': 'Access denied. Admin privileges required.'}, 
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            data = request.data
+            errors = {}
+            
+            current_password = data.get('current_password', '')
+            new_password = data.get('new_password', '')
+            
+            # Validate current password
+            if not current_password:
+                errors['current_password'] = 'Current password is required'
+            elif not check_password(current_password, user.password):
+                errors['current_password'] = 'Current password is incorrect'
+            
+            # Validate new password
+            if not new_password:
+                errors['new_password'] = 'New password is required'
+            else:
+                try:
+                    validate_password(new_password, user)
+                except ValidationError as e:
+                    errors['new_password'] = list(e.messages)[0]
+            
+            # Check if new password is same as current
+            if new_password and current_password and new_password == current_password:
+                errors['new_password'] = 'New password must be different from current password'
+            
+            if errors:
+                return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Update password
+            user.set_password(new_password)
+            user.save()
+            
+            return Response(
+                {'message': 'Password changed successfully'}, 
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            return Response(
+                {'error': f'Failed to change password: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

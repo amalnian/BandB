@@ -363,17 +363,25 @@ const handleBooking = async (paymentMethod) => {
     return
   }
 
+  // Fix: Format date in local timezone instead of using toISOString()
+  const formatLocalDate = (date) => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+
   const bookingData = {
     shop: parseInt(shopId),
     services: selectedServices,
-    appointment_date: selectedDate.toISOString().split('T')[0],
+    appointment_date: formatLocalDate(selectedDate), // Fixed: Use local date formatting
     appointment_time: selectedTime,
     total_amount: calculateTotal(),
     payment_method: paymentMethod
   }
 
+  // Rest of your booking logic remains the same...
   if (paymentMethod === 'wallet') {
-    // Existing wallet payment logic
     try {
       setBookingLoading(true)
       console.log('Booking data:', bookingData)

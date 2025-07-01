@@ -1,6 +1,7 @@
 import json
 import math
 import hmac
+import re
 import jwt
 import logging
 import random
@@ -55,7 +56,7 @@ from rest_framework_simplejwt.views import (
 import razorpay
 
 # Project-specific
-from .models import CustomUser
+from .models import CustomUser, Wallet, WalletTransaction
 from .authentication import CoustomJWTAuthentication
 
 from users.serializers import (
@@ -2585,11 +2586,355 @@ class UserBookingListView(generics.ListAPIView):
     def get_queryset(self):
         return Booking.objects.filter(user=self.request.user).select_related('shop', 'user').prefetch_related('services')
 
+
+
+
+class WalletBalanceView(APIView):
+    """Get user's wallet balance"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            wallet, created = Wallet.objects.get_or_create(
+                user=request.user,
+                defaults={'balance': Decimal('0.00')}
+            )
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'balance': float(wallet.balance),
+                    'user_id': request.user.id,
+                    'created_at': wallet.created_at
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching wallet balance for user {request.user.id}: {str(e)}")
+            return Response({
+                'success': False,
+                'error': 'Failed to fetch wallet balance'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class WalletTransactionsView(APIView):
+    """Get user's wallet transaction history"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            wallet, created = Wallet.objects.get_or_create(
+                user=request.user,
+                defaults={'balance': Decimal('0.00')}
+            )
+            
+            # Get query parameters for pagination
+            page = int(request.GET.get('page', 1))
+            limit = int(request.GET.get('limit', 20))
+            transaction_type = request.GET.get('type', None)  # 'credit' or 'debit'
+            
+            # Filter transactions
+            transactions_query = wallet.transactions.all()
+            
+            if transaction_type in ['credit', 'debit']:
+                transactions_query = transactions_query.filter(transaction_type=transaction_type)
+            
+            # Order by latest first
+            transactions_query = transactions_query.order_by('-timestamp')
+            
+            # Pagination
+            start = (page - 1) * limit
+            end = start + limit
+            transactions = transactions_query[start:end]
+            
+            # Calculate total count
+            total_count = transactions_query.count()
+            
+            # Serialize transactions
+            transactions_data = []
+            for txn in transactions:
+                transactions_data.append({
+                    'id': txn.id,
+                    'transaction_type': txn.transaction_type,
+                    'amount': float(txn.amount),
+                    'description': txn.description,
+                    'timestamp': txn.timestamp.isoformat(),
+                    'formatted_date': txn.timestamp.strftime('%Y-%m-%d %H:%M:%S')
+                })
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'transactions': transactions_data,
+                    'current_balance': float(wallet.balance),
+                    'pagination': {
+                        'page': page,
+                        'limit': limit,
+                        'total_count': total_count,
+                        'total_pages': (total_count + limit - 1) // limit,
+                        'has_next': end < total_count,
+                        'has_previous': page > 1
+                    }
+                }
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching wallet transactions for user {request.user.id}: {str(e)}")
+            return Response({
+                'success': False,
+                'error': 'Failed to fetch wallet transactions'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class AddMoneyToWalletView(APIView):
+    """Add money to user's wallet"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            amount = request.data.get('amount')
+            description = request.data.get('description', 'Money added to wallet')
+            payment_method = request.data.get('payment_method', 'online')
+            payment_id = request.data.get('payment_id', None)
+            
+            # Validate amount
+            if not amount:
+                return Response({
+                    'success': False,
+                    'error': 'Amount is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                amount = Decimal(str(amount))
+                if amount <= 0:
+                    raise ValueError("Amount must be positive")
+            except (ValueError, TypeError):
+                return Response({
+                    'success': False,
+                    'error': 'Invalid amount format'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Get or create wallet
+            wallet, created = Wallet.objects.get_or_create(
+                user=request.user,
+                defaults={'balance': Decimal('0.00')}
+            )
+            
+            # Create transaction in atomic block
+            with transaction.atomic():
+                # Create wallet transaction
+                wallet_transaction = WalletTransaction.objects.create(
+                    wallet=wallet,
+                    transaction_type='credit',
+                    amount=amount,
+                    description=f"{description} - Payment ID: {payment_id}" if payment_id else description
+                )
+                
+                # Wallet balance is automatically updated in WalletTransaction.save()
+                wallet.refresh_from_db()
+                
+                return Response({
+                    'success': True,
+                    'data': {
+                        'message': 'Money added to wallet successfully',
+                        'transaction_id': wallet_transaction.id,
+                        'amount_added': float(amount),
+                        'new_balance': float(wallet.balance),
+                        'transaction_type': 'credit'
+                    }
+                }, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            logger.error(f"Error adding money to wallet for user {request.user.id}: {str(e)}")
+            return Response({
+                'success': False,
+                'error': 'Failed to add money to wallet'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Updated CreateBookingView to handle wallet payment
+class CreateBookingView(APIView):
+    """
+    Create a new booking with duration-based slot reservation and wallet payment
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Create a new booking"""
+        try:
+            booking_data = request.data
+            
+            # Validate required fields
+            required_fields = ['shop', 'services', 'appointment_date', 'appointment_time']
+            missing_fields = [field for field in required_fields if field not in booking_data]
+            
+            if missing_fields:
+                return Response({
+                    'success': False,
+                    'error': f'Missing required fields: {", ".join(missing_fields)}'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate shop exists
+            shop_id = booking_data.get('shop')
+            shop = get_object_or_404(Shop, id=shop_id)
+            
+            # Validate services exist
+            service_ids = booking_data.get('services', [])
+            if not service_ids:
+                return Response({
+                    'success': False,
+                    'error': 'At least one service must be selected'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            services = Service.objects.filter(
+                id__in=service_ids,
+                shop=shop,
+                is_active=True
+            )
+            
+            if len(services) != len(service_ids):
+                return Response({
+                    'success': False,
+                    'error': 'One or more selected services are invalid'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Calculate total duration
+            total_duration = sum(service.duration_minutes for service in services)
+            slots_needed = math.ceil(total_duration / 30)
+            
+            # Validate date and time
+            try:
+                appointment_date = datetime.strptime(
+                    booking_data['appointment_date'], '%Y-%m-%d'
+                ).date()
+                appointment_time = datetime.strptime(
+                    booking_data['appointment_time'], '%H:%M'
+                ).time()
+            except ValueError:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid date or time format'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if consecutive slots are still available
+            time_slots_view = AvailableTimeSlotsView()
+            are_slots_available = time_slots_view._are_consecutive_slots_available(
+                shop_id, 
+                appointment_date, 
+                appointment_time,
+                slots_needed
+            )
+            
+            if not are_slots_available:
+                return Response({
+                    'success': False,
+                    'error': f'Selected time slot is no longer available. Need {slots_needed} consecutive slots for {total_duration} minutes.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Calculate total amount
+            total_amount = sum(float(service.price) for service in services)
+            service_fee = float(booking_data.get('service_fee', 0))
+            total_amount += service_fee
+            
+            payment_method = booking_data.get('payment_method', 'wallet')
+            
+            # Handle wallet payment
+            if payment_method == 'wallet':
+                # Get or create user's wallet
+                wallet, created = Wallet.objects.get_or_create(
+                    user=request.user,
+                    defaults={'balance': Decimal('0.00')}
+                )
+                
+                # Check if wallet has sufficient balance
+                if wallet.balance < Decimal(str(total_amount)):
+                    return Response({
+                        'success': False,
+                        'error': f'Insufficient wallet balance. Required: ₹{total_amount}, Available: ₹{wallet.balance}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Create booking in atomic transaction
+            with transaction.atomic():
+                # Create booking
+                booking = Booking.objects.create(
+                    user=request.user,
+                    shop=shop,
+                    appointment_date=appointment_date,
+                    appointment_time=appointment_time,
+                    total_amount=total_amount,
+                    payment_method=payment_method,
+                    booking_status='pending',  # ← Fixed: changed from 'status' to 'booking_status'
+                    payment_status='pending' if payment_method != 'wallet' else 'paid',
+                    notes=booking_data.get('notes', '')
+                )
+                
+                # Add services to booking
+                booking.services.set(services)
+                
+                # Process wallet payment
+                if payment_method == 'wallet':
+                    # Deduct amount from wallet
+                    wallet_transaction = WalletTransaction.objects.create(
+                        wallet=wallet,
+                        transaction_type='debit',
+                        amount=Decimal(str(total_amount)),
+                        description=f'Booking payment - Booking ID: {booking.id} - {shop.name}'
+                    )
+                    
+                    # Update booking payment status
+                    booking.payment_status = 'paid'
+                    booking.save()
+                
+                # Calculate end time for response
+                end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
+                
+                response_data = {
+                    'success': True,
+                    'data': {
+                        'id': booking.id,
+                        'message': 'Booking created successfully',
+                        'shop_name': shop.name,
+                        'appointment_date': appointment_date.strftime('%Y-%m-%d'),
+                        'appointment_time': appointment_time.strftime('%H:%M'),
+                        'appointment_end_time': end_time.strftime('%H:%M'),
+                        'services': [service.name for service in services],
+                        'total_duration': total_duration,
+                        'slots_reserved': slots_needed,
+                        'total_amount': float(total_amount),
+                        'payment_method': payment_method,
+                        'payment_status': booking.payment_status,
+                        'status': booking.booking_status  # ← Changed from 'status': 'pending'
+                    }
+                }
+                
+                return Response(response_data, status=status.HTTP_201_CREATED)
+            
+        except Wallet.DoesNotExist:
+            return Response({
+                'success': False,
+                'error': 'Wallet not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+            
+        except ValueError as e:
+            return Response({
+                'success': False,
+                'error': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+        except Exception as e:
+            logger.error(f"Error creating booking for user {request.user.id}: {str(e)}")
+            return Response({
+                'success': False,
+                'error': f'An error occurred: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Fixed cancel_booking view - Remove manual wallet balance update
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def cancel_booking(request, booking_id):
     """
-    Cancel a booking with a reason - only allowed until 1 hour before appointment time
+    Cancel a booking with a reason and refund to wallet if applicable
     """
     try:
         booking = get_object_or_404(Booking, id=booking_id, user=request.user)
@@ -2614,47 +2959,36 @@ def cancel_booking(request, booking_id):
         try:
             # Handle different date field types
             if hasattr(booking.appointment_date, 'date'):
-                # If it's a datetime field
                 appointment_date = booking.appointment_date.date()
             else:
-                # If it's already a date object
                 appointment_date = booking.appointment_date
             
-            # Parse appointment time - handle different formats
+            # Parse appointment time
             appointment_time_str = str(booking.appointment_time)
-            
-            # Try different time parsing approaches
             appointment_datetime = None
             
-            # Method 1: Try with common formats
+            # Try different time parsing approaches
             time_formats = [
-                '%H:%M:%S',      # 14:30:00
-                '%H:%M',         # 14:30
-                '%I:%M %p',      # 2:30 PM
-                '%I:%M:%S %p',   # 2:30:00 PM
+                '%H:%M:%S', '%H:%M', '%I:%M %p', '%I:%M:%S %p',
             ]
             
             for time_format in time_formats:
                 try:
                     time_obj = datetime.strptime(appointment_time_str, time_format).time()
-                    # Combine date and time
                     appointment_datetime = datetime.combine(appointment_date, time_obj)
                     break
                 except ValueError:
                     continue
             
-            # Method 2: If appointment_time is already a time object
             if appointment_datetime is None:
                 try:
                     if hasattr(booking.appointment_time, 'hour'):
-                        # It's already a time object
                         appointment_datetime = datetime.combine(appointment_date, booking.appointment_time)
                     else:
                         raise ValueError("Could not parse appointment time")
                 except Exception:
                     pass
             
-            # If we still couldn't parse the time, return error
             if appointment_datetime is None:
                 logger.error(f"Could not parse appointment time: {appointment_time_str} for booking {booking_id}")
                 return Response(
@@ -2692,41 +3026,70 @@ def cancel_booking(request, booking_id):
         
         except Exception as e:
             logger.error(f"Error parsing appointment datetime for booking {booking_id}: {str(e)}")
-            # If there's any issue with time parsing, allow cancellation but log the error
-            # You can change this behavior based on your requirements
             pass
         
-        # Update booking status
-        booking.booking_status = 'cancelled'
-        
-        # Add cancellation reason to notes
-        current_notes = booking.notes or ""
-        cancellation_note = f"Cancellation Reason: {cancellation_reason}"
-        
-        if current_notes:
-            booking.notes = f"{current_notes}\n\n{cancellation_note}"
-        else:
-            booking.notes = cancellation_note
-        
-        # Add cancellation timestamp
-        try:
-            cancellation_timestamp = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
-            booking.notes = f"{booking.notes}\nCancelled on: {cancellation_timestamp}"
-        except Exception:
-            # If timestamp formatting fails, just skip it
-            pass
-        
-        booking.save()
-        
-        # If payment was made, initiate refund process
-        if booking.payment_status == 'paid':
+        # Process cancellation and refund in atomic transaction
+        with transaction.atomic():
+            # Update booking status
+            booking.booking_status = 'cancelled'
+            
+            # Add cancellation reason to notes
+            current_notes = booking.notes or ""
+            cancellation_note = f"Cancellation Reason: {cancellation_reason}"
+            
+            if current_notes:
+                booking.notes = f"{current_notes}\n\n{cancellation_note}"
+            else:
+                booking.notes = cancellation_note
+            
+            # Add cancellation timestamp
             try:
-                booking.payment_status = 'refunded'
-                booking.save()
-                # Add your refund logic here
-                # refund_response = initiate_refund(booking.payment_id, booking.total_amount)
-            except Exception as e:
-                logger.error(f"Error updating payment status for booking {booking_id}: {str(e)}")
+                cancellation_timestamp = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
+                booking.notes = f"{booking.notes}\nCancelled on: {cancellation_timestamp}"
+            except Exception:
+                pass
+            
+            # Handle wallet refund for paid bookings - FIXED: Remove manual balance update
+            refund_amount = 0
+            if booking.payment_status == 'paid' and (booking.payment_method == 'wallet' or booking.payment_method == 'razorpay'):
+                try:
+                    # Check if already refunded to prevent double refunds
+                    if booking.payment_status == 'refunded':
+                        logger.warning(f"Booking {booking_id} already refunded, skipping refund")
+                    else:
+                        # Get user's wallet
+                        wallet, created = Wallet.objects.get_or_create(
+                            user=request.user,
+                            defaults={'balance': Decimal('0.00')}
+                        )
+                        
+                        # Create refund transaction
+                        refund_amount = booking.total_amount
+                        wallet_transaction = WalletTransaction.objects.create(
+                            wallet=wallet,
+                            transaction_type='credit',
+                            amount=Decimal(str(refund_amount)),
+                            description=f'Refund for cancelled booking - Booking ID: {booking.id} - {booking.shop.name}'
+                        )
+                        
+                        # FIXED: Remove manual balance update - it's handled automatically in WalletTransaction.save()
+                        # wallet.balance += refund_amount  # ← REMOVED THIS LINE
+                        # wallet.save()                    # ← REMOVED THIS LINE
+                        
+                        # Instead, just refresh to get the updated balance
+                        wallet.refresh_from_db()
+
+                        # Update booking payment status
+                        booking.payment_status = 'refunded'
+                        
+                        logger.info(f"Refunded ₹{refund_amount} to wallet for booking {booking_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error processing wallet refund for booking {booking_id}: {str(e)}")
+                    # Continue with cancellation even if refund fails
+                    pass
+            
+            booking.save()
         
         # Serialize the booking data
         try:
@@ -2740,10 +3103,18 @@ def cancel_booking(request, booking_id):
                 'payment_status': booking.payment_status
             }
         
-        return Response({
+        response_data = {
             'message': 'Booking cancelled successfully',
             'booking': booking_data
-        }, status=status.HTTP_200_OK)
+        }
+        
+        if refund_amount > 0:
+            response_data['refund'] = {
+                'amount': float(refund_amount),
+                'message': f'₹{refund_amount} has been refunded to your wallet'
+            }
+        
+        return Response(response_data, status=status.HTTP_200_OK)
         
     except Exception as e:
         logger.error(f"Unexpected error in cancel_booking for booking_id {booking_id}: {str(e)}")

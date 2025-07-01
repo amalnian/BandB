@@ -16,7 +16,7 @@ export default function Sidebar() {
     { id: "home", label: "Home", icon: Home, path: "/home" },
     // { id: "find-barbers", label: "Find Barbers", icon: Users, path: "/find-barbers" },
     { id: "bookings", label: "Bookings", icon: Calendar, path: "/bookings" },
-    { id: "chats", label: "Chats", icon: MessageSquare, path: "/chats" },
+    { id: "chats", label: "Chats", icon: MessageSquare, path: "/chat" },
     { id: "wallet", label: "Wallet", icon: Wallet, path: "/wallet" },
     { id: "settings", label: "Settings", icon: Settings, path: "/settings" },
   ]
