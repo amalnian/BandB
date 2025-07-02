@@ -38,8 +38,8 @@ from .views import (
 
     BusinessHoursView,
     BusinessHoursUpdateView,
-    AvailableSlotsView,
-    AppointmentCreateView,
+    # AvailableSlotsView,
+    # AppointmentCreateView,
     SpecialClosingDayView,
     SpecialClosingDayDetailView,
 
@@ -84,10 +84,10 @@ urlpatterns = [
     path('shop/business-hours/update/', BusinessHoursUpdateView.as_view(), name='business_hours_update'),
     
     # Available Slots endpoint
-    path('shop/available-slots/', AvailableSlotsView.as_view(), name='available_slots'),
+    # path('shop/available-slots/', AvailableSlotsView.as_view(), name='available_slots'),
     
     # Appointment endpoint
-    path('shop/appointments/create/', AppointmentCreateView.as_view(), name='create_appointment'),
+    # path('shop/appointments/create/', AppointmentCreateView.as_view(), name='create_appointment'),
     
     # Special Closing Days endpoints
     path('shop/special-closing-days/', SpecialClosingDayView.as_view(), name='special_closing_days'),

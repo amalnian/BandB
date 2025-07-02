@@ -29,7 +29,7 @@ from rest_framework_simplejwt.views import (
 
 from users.models import CustomUser
 from shop.models import (
-    Shop, ShopImage, Notification, Service, OTP,
+    Booking, Shop, ShopImage, Notification, Service, OTP,
     BusinessHours, Barber, SpecialClosingDay
 )
 from shop.serializers import (
@@ -1012,106 +1012,106 @@ class BusinessHoursUpdateView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-class AvailableSlotsView(APIView):
-    """API view for available time slots using DRF."""
-    permission_classes = [IsAuthenticated]
+# class AvailableSlotsView(APIView):
+#     """API view for available time slots using DRF."""
+#     permission_classes = [IsAuthenticated]
     
-    def get(self, request):
-        """Get available time slots for a specific date."""
-        date_str = request.query_params.get('date')
-        barber_id = request.query_params.get('barber_id')
-        service_id = request.query_params.get('service_id')
+#     def get(self, request):
+#         """Get available time slots for a specific date."""
+#         date_str = request.query_params.get('date')
+#         barber_id = request.query_params.get('barber_id')
+#         service_id = request.query_params.get('service_id')
         
-        if not date_str:
-            return Response({'error': 'Date parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
+#         if not date_str:
+#             return Response({'error': 'Date parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
         
-        try:
-            date = parse(date_str).date()
-        except ValueError:
-            return Response({'error': 'Invalid date format'}, status=status.HTTP_400_BAD_REQUEST)
+#         try:
+#             date = parse(date_str).date()
+#         except ValueError:
+#             return Response({'error': 'Invalid date format'}, status=status.HTTP_400_BAD_REQUEST)
         
-        # Get selected barber if provided
-        barber = None
-        if barber_id:
-            try:
-                barber = Barber.objects.get(id=barber_id)
-            except Barber.DoesNotExist:
-                return Response({'error': 'Barber not found'}, status=status.HTTP_404_NOT_FOUND)
+#         # Get selected barber if provided
+#         barber = None
+#         if barber_id:
+#             try:
+#                 barber = Barber.objects.get(id=barber_id)
+#             except Barber.DoesNotExist:
+#                 return Response({'error': 'Barber not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Get service duration if provided
-        slot_duration = 30  # Default 30 min
-        if service_id:
-            try:
-                service = Service.objects.get(id=service_id)
-                slot_duration = service.duration.total_seconds() // 60  # Convert to minutes
-            except Service.DoesNotExist:
-                return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
+#         # Get service duration if provided
+#         slot_duration = 30  # Default 30 min
+#         if service_id:
+#             try:
+#                 service = Service.objects.get(id=service_id)
+#                 slot_duration = service.duration.total_seconds() // 60  # Convert to minutes
+#             except Service.DoesNotExist:
+#                 return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
         
-        # Get available slots
-        slots = get_available_slots(date, barber, slot_duration)
+#         # Get available slots
+#         slots = get_available_slots(date, barber, slot_duration)
         
-        # Format slots for response
-        formatted_slots = []
-        for start, end in slots:
-            formatted_slots.append({
-                'start_time': start.strftime('%Y-%m-%d %H:%M'),
-                'end_time': end.strftime('%Y-%m-%d %H:%M'),
-                'display': f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
-            })
+#         # Format slots for response
+#         formatted_slots = []
+#         for start, end in slots:
+#             formatted_slots.append({
+#                 'start_time': start.strftime('%Y-%m-%d %H:%M'),
+#                 'end_time': end.strftime('%Y-%m-%d %H:%M'),
+#                 'display': f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
+#             })
         
-        return Response({
-            'date': date.strftime('%Y-%m-%d'),
-            'available_slots': formatted_slots
-        })
+#         return Response({
+#             'date': date.strftime('%Y-%m-%d'),
+#             'available_slots': formatted_slots
+#         })
 
 
-class AppointmentCreateView(APIView):
-    """API view for creating appointments using DRF."""
-    permission_classes = [IsAuthenticated]
+# class AppointmentCreateView(APIView):
+#     """API view for creating appointments using DRF."""
+#     permission_classes = [IsAuthenticated]
     
-    def post(self, request):
-        """Create a new appointment."""
-        try:
-            serializer = AppointmentSerializer(data=request.data)
-            if serializer.is_valid():
-                # Extract data
-                customer_id = serializer.validated_data.get('customer_id')
-                barber_id = serializer.validated_data.get('barber_id')
-                service_id = serializer.validated_data.get('service_id')
-                start_time = serializer.validated_data.get('start_time')
+#     def post(self, request):
+#         """Create a new appointment."""
+#         try:
+#             serializer = AppointmentSerializer(data=request.data)
+#             if serializer.is_valid():
+#                 # Extract data
+#                 customer_id = serializer.validated_data.get('customer_id')
+#                 barber_id = serializer.validated_data.get('barber_id')
+#                 service_id = serializer.validated_data.get('service_id')
+#                 start_time = serializer.validated_data.get('start_time')
                 
-                # Get the service for duration
-                service = Service.objects.get(id=service_id)
-                end_time = start_time + service.duration
+#                 # Get the service for duration
+#                 service = Service.objects.get(id=service_id)
+#                 end_time = start_time + service.duration
                 
-                # Check if the slot is still available
-                date = start_time.date()
-                available_slots = get_available_slots(date, Barber.objects.get(id=barber_id))
+#                 # Check if the slot is still available
+#                 date = start_time.date()
+#                 available_slots = get_available_slots(date, Barber.objects.get(id=barber_id))
                 
-                slot_available = False
-                for slot_start, slot_end in available_slots:
-                    if slot_start == start_time:
-                        slot_available = True
-                        break
+#                 slot_available = False
+#                 for slot_start, slot_end in available_slots:
+#                     if slot_start == start_time:
+#                         slot_available = True
+#                         break
                 
-                if not slot_available:
-                    return Response({'error': 'This time slot is no longer available'}, 
-                                    status=status.HTTP_400_BAD_REQUEST)
+#                 if not slot_available:
+#                     return Response({'error': 'This time slot is no longer available'}, 
+#                                     status=status.HTTP_400_BAD_REQUEST)
                 
-                # Create the appointment
-                appointment = serializer.save(end_time=end_time)
+#                 # Create the appointment
+#                 appointment = serializer.save(end_time=end_time)
                 
-                return Response({
-                    'success': True,
-                    'appointment_id': appointment.id,
-                    'start_time': appointment.start_time.strftime('%Y-%m-%d %H:%M'),
-                    'end_time': appointment.end_time.strftime('%Y-%m-%d %H:%M')
-                }, status=status.HTTP_201_CREATED)
+#                 return Response({
+#                     'success': True,
+#                     'appointment_id': appointment.id,
+#                     'start_time': appointment.start_time.strftime('%Y-%m-%d %H:%M'),
+#                     'end_time': appointment.end_time.strftime('%Y-%m-%d %H:%M')
+#                 }, status=status.HTTP_201_CREATED)
             
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
-        except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+#         except Exception as e:
+#             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class SpecialClosingDayView(APIView):
@@ -1125,24 +1125,53 @@ class SpecialClosingDayView(APIView):
         return Response(serializer.data)
     
     def post(self, request):
-        """Add a special closing day."""
+        """Add a special closing day and cancel existing bookings."""
+        from django.db import transaction
+        
         try:
-            serializer = SpecialClosingDaySerializer(data=request.data)
-            if serializer.is_valid():
-                closing_day = serializer.save()
+            with transaction.atomic():
+                serializer = SpecialClosingDaySerializer(data=request.data)
+                if serializer.is_valid():
+                    closing_day = serializer.save()
+                    
+                    # Find all bookings on this date
+                    affected_bookings = Booking.objects.filter(
+                        appointment_date=closing_day.date,
+                        booking_status__in=['pending', 'confirmed']  # Only cancel active bookings
+                    )
+                    
+                    cancelled_bookings = []
+                    refunded_amount = 0
+                    
+                    # Cancel each booking and process refunds
+                    for booking in affected_bookings:
+                        if booking.cancel_with_refund(f"Shop closed - {closing_day.reason}"):
+                            cancelled_bookings.append({
+                                'booking_id': booking.id,
+                                'user': booking.user.username,
+                                'amount_refunded': float(booking.total_amount)
+                            })
+                            refunded_amount += booking.total_amount
+                    
+                    return Response({
+                        'success': True,
+                        'message': 'Special closing day added successfully',
+                        'closing_day': {
+                            'id': closing_day.id,
+                            'date': closing_day.date.strftime('%Y-%m-%d'),
+                            'reason': closing_day.reason
+                        },
+                        'cancelled_bookings_count': len(cancelled_bookings),
+                        'total_refunded_amount': float(refunded_amount),
+                        'cancelled_bookings': cancelled_bookings
+                    }, status=status.HTTP_201_CREATED)
                 
-                return Response({
-                    'success': True,
-                    'message': 'Special closing day added successfully',
-                    'id': closing_day.id,
-                    'date': closing_day.date.strftime('%Y-%m-%d'),
-                    'reason': closing_day.reason
-                }, status=status.HTTP_201_CREATED)
-            
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
         except Exception as e:
-            return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                'error': f'Failed to add special closing day: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
 
 class SpecialClosingDayDetailView(APIView):

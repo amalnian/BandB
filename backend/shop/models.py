@@ -1,6 +1,6 @@
 from django.db import models
 from django.utils import timezone
-from users.models import CustomUser
+from users.models import CustomUser, Wallet, WalletTransaction
 import datetime
 from datetime import datetime, timedelta
 from dateutil.rrule import rrule, DAILY, MO, TU, WE, TH, FR, SA, SU
@@ -251,6 +251,37 @@ class Booking(models.Model):
         self.razorpay_order_id = order_id
         self.save()
 
+    def cancel_with_refund(self, reason="Shop closed on selected date"):
+            """Cancel booking and process refund to wallet"""
+            from django.db import transaction
+            
+            with transaction.atomic():
+                # Update booking status
+                self.booking_status = 'cancelled'
+                self.save()
+                
+                # Process refund only if payment was successful
+                if self.payment_status == 'paid':
+                    # Get or create user's wallet
+                    wallet, created = Wallet.objects.get_or_create(
+                        user=self.user,
+                        defaults={'balance': 0.00}
+                    )
+                    
+                    # Create credit transaction
+                    WalletTransaction.objects.create(
+                        wallet=wallet,
+                        transaction_type='credit',
+                        amount=self.total_amount,
+                        description=f"Refund for cancelled booking #{self.id} - {reason}"
+                    )
+                    
+                    # Update payment status
+                    self.payment_status = 'refunded'
+                    self.save()
+                    
+                    return True
+            return False
 
 
 
