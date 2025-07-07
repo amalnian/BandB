@@ -5,7 +5,7 @@ from .models import *
 class UserListSerializer(serializers.ModelSerializer):
     class Meta:
         model = CustomUser
-        fields = ('id', 'username','profile_url','is_verified')
+        fields = ('id', 'username','profile_url')
 
 class ConversationSerializer(serializers.ModelSerializer):
     participants = UserListSerializer(many=True, read_only=True)

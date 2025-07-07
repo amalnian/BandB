@@ -2,6 +2,7 @@ import json
 import math
 import hmac
 import re
+from chat.models import Conversation
 import jwt
 import logging
 import random
@@ -14,6 +15,7 @@ from math import radians, cos, sin, asin, sqrt
 import cloudinary.uploader
 from cloudinary.exceptions import Error as CloudinaryError
 
+from django.core.paginator import Paginator
 from django.conf import settings
 from django.core.mail import send_mail
 from django.core.exceptions import ValidationError
@@ -70,6 +72,7 @@ from users.serializers import (
 )
 
 from shop.models import (
+    BookingFeedback,
     Shop,
     ShopImage,
     Notification,
@@ -82,6 +85,7 @@ from shop.models import (
 )
 
 from shop.serializers import (
+    BookingFeedbackSerializer,
     ShopSerializer,
     ShopUpdateSerializer,
     ShopImageSerializer,
@@ -2321,6 +2325,12 @@ class HandlePaymentFailureView(APIView):
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         
+from rest_framework.pagination import PageNumberPagination
+
+class MyCustomPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'limit'
+    max_page_size = 100
 
 class ShopBookingsAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -2345,12 +2355,9 @@ class ShopBookingsAPIView(APIView):
             date_filter = request.GET.get('date', None)
             search = request.GET.get('search', None)
 
-            # Start with base queryset - be more careful with related fields
+            # Start with base queryset
             try:
                 bookings = Booking.objects.filter(shop=shop)
-                
-                # Only add select_related/prefetch_related if the relationships exist
-                # Remove or adjust these based on your actual model structure
                 bookings = bookings.select_related('user', 'shop')
                 # Only uncomment if 'services' relationship exists
                 # bookings = bookings.prefetch_related('services')
@@ -2361,7 +2368,6 @@ class ShopBookingsAPIView(APIView):
 
             # Apply status filter
             if booking_status and booking_status != 'all':
-                # Validate status values
                 valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
                 if booking_status in valid_statuses:
                     bookings = bookings.filter(booking_status=booking_status)
@@ -2373,58 +2379,52 @@ class ShopBookingsAPIView(APIView):
                     bookings = bookings.filter(appointment_date=filter_date)
                 except ValueError:
                     logger.warning(f"Invalid date format: {date_filter}")
-                    # Don't fail, just skip the filter
 
-            # Apply search filter - be careful about field names
+            # Apply search filter
             if search:
                 search_filters = Q()
-                
-                # Check if these fields exist before using them
                 try:
-                    # Basic user fields that should exist
                     search_filters |= Q(user__username__icontains=search)
                     search_filters |= Q(user__email__icontains=search)
-                    
-                    # Only add phone if the field exists
-                    # Remove this line if your User model doesn't have a phone field
-                    # search_filters |= Q(user__phone__icontains=search)
-                    
-                    # Only add notes if the field exists on Booking model
                     search_filters |= Q(notes__icontains=search)
-                    
                     bookings = bookings.filter(search_filters)
                 except Exception as e:
                     logger.error(f"Error applying search filters: {str(e)}")
-                    # Continue without search filter rather than failing
 
             # Order results
             try:
                 bookings = bookings.order_by('-appointment_date', '-appointment_time')
             except Exception as e:
                 logger.error(f"Error ordering bookings: {str(e)}")
-                # Use default ordering or no ordering
                 bookings = bookings.order_by('-id')
 
+            # Apply pagination
+            paginator = MyCustomPagination()
+            paginated_bookings = paginator.paginate_queryset(bookings, request)
+            
             # Serialize data
             try:
-                serializer = BookingSerializer(bookings, many=True)
+                serializer = BookingSerializer(paginated_bookings, many=True)
                 booking_data = serializer.data
             except Exception as e:
                 logger.error(f"Serialization error: {str(e)}")
                 return Response({'success': False, 'message': 'Data serialization error'}, 
                               status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # Get count
-            try:
-                total_count = bookings.count()
-            except Exception as e:
-                logger.error(f"Error getting booking count: {str(e)}")
-                total_count = len(booking_data)
+            # Get pagination info
+            total_count = paginator.page.paginator.count
+            total_pages = paginator.page.paginator.num_pages
+            current_page = paginator.page.number
 
+            # Return custom response structure that matches your frontend
             return Response({
                 'success': True,
                 'bookings': booking_data,
-                'total_count': total_count
+                'totalCount': total_count,
+                'totalPages': total_pages,
+                'currentPage': current_page,
+                'hasNext': paginator.page.has_next(),
+                'hasPrevious': paginator.page.has_previous(),
             })
 
         except Exception as e:
@@ -2578,13 +2578,30 @@ class BookingStatsAPIView(APIView):
 
 class UserBookingListView(generics.ListAPIView):
     """
-    List all bookings for the authenticated user
+    List all bookings for the authenticated user with pagination
     """
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated]
+    pagination_class = MyCustomPagination
     
     def get_queryset(self):
-        return Booking.objects.filter(user=self.request.user).select_related('shop', 'user').prefetch_related('services')
+        return Booking.objects.filter(user=self.request.user).select_related('shop', 'user').prefetch_related('services').order_by('-created_at')
+
+
+class MyCustomPagination(PageNumberPagination):
+    page_size = 10
+    page_size_query_param = 'limit'
+    max_page_size = 100
+    
+    def get_paginated_response(self, data):
+        return Response({
+            'count': self.page.paginator.count,
+            'next': self.get_next_link(),
+            'previous': self.get_previous_link(),
+            'results': data,
+            'current_page': self.page.number,
+            'total_pages': self.page.paginator.num_pages,
+        })
 
 
 
@@ -2628,9 +2645,7 @@ class WalletTransactionsView(APIView):
                 defaults={'balance': Decimal('0.00')}
             )
             
-            # Get query parameters for pagination
-            page = int(request.GET.get('page', 1))
-            limit = int(request.GET.get('limit', 20))
+            # Get query parameters for filtering
             transaction_type = request.GET.get('type', None)  # 'credit' or 'debit'
             
             # Filter transactions
@@ -2642,17 +2657,13 @@ class WalletTransactionsView(APIView):
             # Order by latest first
             transactions_query = transactions_query.order_by('-timestamp')
             
-            # Pagination
-            start = (page - 1) * limit
-            end = start + limit
-            transactions = transactions_query[start:end]
-            
-            # Calculate total count
-            total_count = transactions_query.count()
+            # Apply pagination
+            paginator = MyCustomPagination()
+            paginated_transactions = paginator.paginate_queryset(transactions_query, request)
             
             # Serialize transactions
             transactions_data = []
-            for txn in transactions:
+            for txn in paginated_transactions:
                 transactions_data.append({
                     'id': txn.id,
                     'transaction_type': txn.transaction_type,
@@ -2662,18 +2673,26 @@ class WalletTransactionsView(APIView):
                     'formatted_date': txn.timestamp.strftime('%Y-%m-%d %H:%M:%S')
                 })
             
+            # Get paginated response
+            paginated_response = paginator.get_paginated_response(transactions_data)
+            
+            # Add wallet balance to the response
+            paginated_response.data['current_balance'] = float(wallet.balance)
+            paginated_response.data['success'] = True
+            
+            # Restructure to match your frontend expectations
             return Response({
                 'success': True,
                 'data': {
-                    'transactions': transactions_data,
+                    'transactions': paginated_response.data['results'],
                     'current_balance': float(wallet.balance),
                     'pagination': {
-                        'page': page,
-                        'limit': limit,
-                        'total_count': total_count,
-                        'total_pages': (total_count + limit - 1) // limit,
-                        'has_next': end < total_count,
-                        'has_previous': page > 1
+                        'page': paginated_response.data['current_page'],
+                        'limit': paginator.page_size,
+                        'total_count': paginated_response.data['count'],
+                        'total_pages': paginated_response.data['total_pages'],
+                        'has_next': paginated_response.data['next'] is not None,
+                        'has_previous': paginated_response.data['previous'] is not None
                     }
                 }
             }, status=status.HTTP_200_OK)
@@ -2753,6 +2772,23 @@ class AddMoneyToWalletView(APIView):
 
 
 # Updated CreateBookingView to handle wallet payment
+# Add this import at the top of your file
+from chat.models import Conversation, Message
+
+import logging
+from django.db import transaction
+from django.shortcuts import get_object_or_404
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from decimal import Decimal
+from datetime import datetime
+import math
+
+# Set up logging
+logger = logging.getLogger(__name__)
+
 class CreateBookingView(APIView):
     """
     Create a new booking with duration-based slot reservation and wallet payment
@@ -2777,6 +2813,9 @@ class CreateBookingView(APIView):
             # Validate shop exists
             shop_id = booking_data.get('shop')
             shop = get_object_or_404(Shop, id=shop_id)
+            
+            # DEBUG: Log shop information
+            logger.info(f"Shop found: {shop.name}, ID: {shop.id}")
             
             # Validate services exist
             service_ids = booking_data.get('services', [])
@@ -2815,7 +2854,7 @@ class CreateBookingView(APIView):
                     'success': False,
                     'error': 'Invalid date or time format'
                 }, status=status.HTTP_400_BAD_REQUEST)
-            
+           
             # Check if consecutive slots are still available
             time_slots_view = AvailableTimeSlotsView()
             are_slots_available = time_slots_view._are_consecutive_slots_available(
@@ -2856,6 +2895,7 @@ class CreateBookingView(APIView):
             # Create booking in atomic transaction
             with transaction.atomic():
                 # Create booking
+                logger.info('Creating booking...')
                 booking = Booking.objects.create(
                     user=request.user,
                     shop=shop,
@@ -2863,10 +2903,12 @@ class CreateBookingView(APIView):
                     appointment_time=appointment_time,
                     total_amount=total_amount,
                     payment_method=payment_method,
-                    booking_status='pending',  # ← Fixed: changed from 'status' to 'booking_status'
-                    payment_status='pending' if payment_method != 'wallet' else 'paid',
+                    booking_status='confirmed',
+                    payment_status='Paid' if payment_method != 'wallet' else 'paid',
                     notes=booking_data.get('notes', '')
                 )
+                
+                logger.info(f"Booking created with ID: {booking.id}")
                 
                 # Add services to booking
                 booking.services.set(services)
@@ -2887,7 +2929,84 @@ class CreateBookingView(APIView):
                 
                 # Calculate end time for response
                 end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
-                
+
+                # DEBUG: Create or get conversation between user and shop owner
+                try:
+                    # Check if shop has a user/owner field
+                    logger.info(f"Shop object attributes: {dir(shop)}")
+                    
+                    # Try different possible field names for shop owner
+                    shop_owner = None
+                    if hasattr(shop, 'user'):
+                        shop_owner = shop.user
+                        logger.info(f"Shop owner found via 'user' field: {shop_owner}")
+                    else:
+                        logger.error("No shop owner field found!")
+                        raise Exception("Shop owner field not found")
+                    
+                    if not shop_owner:
+                        logger.error("Shop owner is None!")
+                        raise Exception("Shop owner is None")
+                    
+                    logger.info(f"Current user: {request.user.id}, Shop owner: {shop_owner.id}")
+                    
+                    # Check if users are the same (booking own shop)
+                    if request.user.id == shop_owner.id:
+                        logger.warning("User is booking their own shop - skipping conversation creation")
+                    else:
+                        # Look for existing conversation
+                        logger.info("Looking for existing conversation...")
+                        existing_conversation = Conversation.objects.filter(
+                            participants=request.user
+                        ).filter(
+                            participants=shop_owner
+                        ).first()
+                        
+                        logger.info(f"Existing conversation found: {existing_conversation}")
+                        
+                        if not existing_conversation:
+                            logger.info("Creating new conversation...")
+                            conversation = Conversation.objects.create()
+                            conversation.participants.add(shop_owner, request.user)
+                            logger.info(f"New conversation created with ID: {conversation.id}")
+                            
+                            # Create initial message about the booking
+                            service_names = ", ".join([service.name for service in services])
+                            initial_message = (
+                                f"Hello! Your booking has been confirmed for {appointment_date} "
+                                f"at {appointment_time}. Services: {service_names}. "
+                                f"Total amount: ₹{total_amount}. Booking ID: {booking.id}"
+                            )
+                            
+                            message = Message.objects.create(
+                                conversation=conversation,
+                                sender=shop_owner,
+                                content=initial_message
+                            )
+                            logger.info(f"Initial message created with ID: {message.id}")
+                        else:
+                            logger.info("Adding message to existing conversation...")
+                            # Add a new message to existing conversation
+                            service_names = ", ".join([service.name for service in services])
+                            booking_message = (
+                                f"New booking confirmed! Date: {appointment_date} "
+                                f"at {appointment_time}. Services: {service_names}. "
+                                f"Total: ₹{total_amount}. Booking ID: {booking.id}"
+                            )
+                            
+                            message = Message.objects.create(
+                                conversation=existing_conversation,
+                                sender=shop_owner,
+                                content=booking_message
+                            )
+                            logger.info(f"Booking message created with ID: {message.id}")
+                            
+                except Exception as conversation_error:
+                    logger.error(f"Error creating conversation: {str(conversation_error)}")
+                    logger.error(f"Error type: {type(conversation_error)}")
+                    # Don't fail the entire booking - log error but continue
+                    logger.warning("Conversation creation failed, but booking will continue")
+
                 response_data = {
                     'success': True,
                     'data': {
@@ -2903,7 +3022,7 @@ class CreateBookingView(APIView):
                         'total_amount': float(total_amount),
                         'payment_method': payment_method,
                         'payment_status': booking.payment_status,
-                        'status': booking.booking_status  # ← Changed from 'status': 'pending'
+                        'status': booking.booking_status
                     }
                 }
                 
@@ -3122,3 +3241,171 @@ def cancel_booking(request, booking_id):
             {'error': 'An error occurred while cancelling the booking. Please try again later.'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+    
+
+
+
+class BookingFeedbackView(APIView):
+    """
+    Handle feedback submission and retrieval for bookings
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, booking_id, *args, **kwargs):
+        """Get feedback for a specific booking"""
+        try:
+            booking = get_object_or_404(Booking, id=booking_id, user=request.user)
+            
+            if not booking.has_feedback():
+                return Response({
+                    'error': 'No feedback found for this booking'
+                }, status=status.HTTP_404_NOT_FOUND)
+            
+            feedback = booking.feedback
+            serializer = BookingFeedbackSerializer(feedback)
+            
+            return Response({
+                'feedback': serializer.data
+            }, status=status.HTTP_200_OK)
+            
+        except Booking.DoesNotExist:
+            logger.error(f"Booking {booking_id} not found for user {request.user.id}")
+            return Response({
+                'error': 'Booking not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error fetching feedback for booking {booking_id}: {str(e)}")
+            return Response({
+                'error': 'Failed to fetch feedback'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request, booking_id, *args, **kwargs):
+        """Submit feedback for a completed booking"""
+        try:
+            # Log the incoming request data for debugging
+            logger.info(f"Feedback submission for booking {booking_id} by user {request.user.id}")
+            logger.debug(f"Request data: {request.data}")
+            
+            booking = get_object_or_404(Booking, id=booking_id, user=request.user)
+            
+            # Validate booking status
+            if booking.booking_status != 'completed':
+                logger.warning(f"Attempted feedback submission for non-completed booking {booking_id}")
+                return Response({
+                    'error': 'Feedback can only be submitted for completed bookings'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if feedback already exists
+            if booking.has_feedback():
+                logger.warning(f"Duplicate feedback submission attempt for booking {booking_id}")
+                return Response({
+                    'error': 'Feedback has already been submitted for this booking'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate required fields
+            rating = request.data.get('rating')
+            if not rating:
+                return Response({
+                    'error': 'Rating is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            try:
+                rating = int(rating)
+                if not (1 <= rating <= 5):
+                    raise ValueError("Rating out of range")
+            except (ValueError, TypeError) as e:
+                logger.error(f"Invalid rating value: {rating}, error: {str(e)}")
+                return Response({
+                    'error': 'Rating must be an integer between 1 and 5'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate optional ratings
+            optional_ratings = ['service_quality', 'staff_behavior', 'cleanliness', 'value_for_money']
+            validated_data = {'rating': rating}
+            
+            for field in optional_ratings:
+                value = request.data.get(field)
+                if value:
+                    try:
+                        value = int(value)
+                        if 1 <= value <= 5:
+                            validated_data[field] = value
+                        else:
+                            logger.warning(f"Optional rating {field} out of range: {value}")
+                    except (ValueError, TypeError):
+                        logger.warning(f"Invalid optional rating {field}: {value}")
+                        pass  # Ignore invalid optional ratings
+            
+            # Add other fields
+            validated_data.update({
+                'booking': booking,
+                'user': request.user,
+                'shop': booking.shop,
+                'feedback_text': request.data.get('feedback_text', '').strip()
+            })
+            
+            logger.debug(f"Validated data: {validated_data}")
+            
+            # Create feedback using transaction
+            try:
+                with transaction.atomic():
+                    feedback = BookingFeedback.objects.create(**validated_data)
+                    logger.info(f"Feedback created successfully with ID: {feedback.id}")
+            except Exception as db_error:
+                logger.error(f"Database error creating feedback: {str(db_error)}")
+                raise
+            
+            # Serialize the response
+            try:
+                serializer = BookingFeedbackSerializer(feedback)
+                serialized_data = serializer.data
+            except Exception as serializer_error:
+                logger.error(f"Serializer error: {str(serializer_error)}")
+                # Return success but with basic data if serializer fails
+                return Response({
+                    'message': 'Feedback submitted successfully',
+                    'feedback': {'id': feedback.id, 'rating': feedback.rating}
+                }, status=status.HTTP_201_CREATED)
+            
+            return Response({
+                'message': 'Feedback submitted successfully',
+                'feedback': serialized_data
+            }, status=status.HTTP_201_CREATED)
+            
+        except Booking.DoesNotExist:
+            logger.error(f"Booking {booking_id} not found for user {request.user.id}")
+            return Response({
+                'error': 'Booking not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Unexpected error submitting feedback for booking {booking_id}: {str(e)}", exc_info=True)
+            return Response({
+                'error': f'Failed to submit feedback: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class UserBookingFeedbackListView(APIView):
+    """
+    Get all feedback submitted by the authenticated user
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, *args, **kwargs):
+        """Get all feedback by the user"""
+        try:
+            feedbacks = BookingFeedback.objects.filter(
+                user=request.user
+            ).select_related('booking', 'shop').order_by('-created_at')
+            
+            serializer = BookingFeedbackSerializer(feedbacks, many=True)
+            
+            return Response({
+                'feedbacks': serializer.data,
+                'count': feedbacks.count()
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            logger.error(f"Error fetching user feedbacks for user {request.user.id}: {str(e)}", exc_info=True)
+            return Response({
+                'error': f'Failed to fetch feedbacks: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

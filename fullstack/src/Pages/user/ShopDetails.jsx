@@ -636,7 +636,7 @@ const BarberDetails = ({ debug = false }) => {
                   <span className="text-sm font-medium mt-1">Share</span>
                 </button>
                 
-                <button 
+                {/* <button 
                   onClick={() => handleActionClick('favorite')}
                   className={`flex flex-col items-center transition-colors group ${
                     isFavorite ? 'text-red-500' : 'text-gray-600 hover:text-gray-900'
@@ -646,7 +646,7 @@ const BarberDetails = ({ debug = false }) => {
                     <Heart className={`w-7 h-7 ${isFavorite ? 'fill-current' : ''}`} />
                   </div>
                   <span className="text-sm font-medium mt-1">Favorite</span>
-                </button>
+                </button> */}
               </div>
             </div>
 
@@ -675,7 +675,7 @@ const BarberDetails = ({ debug = false }) => {
             <div className="bg-white rounded-2xl p-6 shadow-sm sticky top-8">
               <h3 className="text-xl font-bold text-gray-900 mb-6">Quick Actions</h3>
               
-              {shopData.phone && (
+              {/* {shopData.phone && (
                 <button 
                   onClick={() => handleActionClick('phone')}
                   className="w-full bg-amber-500 hover:bg-amber-600 text-white py-3 px-4 rounded-lg font-semibold mb-4 transition-colors flex items-center justify-center"
@@ -683,7 +683,7 @@ const BarberDetails = ({ debug = false }) => {
                   <Phone className="w-5 h-5 mr-2" />
                   Call Now
                 </button>
-              )}
+              )} */}
               
                 <button 
                   onClick={() => navigate(`/booking/${shopId}`)}
@@ -693,7 +693,7 @@ const BarberDetails = ({ debug = false }) => {
                 </button>
 
               {/* Business Hours */}
-              <div className="border-t border-gray-200 pt-6">
+              {/* <div className="border-t border-gray-200 pt-6">
                 <h4 className="font-semibold text-gray-900 mb-4 flex items-center">
                   <Clock className="w-5 h-5 mr-2" />
                   Business Hours
@@ -708,7 +708,7 @@ const BarberDetails = ({ debug = false }) => {
                     <span className="text-gray-900">{parseWorkingHours(shopData.opening_hours).weekends}</span>
                   </div>
                 </div>
-              </div>
+              </div> */}
 
               {/* Location */}
               {shopData.address && (

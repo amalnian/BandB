@@ -27,12 +27,12 @@ const AppointmentsContent = () => {
     refunded: 'bg-gray-100 text-gray-800'
   };
 
-  // Sort bookings by appointment date and time
+  // Sort bookings by booking time (created_at) - most recent first
   const sortBookings = (bookings) => {
     return bookings.sort((a, b) => {
-      const dateTimeA = new Date(`${a.appointment_date}T${a.appointment_time}`);
-      const dateTimeB = new Date(`${b.appointment_date}T${b.appointment_time}`);
-      return dateTimeA - dateTimeB; // Ascending order (earliest first)
+      const createdAtA = new Date(a.created_at);
+      const createdAtB = new Date(b.created_at);
+      return createdAtB - createdAtA; // Descending order (most recent first)
     });
   };
 

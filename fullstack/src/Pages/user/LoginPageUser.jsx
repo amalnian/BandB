@@ -203,17 +203,17 @@ useEffect(() => {
       // IMPORTANT: Store user data in localStorage for your protected routes to work
       // Extract user data from the response - adjust this based on your API response structure
       const userData = {
-        id: response.data?.user?.id || response.data?.id,
-        email: response.data?.user?.email || response.data?.email || email,
-        name: response.data?.user?.name || response.data?.name,
-        first_name: response.data?.user?.first_name,
-        last_name: response.data?.user?.last_name,
-        role: response.data?.user?.role || response.data?.role || 'user',
+        id: response.data?.userDetails?.id || response.data?.id,
+        email: response.data?.userDetails?.email || response.data?.email || email,
+        name: response.data?.userDetails?.name || response.data?.name,
+        first_name: response.data?.userDetail?.first_name,
+        last_name: response.data?.userDetail?.last_name,
+        role: response.data?.userDetail?.role || response.data?.role || 'user',
         isGoogleUser: false, // Flag to identify regular users
         // Add any other user fields your app needs
         // Note: tokens are stored in httpOnly cookies, not localStorage
       }
-
+      
       // Store user data in localStorage so protected routes can access it
       localStorage.setItem("user_data", JSON.stringify(userData))
       

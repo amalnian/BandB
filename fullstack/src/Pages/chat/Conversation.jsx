@@ -1,6 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
 import { specificconversation } from "@/endpoints/ChatAPI";
-import { useSelector } from "react-redux";
 
 const Conversation = ({ conversationId, currentUserId, onBack }) => {
   const [messages, setMessages] = useState([]);
@@ -13,11 +12,27 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
   const [chatPartner, setChatPartner] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
   const typingTimeoutRef = useRef(null);
-  const [deletingIndex,setDeletingIndex] = useState(null)
-  const endRef = useRef()
-  const user = useSelector((state) => state.user);
+  const [deletingIndex, setDeletingIndex] = useState(null);
+  const endRef = useRef();
 
-  const websocket_url =  "ws://localhost:8000/ws/chat/"
+  // Get user ID from localStorage
+  const getUserId = () => {
+    try {
+      const userData = localStorage.getItem("user_data");
+      if (userData) {
+        const parsedData = JSON.parse(userData);
+        return parsedData.id;
+      }
+    } catch (error) {
+      console.error("Error parsing user data from localStorage:", error);
+    }
+    return currentUserId; // Fallback to prop
+  };
+
+  const actualUserId = getUserId();
+
+  const websocket_url = "ws://localhost:8000/ws/chat/";
+
   useEffect(() => {
     const fetchConversationData = async () => {
       if (!conversationId) return;
@@ -27,14 +42,13 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         const messages = response.data || [];
         setMessages(messages);
         
-        setTimeout(()=>{
-          endRef.current?.scrollIntoView({behaviour:'smooth'})
-        },100)
-
+        setTimeout(() => {
+          endRef.current?.scrollIntoView({ behaviour: 'smooth' });
+        }, 100);
 
         if (messages.length > 0) {
           const participants = messages[0]?.participants || [];
-          const chatPartner = participants.find((u) => u.id !== currentUserId);
+          const chatPartner = participants.find((u) => u.id !== actualUserId);
           if (chatPartner) setChatPartner(chatPartner);
         }
       } catch (error) {
@@ -45,14 +59,21 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
     };
 
     fetchConversationData();
-  }, [conversationId, currentUserId]);
+  }, [conversationId, actualUserId]);
 
   useEffect(() => {
-    if (!conversationId) return;
+    if (!conversationId || !actualUserId) {
+      console.error("Missing conversationId or actualUserId:", { conversationId, actualUserId });
+      return;
+    }
+    console.log("actualUserId",actualUserId)
+    const websocket = new WebSocket(`${websocket_url}${conversationId}?user_id=${actualUserId}`);
 
-    const websocket = new WebSocket(`${websocket_url}${conversationId}/?user_id=${user?.user?.id}`);
-
-    websocket.onopen = () => console.log("WebSocket connection established");
+    websocket.onopen = () => {
+      console.log("WebSocket connection established");
+      console.log("Connected with user ID:", actualUserId);
+    };
+    
     websocket.onclose = () => {
       setIsChange(!isChange);
       console.log("WebSocket connection closed");
@@ -64,12 +85,11 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         if (data.type === "chat_message") {
           const { message, user, timestamp } = data;
           setMessages((prev) => [...prev, { id: data.id, sender: user, content: message, timestamp }]);
-          endRef.current?.scrollIntoView({behaviour:'smooth'})
-
+          endRef.current?.scrollIntoView({ behaviour: 'smooth' });
           setTypingUser(null);
         } else if (data.type === "typing") {
           const { user, receiver } = data;
-          if (receiver === currentUserId && user.id !== currentUserId) {
+          if (receiver === actualUserId && user.id !== actualUserId) {
             setTypingUser(user);
             if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
             typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 2000);
@@ -82,8 +102,8 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         }
       } catch (error) {
         console.error("Error parsing WebSocket message:", error);
-      } finally{
-        endRef.current?.scrollIntoView({behaviour:'smooth'})
+      } finally {
+        endRef.current?.scrollIntoView({ behaviour: 'smooth' });
       }
     };
 
@@ -91,12 +111,11 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
 
     setSocket(websocket);
 
-
     return () => {
       if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
       websocket.close();
     };
-  }, [isChange]);
+  }, [conversationId, actualUserId, isChange]);
 
   const handleSendMessage = () => {
     if (!conversationId || !newMessage.trim()) return;
@@ -104,7 +123,7 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
       socket.send(JSON.stringify({
         type: "chat_message",
         message: newMessage,
-        user: currentUserId,
+        user: actualUserId,
       }));
       setNewMessage("");
     }
@@ -114,7 +133,7 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
     if (!chatPartner || socket?.readyState !== WebSocket.OPEN) return;
     socket.send(JSON.stringify({
       type: "typing",
-      user: currentUserId,
+      user: actualUserId,
       receiver: chatPartner.id,
     }));
   };
@@ -129,7 +148,6 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
     return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
-
   const handleDeleteMessage = (messageId) => {
     if (socket?.readyState === WebSocket.OPEN) {
       socket.send(JSON.stringify({
@@ -140,9 +158,8 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
   };
 
   return (
-    <div className="absolute top-0  z-10 flex flex-col h-full w-full bg-white text-black rounded-2xl shadow-md overflow-hidden ">
+    <div className="absolute top-0 z-10 flex flex-col h-full w-full bg-white text-black rounded-2xl shadow-md overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 bg-gray-100 border-b border-gray-200">
-
         <button
           onClick={onBack}
           aria-label="Close modal"
@@ -169,7 +186,7 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         <div className="text-sm text-gray-600">
           {onlineUsers.length > 0 ? (
             onlineUsers
-              .filter((u) => u.id !== currentUserId)
+              .filter((u) => u.id !== actualUserId)
               .map((u) => (
                 <span key={u.id} className="text-green-600 font-medium">
                   {u.username} (online)
@@ -186,13 +203,13 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
           <p className="text-gray-400">Loading messages...</p>
         ) : (
           messages.map((message, index) => {
-            const isSentByCurrentUser = message.sender?.id === currentUserId;
+            const isSentByCurrentUser = message.sender?.id === actualUserId;
             return (
               <div
                 key={index}
                 onContextMenu={(e) => {
                   e.preventDefault();
-                  setDeletingIndex(index)
+                  setDeletingIndex(index);
                   setContextMenu({
                     messageId: message.id,
                     x: e.clientX,
@@ -202,18 +219,21 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
                 className={`flex flex-col ${isSentByCurrentUser ? "items-end" : "items-start"}`}
               >
                 <div
-                  className={`relative max-w-xs px-4 py-2  shadow ${isSentByCurrentUser ? "bg-black text-white rounded-t-2xl rounded-bl-2xl" : "bg-gray-200 text-black rounded-t-2xl rounded-br-2xl"
-                    }`}
+                  className={`relative max-w-xs px-4 py-2 shadow ${
+                    isSentByCurrentUser 
+                      ? "bg-black text-white rounded-t-2xl rounded-bl-2xl" 
+                      : "bg-gray-200 text-black rounded-t-2xl rounded-br-2xl"
+                  }`}
                 >
                   {message.content}
                 </div>
                 <span className="text-xs text-gray-400 mt-1">
                   {formatTimestamp(message.timestamp)}
                 </span>
-                {contextMenu && deletingIndex==index && (
+                {contextMenu && deletingIndex === index && (
                   <div
                     style={{ top: contextMenu.y, left: contextMenu.x }}
-                    className=" bg-white border border-gray-300 rounded-md shadow-md p-2 text-sm"
+                    className="bg-white border border-gray-300 rounded-md shadow-md p-2 text-sm"
                     onClick={() => {
                       handleDeleteMessage(contextMenu.messageId);
                       setContextMenu(null);
@@ -228,7 +248,6 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
           })
         )}
         <div ref={endRef}></div>
-
       </div>
 
       {typingUser && (
@@ -247,10 +266,9 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
           }}
           onKeyDown={handleTyping}
           placeholder="Type a message..."
-          className="flex-1 px-4 py-2  rounded-xl focus:outline-none "
+          className="flex-1 px-4 py-2 rounded-xl focus:outline-none"
         />
-        <button
-          onClick={handleSendMessage}>
+        <button onClick={handleSendMessage}>
           <img
             src="https://cdn.builder.io/api/v1/image/assets/aadabba814c24e21949a3d066a352728/eed45cf7b7b9b7c76291651e899f8a045900dabc?placeholderIfAbsent=true"
             className="aspect-[1] object-contain w-6 shrink-0"
@@ -259,7 +277,6 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         </button>
       </div>
     </div>
-
   );
 };
 

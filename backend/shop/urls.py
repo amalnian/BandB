@@ -1,5 +1,7 @@
 from django.urls import path
 
+from . import views
+
 from .views import (
     # CoustomTokenObtainPairView,
     # CoustomTokenRefreshView,
@@ -7,6 +9,7 @@ from .views import (
     CustomShopTokenRefreshView,
     PublicShopDetailView,
     PublicShopListView,
+    ShopFeedbackListView,
     # RecentAppointmentsView,
     # ShopDashboardStatsView,
     ShopForgotPasswordView,
@@ -105,5 +108,10 @@ urlpatterns = [
     path('forgot-password/', ShopForgotPasswordView.as_view(), name='mentor-forgot-password'),
     path('verify-forgot-password-otp/', ShopVerifyForgotPasswordOTPView.as_view(), name='mentor-verify-forgot-password-otp'),
     path('reset-password/', ShopResetPasswordView.as_view(), name='mentor-reset-password'),
+
+
+    path('shop/<int:shop_id>/feedbacks/', ShopFeedbackListView.as_view(), name='shop_feedbacks'),
+
+    path('shops/<int:shop_id>/rating-summary/', views.get_shop_rating_summary, name='shop_rating_summary'),
 
 ]

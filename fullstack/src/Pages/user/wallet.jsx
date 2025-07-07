@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getWalletBalance, getWalletTransactions, addMoneyToWallet } from '@/endpoints/APIs'
 import { useRazorpay } from '@/Pages/user/Hooks/useRazorpay'
@@ -46,14 +46,23 @@ const WalletManagement = () => {
       setTransactionsLoading(true)
       const params = {
         page: currentPage,
-        limit: 20,
+        limit: 10,
         ...(filterType !== 'all' && { type: filterType })
       }
+      
+      console.log('Fetching transactions with params:', params)
       
       const response = await getWalletTransactions(params)
       if (response.success) {
         setTransactions(response.data.transactions)
         setTotalPages(response.data.pagination.total_pages)
+        
+        // Debug logs
+        console.log('API Response:', response.data)
+        console.log('Transactions count:', response.data.transactions.length)
+        console.log('Current Page:', response.data.pagination.page)
+        console.log('Total Pages:', response.data.pagination.total_pages)
+        console.log('Total Count:', response.data.pagination.total_count)
       }
     } catch (error) {
       console.error('Error fetching transactions:', error)
@@ -69,68 +78,6 @@ const WalletManagement = () => {
     setRefreshing(false)
     toast.success('Wallet data refreshed')
   }
-
-//   const handleAddMoney = async () => {
-//     if (!addAmount || parseFloat(addAmount) <= 0) {
-//       toast.error('Please enter a valid amount')
-//       return
-//     }
-
-//     const amount = parseFloat(addAmount)
-//     if (amount < 10) {
-//       toast.error('Minimum amount is ₹10')
-//       return
-//     }
-//     if (amount > 50000) {
-//       toast.error('Maximum amount is ₹50,000')
-//       return
-//     }
-
-//     // Use Razorpay for adding money
-//     const paymentData = {
-//       amount: amount,
-//       businessName: 'Your Business Name',
-//       description: `Add ₹${amount} to wallet`,
-//       customerName: '', // Add customer details if available
-//       customerEmail: '',
-//       customerPhone: '',
-//       themeColor: '#16a34a'
-//     }
-
-//     initiatePayment(
-//       paymentData,
-//       // Success callback
-//       async (response) => {
-//         try {
-//           setAddMoneyLoading(true)
-//           const walletResponse = await addMoneyToWallet({
-//             amount: amount,
-//             description: 'Money added via Razorpay',
-//             payment_method: 'razorpay',
-//             payment_id: response.razorpay_payment_id
-//           })
-          
-//           if (walletResponse.success) {
-//             toast.success(`₹${amount} added to wallet successfully!`)
-//             setWalletBalance(walletResponse.data.new_balance)
-//             setAddAmount('')
-//             setShowAddMoney(false)
-//             fetchTransactions() // Refresh transactions
-//           }
-//         } catch (error) {
-//           console.error('Error adding money to wallet:', error)
-//           toast.error('Failed to add money to wallet')
-//         } finally {
-//           setAddMoneyLoading(false)
-//         }
-//       },
-//       // Failure callback
-//       (error) => {
-//         console.error('Payment failed:', error)
-//         toast.error(`Payment failed: ${error.message}`)
-//       }
-//     )
-//   }
 
   const formatDate = (dateString) => {
     return new Date(dateString).toLocaleDateString('en-US', {
@@ -155,6 +102,68 @@ const WalletManagement = () => {
   }
 
   const predefinedAmounts = [100, 500, 1000, 2000, 5000]
+
+  const handleAddMoney = async () => {
+    if (!addAmount || parseFloat(addAmount) <= 0) {
+      toast.error('Please enter a valid amount')
+      return
+    }
+
+    const amount = parseFloat(addAmount)
+    if (amount < 10) {
+      toast.error('Minimum amount is ₹10')
+      return
+    }
+    if (amount > 50000) {
+      toast.error('Maximum amount is ₹50,000')
+      return
+    }
+
+    // Use Razorpay for adding money
+    const paymentData = {
+      amount: amount,
+      businessName: 'Your Business Name',
+      description: `Add ₹${amount} to wallet`,
+      customerName: '', // Add customer details if available
+      customerEmail: '',
+      customerPhone: '',
+      themeColor: '#16a34a'
+    }
+
+    initiatePayment(
+      paymentData,
+      // Success callback
+      async (response) => {
+        try {
+          setAddMoneyLoading(true)
+          const walletResponse = await addMoneyToWallet({
+            amount: amount,
+            description: 'Money added via Razorpay',
+            payment_method: 'razorpay',
+            payment_id: response.razorpay_payment_id
+          })
+          
+          if (walletResponse.success) {
+            toast.success(`₹${amount} added to wallet successfully!`)
+            setWalletBalance(walletResponse.data.new_balance)
+            setAddAmount('')
+            setShowAddMoney(false)
+            fetchTransactions() // Refresh transactions
+          }
+        } catch (error) {
+          console.error('Error adding money to wallet:', error)
+          toast.error('Failed to add money to wallet')
+        } finally {
+          setAddMoneyLoading(false)
+        }
+      },
+      // Failure callback
+      (error) => {
+        console.error('Payment failed:', error)
+        toast.error(`Payment failed: ${error.message}`)
+      }
+    )
+  }
 
   if (loading) {
     return (
@@ -213,13 +222,13 @@ const WalletManagement = () => {
               <Wallet className="w-12 h-12 text-blue-200" />
             </div>
             
-            {/* <button
+            <button
               onClick={() => setShowAddMoney(true)}
               className="mt-4 bg-white/20 hover:bg-white/30 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center"
             >
               <Plus className="w-4 h-4 mr-2" />
               Add Money
-            </button> */}
+            </button>
           </div>
 
           {/* Filter and Actions */}
@@ -238,6 +247,11 @@ const WalletManagement = () => {
                 <option value="credit">Money Added</option>
                 <option value="debit">Money Spent</option>
               </select>
+            </div>
+            
+            {/* Debug Info */}
+            <div className="text-sm text-gray-500">
+              Page {currentPage} of {totalPages} | Showing {transactions.length} transactions
             </div>
           </div>
 
@@ -289,32 +303,35 @@ const WalletManagement = () => {
               </div>
             )}
 
-            {/* Pagination */}
-            {totalPages > 1 && (
-              <div className="p-4 border-t border-gray-200">
-                <div className="flex items-center justify-between">
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-                    disabled={currentPage === 1}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Previous
-                  </button>
-                  
+            {/* Pagination - Now always visible for debugging */}
+            <div className="p-4 border-t border-gray-200 bg-gray-50">
+              <div className="flex items-center justify-between">
+                <button
+                  onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
+                  disabled={currentPage === 1}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Previous
+                </button>
+                
+                <div className="flex items-center space-x-2">
                   <span className="text-sm text-gray-700">
                     Page {currentPage} of {totalPages}
                   </span>
-                  
-                  <button
-                    onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-                    disabled={currentPage === totalPages}
-                    className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Next
-                  </button>
+                  <span className="text-xs text-gray-500">
+                    (Showing {transactions.length} transactions)
+                  </span>
                 </div>
+                
+                <button
+                  onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+                  disabled={currentPage === totalPages}
+                  className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  Next
+                </button>
               </div>
-            )}
+            </div>
           </div>
         </div>
 

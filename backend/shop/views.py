@@ -1,5 +1,6 @@
 import datetime
 import logging
+from django.db import models
 import jwt
 from dateutil.parser import parse
 
@@ -29,10 +30,11 @@ from rest_framework_simplejwt.views import (
 
 from users.models import CustomUser
 from shop.models import (
-    Booking, Shop, ShopImage, Notification, Service, OTP,
+    Booking, BookingFeedback, Shop, ShopImage, Notification, Service, OTP,
     BusinessHours, Barber, SpecialClosingDay
 )
 from shop.serializers import (
+    BookingFeedbackSerializer,
     CustomTokenObtainPairSerializer,
     ShopForgotPasswordSerializer,
     ShopResetPasswordSerializer,
@@ -1334,3 +1336,128 @@ class ShopResetPasswordView(APIView):
             user = serializer.save()
             return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+
+
+
+
+
+
+
+
+class UserBookingFeedbackListView(APIView):
+    """
+    Get all feedback submitted by the authenticated user
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, *args, **kwargs):
+        """Get all feedback by the user"""
+        try:
+            feedbacks = BookingFeedback.objects.filter(
+                user=request.user
+            ).select_related('booking', 'shop').order_by('-created_at')
+            
+            serializer = BookingFeedbackSerializer(feedbacks, many=True)
+            
+            return Response({
+                'feedbacks': serializer.data,
+                'count': feedbacks.count()
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to fetch feedbacks'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class ShopFeedbackListView(APIView):
+    """
+    Get all feedback for a specific shop (for shop owners or public view)
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, shop_id, *args, **kwargs):
+        """Get all feedback for a shop"""
+        try:
+            # You might want to add additional permission checks here
+            # For example, only allow shop owners to see their feedback
+            
+            feedbacks = BookingFeedback.objects.filter(
+                shop_id=shop_id
+            ).select_related('user', 'booking').order_by('-created_at')
+            
+            # Optional: Hide user sensitive information for public view
+            serializer = BookingFeedbackSerializer(feedbacks, many=True)
+            
+            # Calculate average ratings
+            if feedbacks.exists():
+                avg_rating = feedbacks.aggregate(
+                    avg_overall=models.Avg('rating'),
+                    avg_service=models.Avg('service_quality'),
+                    avg_staff=models.Avg('staff_behavior'),
+                    avg_cleanliness=models.Avg('cleanliness'),
+                    avg_value=models.Avg('value_for_money')
+                )
+            else:
+                avg_rating = {
+                    'avg_overall': 0,
+                    'avg_service': 0,
+                    'avg_staff': 0,
+                    'avg_cleanliness': 0,
+                    'avg_value': 0
+                }
+            
+            return Response({
+                'feedbacks': serializer.data,
+                'count': feedbacks.count(),
+                'averages': avg_rating
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to fetch shop feedback'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+from django.db.models import Avg, Count
+from rest_framework.decorators import api_view
+
+
+@api_view(['GET'])
+def get_shop_rating_summary(request, shop_id):
+    """
+    Get rating summary for a specific shop
+    """
+    try:
+        shop = Shop.objects.get(id=shop_id)
+    except Shop.DoesNotExist:
+        return Response(
+            {'error': 'Shop not found'}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    
+    # Get all feedback for this shop
+    feedback_queryset = BookingFeedback.objects.filter(shop=shop)
+    
+    # Calculate ratings
+    rating_aggregates = feedback_queryset.aggregate(
+        average_rating=Avg('rating'),
+        total_reviews=Count('id'),
+        avg_service_quality=Avg('service_quality'),
+        avg_staff_behavior=Avg('staff_behavior'),
+        avg_cleanliness=Avg('cleanliness'),
+        avg_value_for_money=Avg('value_for_money')
+    )
+    
+    # Prepare response data - simplified for just overall rating
+    response_data = {
+        'shop_id': shop.id,
+        'shop_name': shop.name,
+        'average_rating': round(rating_aggregates['average_rating'] or 0, 1),
+        'total_reviews': rating_aggregates['total_reviews'] or 0
+    }
+    
+    return Response(response_data, status=status.HTTP_200_OK)

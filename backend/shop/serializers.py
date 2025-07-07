@@ -1,6 +1,6 @@
 import random
 from rest_framework import serializers
-from .models import Booking, Shop, ShopImage
+from .models import Booking, BookingFeedback, Shop, ShopImage
 from users.models import CustomUser
 from shop.models import Service, Notification, SpecialClosingDay, BusinessHours
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
@@ -312,11 +312,182 @@ class BookingSerializer(serializers.ModelSerializer):
     shop_name = serializers.CharField(source='shop.name', read_only=True)
     services = ServiceSerializer(many=True, read_only=True)
     
+    has_feedback = serializers.SerializerMethodField()
+    can_give_feedback = serializers.SerializerMethodField()
+    feedback = serializers.SerializerMethodField()
+
+
     class Meta:
         model = Booking
         fields = [
             'id', 'user_name', 'user_email', 'user_phone', 'shop_name',
             'services', 'appointment_date', 'appointment_time', 'total_amount',
             'booking_status', 'payment_status', 'payment_method', 'notes',
-            'created_at', 'updated_at'
+            'created_at', 'updated_at','has_feedback',
+            'can_give_feedback',
+            'feedback',
         ]
+
+    def get_services(self, obj):
+        """Get services for this booking"""
+        return [
+            {
+                'name': service.name,
+                'price': str(service.price)
+            }
+            for service in obj.services.all()
+        ]
+    
+    def get_has_feedback(self, obj):
+        """Check if booking has feedback"""
+        return obj.has_feedback()
+    
+    def get_can_give_feedback(self, obj):
+        """Check if feedback can be given"""
+        return obj.can_give_feedback()
+    
+    def get_feedback(self, obj):
+        """Get feedback details if exists"""
+        try:
+            if hasattr(obj, 'feedback') and obj.feedback:
+                return {
+                    'id': obj.feedback.id,
+                    'rating': obj.feedback.rating,
+                    'feedback_text': obj.feedback.feedback_text,
+                    'service_quality': obj.feedback.service_quality,
+                    'staff_behavior': obj.feedback.staff_behavior,
+                    'cleanliness': obj.feedback.cleanliness,
+                    'value_for_money': obj.feedback.value_for_money,
+                    'created_at': obj.feedback.created_at,
+                }
+            return None
+        except:
+            return None
+
+
+class BookingFeedbackSerializer(serializers.ModelSerializer):
+    """Serializer for BookingFeedback model"""
+    
+    # Read-only fields for related objects
+    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    user_email = serializers.EmailField(source='user.email', read_only=True)
+    shop_name = serializers.CharField(source='shop.name', read_only=True)
+    booking_date = serializers.DateField(source='booking.appointment_date', read_only=True)
+    booking_time = serializers.TimeField(source='booking.appointment_time', read_only=True)
+    
+    class Meta:
+        model = BookingFeedback
+        fields = [
+            'id',
+            'booking',
+            'user',
+            'shop',
+            'rating',
+            'feedback_text',
+            'service_quality',
+            'staff_behavior',
+            'cleanliness',
+            'value_for_money',
+            'created_at',
+            'updated_at',
+            # Read-only fields
+            'user_name',
+            'user_email',
+            'shop_name',
+            'booking_date',
+            'booking_time',
+        ]
+        read_only_fields = [
+            'id',
+            'booking',
+            'user',
+            'shop',
+            'created_at',
+            'updated_at',
+            'user_name',
+            'user_email',
+            'shop_name',
+            'booking_date',
+            'booking_time',
+        ]
+    
+    def validate_rating(self, value):
+        """Validate overall rating"""
+        if not (1 <= value <= 5):
+            raise serializers.ValidationError("Rating must be between 1 and 5")
+        return value
+    
+    def validate_service_quality(self, value):
+        """Validate service quality rating"""
+        if value and not (1 <= value <= 5):
+            raise serializers.ValidationError("Service quality rating must be between 1 and 5")
+        return value
+    
+    def validate_staff_behavior(self, value):
+        """Validate staff behavior rating"""
+        if value and not (1 <= value <= 5):
+            raise serializers.ValidationError("Staff behavior rating must be between 1 and 5")
+        return value
+    
+    def validate_cleanliness(self, value):
+        """Validate cleanliness rating"""
+        if value and not (1 <= value <= 5):
+            raise serializers.ValidationError("Cleanliness rating must be between 1 and 5")
+        return value
+    
+    def validate_value_for_money(self, value):
+        """Validate value for money rating"""
+        if value and not (1 <= value <= 5):
+            raise serializers.ValidationError("Value for money rating must be between 1 and 5")
+        return value
+
+
+class BookingFeedbackSummarySerializer(serializers.ModelSerializer):
+    """Simplified serializer for feedback summary/listing"""
+    
+    user_name = serializers.CharField(source='user.get_full_name', read_only=True)
+    shop_name = serializers.CharField(source='shop.name', read_only=True)
+    
+    class Meta:
+        model = BookingFeedback
+        fields = [
+            'id',
+            'rating',
+            'feedback_text',
+            'created_at',
+            'user_name',
+            'shop_name',
+        ]
+
+
+class BookingWithFeedbackSerializer(serializers.ModelSerializer):
+    """Booking serializer that includes feedback information"""
+    
+    feedback = BookingFeedbackSerializer(read_only=True)
+    has_feedback = serializers.SerializerMethodField()
+    can_give_feedback = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Booking
+        fields = [
+            'id',
+            'shop_name',
+            'appointment_date',
+            'appointment_time',
+            'booking_status',
+            'payment_status',
+            'total_amount',
+            'created_at',
+            # Feedback related fields
+            'feedback',
+            'has_feedback',
+            'can_give_feedback',
+        ]
+    
+    def get_has_feedback(self, obj):
+        """Check if booking has feedback"""
+        return obj.has_feedback()
+    
+    def get_can_give_feedback(self, obj):
+        """Check if feedback can be given"""
+        return obj.can_give_feedback()

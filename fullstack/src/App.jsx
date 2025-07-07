@@ -82,6 +82,7 @@ const BookingAppointment = LazyComponent(() => import("./Pages/user/bookingAppoi
 const Bookings = LazyComponent(() => import("./Pages/user/Bookings"))
 const Chat = LazyComponent(() => import("./Pages/chat/ChatPage"))
 const Wallet = LazyComponent(() => import("./Pages/user/wallet"))
+const BookingConfirmation = LazyComponent(() => import("./Pages/user/bookingConfirmation"))
 
 
 // Admin components
@@ -103,6 +104,7 @@ const ShopServices = LazyComponent(() => import("./Pages/shops/ShopServices"))
 const ShopCustomers = LazyComponent(() => import("./Pages/shops/ShopCustomers"))
 const ShopAnalytics = LazyComponent(() => import("./Pages/shops/ShopAnalytics"))
 const ShopSettings = LazyComponent(() => import("./Pages/shops/ShopSettings"))
+const ChatShop = LazyComponent(() => import("./Pages/chat/ChatPage"))
 
 // Enhanced Protected Route for HttpOnly Cookies
 const SimpleProtectedUserRoute = ({ children }) => {
@@ -221,6 +223,7 @@ function App() {
                 <Route path="home" element={<Home />} />
                 <Route path="shop/:shopId" element={<ShopDetail />} />
                 <Route path="booking/:shopId" element={<BookingAppointment />} />
+                <Route path="/booking-confirmation/:bookingId" element={<BookingConfirmation />} />
                 <Route path="settings" element={<Settings />} />
                 <Route path="bookings" element={<Bookings />} />
                 <Route path="chat" element={<Chat />} />
@@ -266,6 +269,7 @@ function App() {
                 <Route path="customers" element={<ShopCustomers />} />
                 <Route path="analytics" element={<ShopAnalytics />} />
                 <Route path="settings" element={<ShopSettings />} />
+                <Route path="chat" element={<ChatShop />} />
               </Route>
 
               {/* Redirect any unknown routes to login */}

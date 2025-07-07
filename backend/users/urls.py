@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import AllShopsView,BookingStatsAPIView, BookingStatusUpdateAPIView, ShopBookingsAPIView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserBookingListView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
+from .views import AllShopsView, BookingFeedbackView,BookingStatsAPIView, BookingStatusUpdateAPIView, ShopBookingsAPIView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserBookingFeedbackListView, UserBookingListView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
 
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -62,6 +62,13 @@ urlpatterns = [
     
     # Add money to wallet endpoint
     path('wallet/add-money/', views.AddMoneyToWalletView.as_view(), name='add_money_to_wallet'),
+
+
+
+    path('shop/bookings/<int:booking_id>/feedback/', BookingFeedbackView.as_view(), name='booking_feedback'),
+    
+    # Get all feedback by the authenticated user
+    path('shop/user/feedbacks/', UserBookingFeedbackListView.as_view(), name='user_feedbacks'),
 ]
 
 

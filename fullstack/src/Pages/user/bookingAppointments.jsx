@@ -409,7 +409,7 @@ const handleBooking = async (paymentMethod) => {
     // Razorpay payment logic
     const paymentData = {
       amount: calculateTotal(),
-      businessName: 'Your Business Name', // Replace with actual business name
+      businessName: 'B&B', // Replace with actual business name
       description: `Booking for ${getSelectedServiceDetails().map(s => s.name).join(', ')}`,
       bookingData: bookingData,
       customerName: '', // Add customer details if available

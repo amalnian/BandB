@@ -1,12 +1,14 @@
 import { Star, MapPin, Phone, Clock, User, Image, AlertCircle, ExternalLink, Check, X } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
-
+import { getShopRatingSummary } from "@/endpoints/ShopAPI" // Update with your actual API file path
 
 export default function ShopCard({ shop, debug = false }) {
   const [imageError, setImageError] = useState(false)
   const [imageLoading, setImageLoading] = useState(true)
   const [debugInfo, setDebugInfo] = useState(null)
+  const [reviewData, setReviewData] = useState(null)
+  const [reviewLoading, setReviewLoading] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -20,6 +22,31 @@ export default function ShopCard({ shop, debug = false }) {
       })
     }
   }, [shop, debug])
+
+  // Fetch review data when component mounts
+useEffect(() => {
+  const fetchReviewData = async () => {
+    const shopId = shop.id || shop._id || shop.shop_id
+    if (!shopId) return
+
+    try {
+      setReviewLoading(true)
+      const response = await getShopRatingSummary(shopId)
+      setReviewData(response.data)
+    } catch (error) {
+      console.error('Error fetching review data:', error)
+      // Fallback to existing shop data
+      setReviewData({
+        average_rating: shop.rating || shop.average_rating || 0,
+        total_reviews: shop.reviews || shop.reviews_count || 0
+      })
+    } finally {
+      setReviewLoading(false)
+    }
+  }
+
+  fetchReviewData()
+}, [shop])
 
   const handleCardClick = () => {
     // Navigate to shop detail page using the shop ID
@@ -49,37 +76,37 @@ export default function ShopCard({ shop, debug = false }) {
     }
   }
 
-  const renderStars = (rating) => {
-    const stars = []
-    const fullStars = Math.floor(rating)
-    const hasHalfStar = rating % 1 !== 0
+const renderStars = (rating) => {
+  const stars = []
+  const fullStars = Math.floor(rating)
+  const hasHalfStar = rating % 1 !== 0
 
-    for (let i = 0; i < fullStars; i++) {
-      stars.push(
-        <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-      )
-    }
-
-    if (hasHalfStar) {
-      stars.push(
-        <div key="half" className="relative">
-          <Star className="w-4 h-4 text-gray-300" />
-          <div className="absolute inset-0 overflow-hidden w-1/2">
-            <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-          </div>
-        </div>
-      )
-    }
-
-    const emptyStars = 5 - Math.ceil(rating)
-    for (let i = 0; i < emptyStars; i++) {
-      stars.push(
-        <Star key={`empty-${i}`} className="w-4 h-4 text-gray-300" />
-      )
-    }
-
-    return stars
+  for (let i = 0; i < fullStars; i++) {
+    stars.push(
+      <Star key={i} className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+    )
   }
+
+  if (hasHalfStar) {
+    stars.push(
+      <div key="half" className="relative">
+        <Star className="w-4 h-4 text-gray-300" />
+        <div className="absolute inset-0 overflow-hidden w-1/2">
+          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
+        </div>
+      </div>
+    )
+  }
+
+  const emptyStars = 5 - Math.ceil(rating)
+  for (let i = 0; i < emptyStars; i++) {
+    stars.push(
+      <Star key={`empty-${i}`} className="w-4 h-4 text-gray-300" />
+    )
+  }
+
+  return stars
+}
 
   const createPlaceholderDataUrl = (text = "No Image") => {
     const svg = `
@@ -213,8 +240,25 @@ export default function ShopCard({ shop, debug = false }) {
     setImageError(false)
   }
 
-  const rating = shop.rating || shop.average_rating || 0
-  const reviewsCount = shop.reviews || shop.reviews_count || 0
+  // Get rating and reviews from API data or fallback to shop data
+const getRatingData = () => {
+  if (reviewData) {
+    return {
+      rating: reviewData.average_rating || 0,
+      reviewsCount: reviewData.total_reviews || 0,
+      isFromAPI: true
+    }
+  }
+  
+  // Fallback to existing shop data
+  return {
+    rating: shop.rating || shop.average_rating || 0,
+    reviewsCount: shop.reviews || shop.reviews_count || 0,
+    isFromAPI: false
+  }
+}
+
+  const { rating, reviewsCount, isFromAPI } = getRatingData()
 
   return (
     <div 
@@ -230,21 +274,41 @@ export default function ShopCard({ shop, debug = false }) {
       }}
     >
       {/* Debug Info */}
-      {debug && debugInfo && (
-        <div className="bg-blue-50 border border-blue-200 p-3 text-xs">
-          <div className="flex items-center gap-1 mb-2">
-            <AlertCircle className="w-4 h-4 text-blue-600" />
-            <span className="font-medium text-blue-800">Debug Info</span>
-          </div>
-          <div className="space-y-1 text-blue-700">
-            <div><strong>Source:</strong> {debugInfo.source}</div>
-            <div><strong>URL:</strong> {debugInfo.url || 'None'}</div>
-            <div><strong>Valid:</strong> {debugInfo.valid ? 'Yes' : 'No'}</div>
-            {debugInfo.type && <div><strong>Type:</strong> {debugInfo.type}</div>}
-            {debugInfo.optimized !== undefined && (
-              <div><strong>Optimized:</strong> {debugInfo.optimized ? 'Yes' : 'No'}</div>
-            )}
-            {debugInfo.error && <div className="text-red-600"><strong>Error:</strong> {debugInfo.error}</div>}
+      {debug && (
+        <div className="bg-blue-50 border border-blue-200 p-3 text-xs space-y-2">
+          {debugInfo && (
+            <div>
+              <div className="flex items-center gap-1 mb-2">
+                <AlertCircle className="w-4 h-4 text-blue-600" />
+                <span className="font-medium text-blue-800">Image Debug Info</span>
+              </div>
+              <div className="space-y-1 text-blue-700">
+                <div><strong>Source:</strong> {debugInfo.source}</div>
+                <div><strong>URL:</strong> {debugInfo.url || 'None'}</div>
+                <div><strong>Valid:</strong> {debugInfo.valid ? 'Yes' : 'No'}</div>
+                {debugInfo.type && <div><strong>Type:</strong> {debugInfo.type}</div>}
+                {debugInfo.optimized !== undefined && (
+                  <div><strong>Optimized:</strong> {debugInfo.optimized ? 'Yes' : 'No'}</div>
+                )}
+                {debugInfo.error && <div className="text-red-600"><strong>Error:</strong> {debugInfo.error}</div>}
+              </div>
+            </div>
+          )}
+          
+          <div>
+            <div className="flex items-center gap-1 mb-2">
+              <Star className="w-4 h-4 text-yellow-600" />
+              <span className="font-medium text-blue-800">Review Debug Info</span>
+            </div>
+            <div className="space-y-1 text-blue-700">
+              <div><strong>Rating Source:</strong> {isFromAPI ? 'API' : 'Shop Data'}</div>
+              <div><strong>Rating:</strong> {rating}</div>
+              <div><strong>Reviews:</strong> {reviewsCount}</div>
+              <div><strong>Loading:</strong> {reviewLoading ? 'Yes' : 'No'}</div>
+              {reviewData && (
+                <div><strong>API Data:</strong> {JSON.stringify(reviewData, null, 2)}</div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -324,19 +388,58 @@ export default function ShopCard({ shop, debug = false }) {
           </div>
         )}
 
-        {rating > 0 && (
+        {/* Enhanced Rating Section */}
+        {(rating > 0 || reviewLoading) && (
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center">
-              <div className="flex mr-2">
-                {renderStars(rating)}
-              </div>
-              <span className="text-sm text-gray-600 font-medium">
-                {rating.toFixed(1)}
-              </span>
+              {reviewLoading ? (
+                <div className="flex items-center animate-pulse">
+                  <div className="flex mr-2">
+                    {[...Array(5)].map((_, i) => (
+                      <div key={i} className="w-4 h-4 bg-gray-200 rounded-full mr-1"></div>
+                    ))}
+                  </div>
+                  <div className="w-8 h-4 bg-gray-200 rounded"></div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex mr-2">
+                    {renderStars(rating)}
+                  </div>
+                  <span className="text-sm text-gray-600 font-medium">
+                    {rating.toFixed(1)}
+                  </span>
+                </>
+              )}
             </div>
             <span className="text-sm text-gray-500">
-              ({reviewsCount} {reviewsCount === 1 ? 'review' : 'reviews'})
+              {reviewLoading ? (
+                <div className="w-16 h-4 bg-gray-200 rounded animate-pulse"></div>
+              ) : (
+                `(${reviewsCount} ${reviewsCount === 1 ? 'review' : 'reviews'})`
+              )}
             </span>
+          </div>
+        )}
+
+        {/* Enhanced Rating Breakdown (if available from API) */}
+        {reviewData && reviewData.rating_breakdown && (
+          <div className="mb-3 p-2 bg-gray-50 rounded-lg">
+            <div className="text-xs text-gray-600 mb-1">Rating Breakdown:</div>
+            <div className="grid grid-cols-2 gap-1 text-xs">
+              {reviewData.rating_breakdown.service_quality && (
+                <div>Service: {reviewData.rating_breakdown.service_quality.toFixed(1)}</div>
+              )}
+              {reviewData.rating_breakdown.staff_behavior && (
+                <div>Staff: {reviewData.rating_breakdown.staff_behavior.toFixed(1)}</div>
+              )}
+              {reviewData.rating_breakdown.cleanliness && (
+                <div>Clean: {reviewData.rating_breakdown.cleanliness.toFixed(1)}</div>
+              )}
+              {reviewData.rating_breakdown.value_for_money && (
+                <div>Value: {reviewData.rating_breakdown.value_for_money.toFixed(1)}</div>
+              )}
+            </div>
           </div>
         )}
 
@@ -348,7 +451,7 @@ export default function ShopCard({ shop, debug = false }) {
             View Details
           </button>
           
-          {shop.phone && (
+          {/* {shop.phone && (
             <button 
               className="bg-green-500 hover:bg-green-600 text-white p-2 rounded-md transition-colors duration-200"
               onClick={(e) => handleButtonClick(e, 'phone')}
@@ -356,7 +459,7 @@ export default function ShopCard({ shop, debug = false }) {
             >
               <Phone className="w-4 h-4" />
             </button>
-          )}
+          )} */}
         </div>
       </div>
     </div>

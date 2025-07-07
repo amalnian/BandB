@@ -35,15 +35,14 @@ export const InboxList = () => {
     setActiveConversation(null);
   };
   return (
-    <div className="relative w-full min-h-screen bg-black overflow-hidden">
+    <div className="relative w-full min-h-screen bg-white overflow-hidden">
       <img
-        src="https://cdn.builder.io/api/v1/image/assets/aadabba814c24e21949a3d066a352728/04634a6562dfc88f9a10ed30c6642d9e9b360aed?placeholderIfAbsent=true"
+        // src="https://cdn.builder.io/api/v1/image/assets/aadabba814c24e21949a3d066a352728/04634a6562dfc88f9a10ed30c6642d9e9b360aed?placeholderIfAbsent=true"
         alt="Background"
         className="absolute top-0 left-0 w-full h-full object-cover opacity-20 z-0"
       />
 
       <div className="relative z-10 max-w-3xl mx-auto p-4 sm:p-6 lg:p-8">
-        <h1 className="text-3xl font-bold text-white mb-6 text-center">INBOX</h1>
 
         <div className="bg-[#0e0e0e] rounded-2xl shadow-lg p-4 sm:p-6 space-y-4 max-h-[70vh] overflow-y-auto">
           {conversations.map((conversation) => {

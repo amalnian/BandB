@@ -251,6 +251,20 @@ class Booking(models.Model):
         self.razorpay_order_id = order_id
         self.save()
 
+    def has_feedback(self):
+        """Check if this booking has feedback"""
+        try:
+            return hasattr(self, 'feedback') and self.feedback is not None
+        except BookingFeedback.DoesNotExist:
+            return False
+
+    def can_give_feedback(self):
+        """Check if feedback can be given for this booking"""
+        return (
+            self.booking_status == 'completed' and 
+            not self.has_feedback()
+        )
+    
     def cancel_with_refund(self, reason="Shop closed on selected date"):
             """Cancel booking and process refund to wallet"""
             from django.db import transaction
@@ -282,6 +296,44 @@ class Booking(models.Model):
                     
                     return True
             return False
+
+
+
+class BookingFeedback(models.Model):
+    RATING_CHOICES = [
+        (1, '1 Star'),
+        (2, '2 Stars'),
+        (3, '3 Stars'),
+        (4, '4 Stars'),
+        (5, '5 Stars'),
+    ]
+    
+    booking = models.OneToOneField('Booking', on_delete=models.CASCADE, related_name='feedback')
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
+    
+    # Rating and feedback
+    rating = models.IntegerField(choices=RATING_CHOICES)
+    feedback_text = models.TextField(blank=True, help_text="Optional feedback comment")
+    
+    # Service-specific ratings (optional)
+    service_quality = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    staff_behavior = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    cleanliness = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    value_for_money = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
+    
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+        unique_together = ['booking', 'user']  # Ensure one feedback per booking
+    
+    def __str__(self):
+        return f"Feedback for Booking {self.booking.id} - {self.rating} stars"
+
+    
 
 
 

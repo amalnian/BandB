@@ -97,3 +97,8 @@ export const forgotPassword = (email) => axios.post('forgot-password/', { email 
 export const verifyForgotOtp = (formBody) => axios.post('verify-forgot-password-otp/', formBody)
 
 export const resetPassword = (formBody) => axios.post('reset-password/', formBody)
+
+
+
+
+export const getShopRatingSummary = (shopId) => axios.get(`shops/${shopId}/rating-summary/`)

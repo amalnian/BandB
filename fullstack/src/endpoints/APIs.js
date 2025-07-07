@@ -209,11 +209,21 @@ export const getShopBookings = (params = {}) => {
     queryParams.append('search', params.search);
   }
   
+  // Add pagination parameters
+  if (params.page) {
+    queryParams.append('page', params.page);
+  }
+  if (params.limit) {
+    queryParams.append('limit', params.limit);
+  }
+  
   const queryString = queryParams.toString();
   const url = queryString ? `shop/bookings/?${queryString}` : 'shop/bookings/';
   
   return axios.get(url);
 };
+
+
 
 // Update booking status
 export const updateBookingStatus = (bookingId, status) => {
@@ -294,4 +304,13 @@ export const addMoneyToWallet = async (data) => {
 }
 
 
+
+export const submitBookingFeedback = (bookingId, feedbackData) =>
+  axios.post(`/shop/bookings/${bookingId}/feedback/`, feedbackData);
+
+export const getBookingFeedback = (bookingId) =>
+  axios.get(`/shop/bookings/${bookingId}/feedback/`);  // Removed '/get/'
+
+export const getUserFeedbacks = () =>
+  axios.get('/shop/user/feedbacks/');
 
