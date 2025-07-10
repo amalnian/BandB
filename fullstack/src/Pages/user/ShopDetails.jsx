@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react"
 import { Star, MapPin, Phone, Clock, User, Image, AlertCircle, ExternalLink, Check, X, ArrowLeft, Heart, Share, MessageCircle } from "lucide-react"
 import { shopDetail as shopDetailAPI } from "@/endpoints/APIs"
+import { getShopFeedback } from "@/endpoints/ShopAPI"
 import { useParams, useNavigate } from "react-router-dom"
+import { getShopRatingSummary } from "@/endpoints/ShopAPI"
 
 const BarberDetails = ({ debug = false }) => {
   const { shopId } = useParams()
@@ -14,6 +16,9 @@ const BarberDetails = ({ debug = false }) => {
   const [imageLoading, setImageLoading] = useState(true)
   const [debugInfo, setDebugInfo] = useState(null)
   const [isFavorite, setIsFavorite] = useState(false)
+  const [shopFeedback, setShopFeedback] = useState([]);
+  const [feedbackLoading, setFeedbackLoading] = useState(false);
+  const [ratingSummary, setRatingSummary] = useState(null)
 
   const navigate = useNavigate()
   // Fetch shop data on component mount
@@ -28,6 +33,8 @@ const BarberDetails = ({ debug = false }) => {
         
         if (response.data?.success && response.data?.data) {
           setShopData(response.data.data)
+          await fetchShopFeedback();
+          await fetchRatingSummary(); // Add this line
         } else {
           throw new Error('Failed to fetch shop data')
         }
@@ -38,7 +45,7 @@ const BarberDetails = ({ debug = false }) => {
         setLoading(false)
       }
     }
-
+    
     if (shopId) {
       fetchShopData()
     } else {
@@ -71,6 +78,36 @@ const BarberDetails = ({ debug = false }) => {
     `
     return `data:image/svg+xml;base64,${btoa(svg)}`
   }
+
+const fetchShopFeedback = async () => {
+  try {
+    setFeedbackLoading(true);
+    console.log('Fetching feedback for shopId:', shopId); // Debug
+    const response = await getShopFeedback(shopId);
+    console.log('Full feedback response:', response); // Debug
+    console.log('Feedback data:', response.data); // Debug
+    
+    if (response.data?.feedbacks) {
+      console.log('Setting feedbacks:', response.data.feedbacks); // Debug
+      setShopFeedback(response.data.feedbacks);
+    }
+  } catch (error) {
+    console.error('Error fetching feedback:', error);
+  } finally {
+    setFeedbackLoading(false);
+  }
+};
+
+const fetchRatingSummary = async () => {
+  try {
+    const response = await getShopRatingSummary(shopId);
+    if (response.data) {
+      setRatingSummary(response.data);
+    }
+  } catch (error) {
+    console.error('Error fetching rating summary:', error);
+  }
+};
 
   const getImageUrl = () => {
     if (!shopData) return createPlaceholderDataUrl("Loading...")
@@ -313,68 +350,68 @@ const BarberDetails = ({ debug = false }) => {
           </div>
         )
       
-      case 'service':
-        return (
-          <div className="space-y-4">
-            <h4 className="text-lg font-semibold text-gray-900 mb-4">Our Services</h4>
-            {shopData.services && shopData.services.length > 0 ? (
-              shopData.services.map((service, index) => (
-                <div key={index} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <h5 className="font-medium text-gray-900">{service.name}</h5>
-                    {service.duration && <p className="text-sm text-gray-600">{service.duration}</p>}
-                  </div>
-                  {service.price && <span className="font-semibold text-amber-600">{service.price}</span>}
-                </div>
-              ))
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <p>No services information available</p>
-              </div>
-            )}
-          </div>
-        )
+      // case 'service':
+      //   return (
+      //     <div className="space-y-4">
+      //       <h4 className="text-lg font-semibold text-gray-900 mb-4">Our Services</h4>
+      //       {shopData.services && shopData.services.length > 0 ? (
+      //         shopData.services.map((service, index) => (
+      //           <div key={index} className="flex justify-between items-center p-4 bg-gray-50 rounded-lg">
+      //             <div>
+      //               <h5 className="font-medium text-gray-900">{service.name}</h5>
+      //               {service.duration && <p className="text-sm text-gray-600">{service.duration}</p>}
+      //             </div>
+      //             {service.price && <span className="font-semibold text-amber-600">{service.price}</span>}
+      //           </div>
+      //         ))
+      //       ) : (
+      //         <div className="text-center py-8 text-gray-500">
+      //           <p>No services information available</p>
+      //         </div>
+      //       )}
+      //     </div>
+      //   )
 
-      case 'schedule':
-        return (
-          <div className="space-y-6">
-            <div className="flex justify-between items-center">
-              <h4 className="text-lg font-semibold text-gray-900">{selectedDate}</h4>
-              <span className="text-gray-600">Working Hours</span>
-            </div>
-            <div className="bg-gray-50 rounded-xl p-6 space-y-4">
-              <div className="flex justify-between text-base">
-                <span className="text-gray-700 font-medium">Monday - Friday</span>
-                <span className="text-gray-900 font-semibold">{workingHours.weekdays}</span>
-              </div>
-              <div className="flex justify-between text-base">
-                <span className="text-gray-700 font-medium">Saturday - Sunday</span>
-                <span className="text-gray-900 font-semibold">{workingHours.weekends}</span>
-              </div>
-            </div>
+      // case 'schedule':
+      //   return (
+      //     <div className="space-y-6">
+      //       <div className="flex justify-between items-center">
+      //         <h4 className="text-lg font-semibold text-gray-900">{selectedDate}</h4>
+      //         <span className="text-gray-600">Working Hours</span>
+      //       </div>
+      //       <div className="bg-gray-50 rounded-xl p-6 space-y-4">
+      //         <div className="flex justify-between text-base">
+      //           <span className="text-gray-700 font-medium">Monday - Friday</span>
+      //           <span className="text-gray-900 font-semibold">{workingHours.weekdays}</span>
+      //         </div>
+      //         <div className="flex justify-between text-base">
+      //           <span className="text-gray-700 font-medium">Saturday - Sunday</span>
+      //           <span className="text-gray-900 font-semibold">{workingHours.weekends}</span>
+      //         </div>
+      //       </div>
             
-            {shopData.time_slots && shopData.time_slots.length > 0 && (
-              <div className="space-y-4">
-                <h5 className="font-semibold text-gray-900">Available Time Slots</h5>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                  {shopData.time_slots.map((slot, index) => (
-                    <button
-                      key={index}
-                      className={`p-3 rounded-lg text-sm font-medium transition-colors ${
-                        slot.available && !slot.booked
-                          ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                          : 'bg-gray-100 text-gray-500 cursor-not-allowed'
-                      }`}
-                      disabled={!slot.available || slot.booked}
-                    >
-                      {slot.time}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )
+      //       {shopData.time_slots && shopData.time_slots.length > 0 && (
+      //         <div className="space-y-4">
+      //           <h5 className="font-semibold text-gray-900">Available Time Slots</h5>
+      //           <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+      //             {shopData.time_slots.map((slot, index) => (
+      //               <button
+      //                 key={index}
+      //                 className={`p-3 rounded-lg text-sm font-medium transition-colors ${
+      //                   slot.available && !slot.booked
+      //                     ? 'bg-green-100 text-green-700 hover:bg-green-200'
+      //                     : 'bg-gray-100 text-gray-500 cursor-not-allowed'
+      //                 }`}
+      //                 disabled={!slot.available || slot.booked}
+      //               >
+      //                 {slot.time}
+      //               </button>
+      //             ))}
+      //           </div>
+      //         </div>
+      //       )}
+      //     </div>
+      //   )
 
       case 'review':
         return (
@@ -382,19 +419,19 @@ const BarberDetails = ({ debug = false }) => {
             <div className="flex items-center justify-between">
               <h4 className="text-lg font-semibold text-gray-900">Reviews</h4>
               <div className="flex items-center">
-                <div className="flex mr-2">
+                {/* <div className="flex mr-2">
                   {renderStars(shopData.rating || 0)}
-                </div>
-                <span className="font-semibold">{shopData.rating || 0}</span>
+                </div> */}
+                {/* <span className="font-semibold">{shopData.rating || 0}</span>
                 <span className="text-gray-600 ml-1">
                   ({shopData.review_count || 0} reviews)
-                </span>
+                </span> */}
               </div>
             </div>
             
             <div className="space-y-4">
-              {shopData.reviews && shopData.reviews.length > 0 ? (
-                shopData.reviews.map((review) => (
+              {shopFeedback && shopFeedback.length > 0 ? (
+                shopFeedback.map((review) => (
                   <div key={review.id} className="bg-gray-50 rounded-lg p-4">
                     <div className="flex items-center mb-3">
                       {review.user_avatar ? (
@@ -411,14 +448,14 @@ const BarberDetails = ({ debug = false }) => {
                       <div className="flex-1">
                         <div className="flex items-center justify-between">
                           <h6 className="font-medium text-gray-900">{review.user_name}</h6>
-                          <span className="text-sm text-gray-500">{review.created_at}</span>
+                          {/* <span className="text-sm text-gray-500">{review.created_at}</span> */}
                         </div>
                         <div className="flex mt-1">
                           {renderStars(review.rating)}
                         </div>
                       </div>
                     </div>
-                    <p className="text-gray-600">{review.comment}</p>
+                    <p className="text-gray-600">{review.feedback_text}</p>
                   </div>
                 ))
               ) : (
@@ -598,9 +635,9 @@ const BarberDetails = ({ debug = false }) => {
                 </div>
                 <div className="flex items-center text-lg font-semibold">
                   <div className="flex mr-2">
-                    {renderStars(shopData.rating || 0)}
+                    {renderStars(ratingSummary?.average_rating || shopData.rating || 0)}
                   </div>
-                  <span>{shopData.rating || 0} ({shopData.review_count || 0} Reviews)</span>
+                  <span>{ratingSummary?.average_rating || shopData.rating || 0} ({ratingSummary?.total_reviews || shopData.review_count || 0} Reviews)</span>
                 </div>
               </div>
 
@@ -653,7 +690,7 @@ const BarberDetails = ({ debug = false }) => {
             {/* Tabs Content */}
             <div className="bg-white rounded-2xl p-8 shadow-sm">
               <div className="flex flex-wrap gap-3 mb-8">
-                {['about', 'service', 'schedule', 'review'].map((tab) => (
+                {['about', 'review'].map((tab) => (
                   <button
                     key={tab}
                     className={`px-6 py-3 rounded-full text-base font-medium transition-colors capitalize ${
@@ -728,19 +765,19 @@ const BarberDetails = ({ debug = false }) => {
                </div>
              )}
 
-             {/* Rating Summary */}
-             {shopData.rating && (
-               <div className="border-t border-gray-200 pt-6 mt-6">
-                 <h4 className="font-semibold text-gray-900 mb-4">Rating</h4>
-                 <div className="flex items-center mb-2">
-                   <div className="flex mr-3">
-                     {renderStars(shopData.rating)}
-                   </div>
-                   <span className="text-2xl font-bold text-gray-900">{shopData.rating}</span>
-                 </div>
-                 <p className="text-gray-600 text-sm">Based on {shopData.review_count || 0} reviews</p>
-               </div>
-             )}
+              {/* Rating Summary */}
+              {(ratingSummary?.average_rating || shopData.rating) && (
+                <div className="border-t border-gray-200 pt-6 mt-6">
+                  <h4 className="font-semibold text-gray-900 mb-4">Rating</h4>
+                  <div className="flex items-center mb-2">
+                    <div className="flex mr-3">
+                      {renderStars(ratingSummary?.average_rating || shopData.rating)}
+                    </div>
+                    <span className="text-2xl font-bold text-gray-900">{ratingSummary?.average_rating || shopData.rating}</span>
+                  </div>
+                  <p className="text-gray-600 text-sm">Based on {ratingSummary?.total_reviews || shopData.review_count || 0} reviews</p>
+                </div>
+              )}
 
              {/* Additional Info */}
              {shopData.specialties && shopData.specialties.length > 0 && (

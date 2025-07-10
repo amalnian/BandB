@@ -1,7 +1,7 @@
 // pages/shop/ShopServices.js
 import React from 'react';
 import { useOutletContext } from 'react-router-dom';
-import AnalyticsContent from '../shops/components/AnalyticsContent';
+import AnalyticsContent from './components/Feedback';
 
 const ShopAnalytics = () => {
   const { shopData, isApproved } = useOutletContext();

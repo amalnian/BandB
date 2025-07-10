@@ -102,3 +102,7 @@ export const resetPassword = (formBody) => axios.post('reset-password/', formBod
 
 
 export const getShopRatingSummary = (shopId) => axios.get(`shops/${shopId}/rating-summary/`)
+
+export const getShopFeedback = (shopId) => {
+  return axios.get(`/shops/${shopId}/feedbacks/`);
+};

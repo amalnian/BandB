@@ -186,6 +186,9 @@ class BusinessHours(models.Model):
             return f"{self.shop.name} - {self.get_day_of_week_display()}: Closed"
         return f"{self.shop.name} - {self.get_day_of_week_display()}: {self.opening_time.strftime('%H:%M') if self.opening_time else 'N/A'} - {self.closing_time.strftime('%H:%M') if self.closing_time else 'N/A'}"
 
+from django.core.exceptions import ValidationError
+
+
 class Booking(models.Model):
     BOOKING_STATUS_CHOICES = [
         ('pending', 'Pending'),
@@ -233,15 +236,42 @@ class Booking(models.Model):
     def __str__(self):
         return f"Booking {self.id} - {self.shop.name} - {self.appointment_date}"
 
+    def is_appointment_time_passed(self):
+        """Check if the appointment date and time have passed"""
+        now = timezone.now()
+        appointment_datetime = timezone.make_aware(
+            datetime.combine(self.appointment_date, self.appointment_time)
+        )
+        return now > appointment_datetime
+
+    def can_be_completed(self):
+        """Check if booking can be marked as completed"""
+        return (
+            self.booking_status == 'confirmed' and 
+            self.is_appointment_time_passed()
+        )
+
     def mark_confirmed(self):
+        """Mark booking as confirmed"""
         self.booking_status = 'confirmed'
         self.save()
 
     def mark_completed(self):
+        """Mark booking as completed - only if appointment time has passed"""
+        if not self.is_appointment_time_passed():
+            raise ValidationError("Booking cannot be completed before the appointment time")
+        
+        if self.booking_status != 'confirmed':
+            raise ValidationError("Only confirmed bookings can be marked as completed")
+        
         self.booking_status = 'completed'
         self.save()
 
     def cancel_booking(self):
+        """Cancel booking"""
+        if self.booking_status == 'completed':
+            raise ValidationError("Completed bookings cannot be cancelled")
+        
         self.booking_status = 'cancelled'
         self.save()
 
@@ -266,36 +296,36 @@ class Booking(models.Model):
         )
     
     def cancel_with_refund(self, reason="Shop closed on selected date"):
-            """Cancel booking and process refund to wallet"""
-            from django.db import transaction
+        """Cancel booking and process refund to wallet"""
+        from django.db import transaction
+        
+        with transaction.atomic():
+            # Update booking status
+            self.booking_status = 'cancelled'
+            self.save()
             
-            with transaction.atomic():
-                # Update booking status
-                self.booking_status = 'cancelled'
+            # Process refund only if payment was successful
+            if self.payment_status == 'paid':
+                # Get or create user's wallet
+                wallet, created = Wallet.objects.get_or_create(
+                    user=self.user,
+                    defaults={'balance': 0.00}
+                )
+                
+                # Create credit transaction
+                WalletTransaction.objects.create(
+                    wallet=wallet,
+                    transaction_type='credit',
+                    amount=self.total_amount,
+                    description=f"Refund for cancelled booking #{self.id} - {reason}"
+                )
+                
+                # Update payment status
+                self.payment_status = 'refunded'
                 self.save()
                 
-                # Process refund only if payment was successful
-                if self.payment_status == 'paid':
-                    # Get or create user's wallet
-                    wallet, created = Wallet.objects.get_or_create(
-                        user=self.user,
-                        defaults={'balance': 0.00}
-                    )
-                    
-                    # Create credit transaction
-                    WalletTransaction.objects.create(
-                        wallet=wallet,
-                        transaction_type='credit',
-                        amount=self.total_amount,
-                        description=f"Refund for cancelled booking #{self.id} - {reason}"
-                    )
-                    
-                    # Update payment status
-                    self.payment_status = 'refunded'
-                    self.save()
-                    
-                    return True
-            return False
+                return True
+        return False
 
 
 

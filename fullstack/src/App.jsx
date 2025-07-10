@@ -6,7 +6,7 @@ import axios from "axios"
 import { Provider } from "react-redux"
 import { store, persistor } from "./store/store"
 import { PersistGate } from "redux-persist/integration/react";
-
+import Notification from "./Pages/user/components/Notifications"
 
 // Create a loading component for Suspense fallback
 const LoadingSpinner = () => (
@@ -102,7 +102,7 @@ const ShopLayout = LazyComponent(() => import("./Pages/shops/components/layout/S
 const ShopAppointments = LazyComponent(() => import("./Pages/shops/ShopAppointments"))
 const ShopServices = LazyComponent(() => import("./Pages/shops/ShopServices"))
 const ShopCustomers = LazyComponent(() => import("./Pages/shops/ShopCustomers"))
-const ShopAnalytics = LazyComponent(() => import("./Pages/shops/ShopAnalytics"))
+const ShopFeedback = LazyComponent(() => import("./Pages/shops/components/Feedback"))
 const ShopSettings = LazyComponent(() => import("./Pages/shops/ShopSettings"))
 const ChatShop = LazyComponent(() => import("./Pages/chat/ChatPage"))
 
@@ -200,6 +200,7 @@ function App() {
   
   return (
     <Provider store={store}>
+      <Notification/>
       <PersistGate loading={null} persistor={persistor}>
       <ErrorBoundary>
         <BrowserRouter>
@@ -267,7 +268,7 @@ function App() {
                 <Route path="appointments" element={<ShopAppointments />} />
                 <Route path="services" element={<ShopServices />} />
                 <Route path="customers" element={<ShopCustomers />} />
-                <Route path="analytics" element={<ShopAnalytics />} />
+                <Route path="feedbacks" element={<ShopFeedback />} />
                 <Route path="settings" element={<ShopSettings />} />
                 <Route path="chat" element={<ChatShop />} />
               </Route>

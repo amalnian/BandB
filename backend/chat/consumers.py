@@ -1,3 +1,4 @@
+from chat.models import Notification
 from channels.db import database_sync_to_async
 from channels_redis.core import RedisChannelLayer
 import json 
@@ -253,77 +254,104 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
 class UserConsumer(AsyncWebsocketConsumer):
     async def connect(self):
-        self.user_id = self.scope["url_route"]["kwargs"]["user_id"]
-        self.user_group_name = f'user_{self.user_id}'
+        print("Attempting to connect...")
+        try:
+            self.user_id = self.scope["url_route"]["kwargs"]["user_id"]
+            self.user_group_name = f'user_{self.user_id}'
+            
+            # Get user first to validate
+            self.user = await self.get_user(self.user_id)
+            if not self.user:
+                print(f"❌ User {self.user_id} not found")
+                await self.close(code=4001)
+                return
+            
+            self.scope['user'] = self.user
+            
+            await self.channel_layer.group_add(
+                self.user_group_name,
+                self.channel_name
+            )
 
-        await self.channel_layer.group_add(
-            self.user_group_name,
-            self.channel_name
-        )
+            await self.accept()
+            print(f"✅ WebSocket connected for user {self.user_id}")
+            
+            # Rest of your connection logic...
+            ONLINE_USERS = f'chat:online_users'
+            curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
+            
+            new_user = {
+                "id": self.user.id,
+                "username": self.user.username
+            }
 
-        await self.accept()
-               
-        ONLINE_USERS = f'chat:online_users'
-        curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
-        self.user = await self.get_user(self.user_id)
-
-        self.scope['user'] = self.user
-
-        new_user = {
-            "id": self.user.id,
-            "username": self.user.username
-        }
-
-        if new_user not in curr_users:
-            curr_users.append(new_user)
-            await sync_to_async(cache.set)(ONLINE_USERS, curr_users, timeout=None)
-        
-        await self.send_unsent_notifications()
+            if new_user not in curr_users:
+                curr_users.append(new_user)
+                await sync_to_async(cache.set)(ONLINE_USERS, curr_users, timeout=None)
+            
+            await self.send_unsent_notifications()
+            
+        except Exception as e:
+            print(f"❌ Connection failed: {e}")
+            await self.close(code=4002)
 
     async def disconnect(self, close_code):
-        
-        user = self.scope["user"]
-        ONLINE_USERS = f'chat:online_users'
-        curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
+        print(f"🔌 WebSocket disconnected for user {self.user_id}")
+        # Remove user from online users
+        try:
+            ONLINE_USERS = f'chat:online_users'
+            curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
+            curr_users = [u for u in curr_users if u.get("id") != self.user.id]
+            await sync_to_async(cache.set)(ONLINE_USERS, curr_users, timeout=None)
+            
+            # Leave room group
+            await self.channel_layer.group_discard(
+                self.user_group_name,
+                self.channel_name
+            )
+        except Exception as e:
+            print(f"❌ Error during disconnect: {e}")
 
-        curr_users = [u for u in curr_users if u['id'] != user.id]
-        await sync_to_async(cache.set)(ONLINE_USERS, curr_users, timeout=None)
-        
-        await self.channel_layer.group_discard(
-            self.user_group_name,
-            self.channel_name
-        )
-
+    # THIS IS THE CRUCIAL METHOD - IT HANDLES INCOMING MESSAGES
     async def notification(self, event):
-        await self.send(text_data=json.dumps({
-            "type": "notification",
-            "message": event["message"]
-        }))
-        
-    @database_sync_to_async
-    def get_user(self, user_id): 
-        from users.models import CustomUser as Users
-        return Users.objects.get(id=user_id)
-    
-    async def send_unsent_notifications(self):
-        notifications = await self.get_user_notifications(self.user)
-        for n in notifications:
+        """Handle notification messages sent from signals"""
+        print(f"📨 Sending notification to user {self.user_id}: {event}")
+        try:
             await self.send(text_data=json.dumps({
-                "type": "notification",
-                "message": {
-                    "sender": n.sender.username,
-                    "content": n.message,
-                    "timestamp": n.timestamp.isoformat(),
-                }
+                'type': 'notification',
+                'message': event['message']
             }))
-        await self.clear_user_notifications(self.user)
+            print(f"✅ Notification sent successfully to user {self.user_id}")
+        except Exception as e:
+            print(f"❌ Failed to send notification to user {self.user_id}: {e}")
+
+    async def send_unsent_notifications(self):
+        """Send any unsent notifications to the user"""
+        try:
+            notifications = await sync_to_async(list)(
+                Notification.objects.filter(receiver=self.user).order_by('-timestamp')[:10]
+            )
+            
+            for notification in notifications:
+                await self.send(text_data=json.dumps({
+                    'type': 'notification',
+                    'message': {
+                        'sender': notification.sender.username,
+                        'content': notification.message,
+                        'timestamp': notification.timestamp.isoformat(),
+                    }
+                }))
+            
+            # Optionally delete sent notifications
+            # await sync_to_async(Notification.objects.filter(receiver=self.user).delete)()
+            
+        except Exception as e:
+            print(f"❌ Error sending unsent notifications: {e}")
 
     @database_sync_to_async
-    def get_user_notifications(self, user):
-        from .models import Notification
-        return list(Notification.objects.filter(receiver=user).select_related('sender'))
-
-    @database_sync_to_async
-    def clear_user_notifications(self, user):
-        from .models import Notification
-        Notification.objects.filter(receiver=user).delete()
+    def get_user(self, user_id):
+        from users.models import CustomUser as Users
+        try:
+            return Users.objects.get(id=user_id)
+        except Users.DoesNotExist:
+            return None

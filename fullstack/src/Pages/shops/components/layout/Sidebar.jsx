@@ -33,7 +33,7 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
     { path: '/shop/appointments', icon: FaCalendarAlt, label: 'Appointments', requiresApproval: true },
     { path: '/shop/services', icon: FaShoppingBag, label: 'Services', requiresApproval: true },
     { path: '/shop/chat', icon: FaUsers, label: 'Chats', requiresApproval: true },
-    { path: '/shop/analytics', icon: FaChartLine, label: 'Analytics', requiresApproval: true },
+    { path: '/shop/feedbacks', icon: FaChartLine, label: 'Feedbacks', requiresApproval: true },
     { path: '/shop/settings', icon: FaCog, label: 'Settings', requiresApproval: false },
   ];
 

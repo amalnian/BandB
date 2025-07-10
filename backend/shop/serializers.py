@@ -315,7 +315,8 @@ class BookingSerializer(serializers.ModelSerializer):
     has_feedback = serializers.SerializerMethodField()
     can_give_feedback = serializers.SerializerMethodField()
     feedback = serializers.SerializerMethodField()
-
+    can_be_completed = serializers.SerializerMethodField()
+    is_appointment_time_passed = serializers.SerializerMethodField()
 
     class Meta:
         model = Booking
@@ -323,9 +324,8 @@ class BookingSerializer(serializers.ModelSerializer):
             'id', 'user_name', 'user_email', 'user_phone', 'shop_name',
             'services', 'appointment_date', 'appointment_time', 'total_amount',
             'booking_status', 'payment_status', 'payment_method', 'notes',
-            'created_at', 'updated_at','has_feedback',
-            'can_give_feedback',
-            'feedback',
+            'created_at', 'updated_at', 'has_feedback', 'can_give_feedback',
+            'feedback', 'can_be_completed', 'is_appointment_time_passed'
         ]
 
     def get_services(self, obj):
@@ -346,6 +346,14 @@ class BookingSerializer(serializers.ModelSerializer):
         """Check if feedback can be given"""
         return obj.can_give_feedback()
     
+    def get_can_be_completed(self, obj):
+        """Check if booking can be marked as completed"""
+        return obj.can_be_completed()
+    
+    def get_is_appointment_time_passed(self, obj):
+        """Check if appointment time has passed"""
+        return obj.is_appointment_time_passed()
+    
     def get_feedback(self, obj):
         """Get feedback details if exists"""
         try:
@@ -363,7 +371,7 @@ class BookingSerializer(serializers.ModelSerializer):
             return None
         except:
             return None
-
+        
 
 class BookingFeedbackSerializer(serializers.ModelSerializer):
     """Serializer for BookingFeedback model"""

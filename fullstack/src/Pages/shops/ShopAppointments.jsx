@@ -49,72 +49,96 @@ const AppointmentsContent = () => {
     });
   };
 
-  const fetchBookings = async (page = currentPage) => {
-    try {
-      setLoading(true);
-      const response = await getShopBookings({
-        ...filters,
-        page,
-        limit: itemsPerPage
-      });
-      
-      console.log('Full API Response:', response);
-      console.log('Response Data:', response.data);
-      
-      // Handle the response structure based on your API
-      if (response.data) {
-        // Check if the response has the nested structure
-        if (response.data.results && response.data.results.bookings) {
-          // Nested structure
-          const resultData = response.data.results;
-          const bookingsArray = resultData.bookings;
-          
-          console.log('Bookings Array:', bookingsArray);
-          console.log('Is Array:', Array.isArray(bookingsArray));
-          
-          // Sort the bookings array
-          const sortedBookings = sortBookings(bookingsArray);
-          setBookings(sortedBookings);
-          
-          // Set pagination info
-          setTotalPages(resultData.totalPages || 1);
-          setTotalCount(resultData.totalCount || 0);
-          setCurrentPage(resultData.currentPage || page);
-        } else if (response.data.count !== undefined) {
-          // Django REST Framework pagination structure
-          const bookingsArray = response.data.results || [];
-          const sortedBookings = sortBookings(bookingsArray);
-          setBookings(sortedBookings);
-          
-          // Calculate pagination info
-          const totalCount = response.data.count || 0;
-          const totalPages = Math.ceil(totalCount / itemsPerPage);
-          
-          setTotalPages(totalPages);
-          setTotalCount(totalCount);
-          setCurrentPage(page);
-        } else {
-          // Direct array response
-          const bookingsArray = Array.isArray(response.data) ? response.data : [];
-          const sortedBookings = sortBookings(bookingsArray);
-          setBookings(sortedBookings);
-          
-          // Set pagination info
-          setTotalPages(1);
-          setTotalCount(bookingsArray.length);
-          setCurrentPage(1);
-        }
+const isAppointmentTimePassed = (appointmentDate, appointmentTime) => {
+  if (!appointmentDate || !appointmentTime) return false;
+  
+  const now = new Date();
+  const appointmentDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
+  
+  return now > appointmentDateTime;
+};  
+
+const fetchBookings = async (page = currentPage) => {
+  try {
+    setLoading(true);
+    const response = await getShopBookings({
+      ...filters,
+      page,
+      limit: itemsPerPage
+    });
+    
+    console.log('Full API Response:', response);
+    console.log('Response Data:', response.data);
+    
+    // Handle the response structure based on your API
+    if (response.data) {
+      // Check if the response has the direct structure (your actual API response)
+      if (response.data.bookings && Array.isArray(response.data.bookings)) {
+        // Direct structure with bookings array
+        const bookingsArray = response.data.bookings;
+        
+        console.log('Bookings Array:', bookingsArray);
+        console.log('Is Array:', Array.isArray(bookingsArray));
+        
+        // Sort the bookings array
+        const sortedBookings = sortBookings(bookingsArray);
+        setBookings(sortedBookings);
+        
+        // Set pagination info from the direct response
+        setTotalPages(response.data.totalPages || 1);
+        setTotalCount(response.data.totalCount || 0);
+        setCurrentPage(response.data.currentPage || page);
+      } else if (response.data.results && response.data.results.bookings) {
+        // Nested structure (fallback)
+        const resultData = response.data.results;
+        const bookingsArray = resultData.bookings;
+        
+        console.log('Bookings Array:', bookingsArray);
+        console.log('Is Array:', Array.isArray(bookingsArray));
+        
+        // Sort the bookings array
+        const sortedBookings = sortBookings(bookingsArray);
+        setBookings(sortedBookings);
+        
+        // Set pagination info
+        setTotalPages(resultData.totalPages || 1);
+        setTotalCount(resultData.totalCount || 0);
+        setCurrentPage(resultData.currentPage || page);
+      } else if (response.data.count !== undefined) {
+        // Django REST Framework pagination structure
+        const bookingsArray = response.data.results || [];
+        const sortedBookings = sortBookings(bookingsArray);
+        setBookings(sortedBookings);
+        
+        // Calculate pagination info
+        const totalCount = response.data.count || 0;
+        const totalPages = Math.ceil(totalCount / itemsPerPage);
+        
+        setTotalPages(totalPages);
+        setTotalCount(totalCount);
+        setCurrentPage(page);
+      } else {
+        // Direct array response
+        const bookingsArray = Array.isArray(response.data) ? response.data : [];
+        const sortedBookings = sortBookings(bookingsArray);
+        setBookings(sortedBookings);
+        
+        // Set pagination info
+        setTotalPages(1);
+        setTotalCount(bookingsArray.length);
+        setCurrentPage(1);
       }
-    } catch (error) {
-      console.error('Error fetching bookings:', error);
-      // Handle error state
-      setBookings([]);
-      setTotalPages(1);
-      setTotalCount(0);
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error) {
+    console.error('Error fetching bookings:', error);
+    // Handle error state
+    setBookings([]);
+    setTotalPages(1);
+    setTotalCount(0);
+  } finally {
+    setLoading(false);
+  }
+};
 
   const fetchStats = async () => {
     try {
@@ -461,13 +485,21 @@ const AppointmentsContent = () => {
                       
                       {booking.booking_status === 'confirmed' && (
                         <>
-                          <button
-                            onClick={() => handleStatusUpdate(booking.id, 'completed')}
-                            disabled={updating[booking.id]}
-                            className="px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 disabled:opacity-50 transition-colors"
-                          >
-                            {updating[booking.id] ? 'Updating...' : 'Complete'}
-                          </button>
+                          {/* Only show Complete button if appointment time has passed */}
+                          {isAppointmentTimePassed(booking.appointment_date, booking.appointment_time) ? (
+                            <button
+                              onClick={() => handleStatusUpdate(booking.id, 'completed')}
+                              disabled={updating[booking.id]}
+                              className="px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 disabled:opacity-50 transition-colors"
+                            >
+                              {updating[booking.id] ? 'Updating...' : 'Complete'}
+                            </button>
+                          ) : (
+                            <span className="px-3 py-1 bg-gray-100 text-gray-600 text-sm rounded">
+                              Complete (Available after appointment time)
+                            </span>
+                          )}
+                          
                           <button
                             onClick={() => handleStatusUpdate(booking.id, 'cancelled')}
                             disabled={updating[booking.id]}

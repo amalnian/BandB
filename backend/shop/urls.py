@@ -110,7 +110,7 @@ urlpatterns = [
     path('reset-password/', ShopResetPasswordView.as_view(), name='mentor-reset-password'),
 
 
-    path('shop/<int:shop_id>/feedbacks/', ShopFeedbackListView.as_view(), name='shop_feedbacks'),
+    path('shops/<int:shop_id>/feedbacks/', ShopFeedbackListView.as_view(), name='shop_feedbacks'),
 
     path('shops/<int:shop_id>/rating-summary/', views.get_shop_rating_summary, name='shop_rating_summary'),
 

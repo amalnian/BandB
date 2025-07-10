@@ -47,7 +47,8 @@ export const useRazorpay = () => {
       
       // Create Razorpay order
       const orderResponse = await createRazorpayOrder({
-        amount: paymentData.amount
+        amount: paymentData.amount,
+        shop_id: paymentData.shop_id
       })
       
       console.log('Order response:', orderResponse)

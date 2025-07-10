@@ -36,6 +36,12 @@ const ServicesContent = ({ shopId }) => {
 
   // Toast state
   const [toast, setToast] = useState(null);
+  
+  // Delete confirmation modal state
+  const [deleteModal, setDeleteModal] = useState({
+    isOpen: false,
+    service: null
+  });
 
   // Toast helper function
   const showToast = (message, type = 'success') => {
@@ -74,10 +80,18 @@ const ServicesContent = ({ shopId }) => {
     try {
       setIsLoading(true);
       setError('');
-      const response = await getShopServices(); // Remove shopId parameter
-      setServices(response.data || []);
+      const response = await getShopServices();
+      console.log('Fetch services response:', response); // Debug log
+      
+      // Handle different response structures
+      const servicesData = response.data?.results || response.data || response.results || response || [];
+      
+      // Ensure servicesData is an array
+      setServices(Array.isArray(servicesData) ? servicesData : []);
     } catch (error) {
       console.error('Error fetching services:', error);
+      setServices([]); // Ensure services is always an array
+      
       if (error.response?.status === 401) {
         setError('Authentication required. Please log in again.');
         showToast('Authentication required. Please log in again.', 'error');
@@ -99,13 +113,23 @@ const ServicesContent = ({ shopId }) => {
     e.preventDefault();
     try {
       setError('');
-      const response = await createShopService(formData); // Remove shopId parameter
-      setServices([...services, response.data]);
+      const response = await createShopService(formData);
+      console.log('Create service response:', response); // Debug log
+      
+      // Handle different response structures
+      const newService = response.data || response;
+      
+      // Ensure services is an array before spreading
+      const currentServices = Array.isArray(services) ? services : [];
+      setServices([...currentServices, newService]);
+      
       setIsAddingService(false);
       resetForm();
-      showToast(`Service "${response.data.name}" has been created successfully!`, 'success');
+      showToast(`Service "${newService.name}" has been created successfully!`, 'success');
     } catch (error) {
       console.error('Error adding service:', error);
+      console.error('Error response:', error.response); // Debug log
+      
       if (error.response?.status === 401) {
         setError('Authentication required. Please log in again.');
         showToast('Authentication required. Please log in again.', 'error');
@@ -113,7 +137,10 @@ const ServicesContent = ({ shopId }) => {
         setError('You do not have permission to create services.');
         showToast('You do not have permission to create services.', 'error');
       } else {
-        const errorMessage = error.response?.data?.message || 'Failed to create service';
+        const errorMessage = error.response?.data?.message || 
+                            error.response?.data?.detail ||
+                            Object.values(error.response?.data || {}).flat().join(', ') ||
+                            'Failed to create service';
         setError(errorMessage);
         showToast(errorMessage, 'error');
       }
@@ -127,13 +154,19 @@ const ServicesContent = ({ shopId }) => {
       
       // Make sure we're passing the service ID correctly
       const response = await updateShopService(isEditingService, formData);
+      console.log('Update service response:', response); // Debug log
       
-      setServices(services.map(service => 
-        service.id === isEditingService ? response.data : service
+      const updatedService = response.data || response;
+      
+      // Ensure services is an array
+      const currentServices = Array.isArray(services) ? services : [];
+      setServices(currentServices.map(service => 
+        service.id === isEditingService ? updatedService : service
       ));
+      
       setIsEditingService(null);
       resetForm();
-      showToast(`Service "${response.data.name}" has been updated successfully!`, 'success');
+      showToast(`Service "${updatedService.name}" has been updated successfully!`, 'success');
     } catch (error) {
       console.error('Error updating service:', error);
       console.error('Error details:', error.response?.data); // Add this for debugging
@@ -160,14 +193,26 @@ const ServicesContent = ({ shopId }) => {
   };
 
   const handleDeleteService = async (id) => {
-    const serviceToDelete = services.find(service => service.id === id);
-    if (!window.confirm(`Are you sure you want to delete "${serviceToDelete?.name}"?`)) return;
+    const currentServices = Array.isArray(services) ? services : [];
+    const serviceToDelete = currentServices.find(service => service.id === id);
+    
+    // Open delete confirmation modal
+    setDeleteModal({
+      isOpen: true,
+      service: serviceToDelete
+    });
+  };
+
+  const confirmDelete = async () => {
+    const { service } = deleteModal;
+    if (!service) return;
     
     try {
       setError('');
-      await deleteShopService(id);
-      setServices(services.filter(service => service.id !== id));
-      showToast(`Service "${serviceToDelete?.name}" has been deleted successfully!`, 'success');
+      await deleteShopService(service.id);
+      const currentServices = Array.isArray(services) ? services : [];
+      setServices(currentServices.filter(s => s.id !== service.id));
+      showToast(`Service "${service.name}" has been deleted successfully!`, 'success');
     } catch (error) {
       console.error('Error deleting service:', error);
       console.error('Error details:', error.response?.data); // Add this for debugging
@@ -188,7 +233,14 @@ const ServicesContent = ({ shopId }) => {
         setError(errorMessage);
         showToast(errorMessage, 'error');
       }
+    } finally {
+      // Close modal regardless of success or failure
+      setDeleteModal({ isOpen: false, service: null });
     }
+  };
+
+  const cancelDelete = () => {
+    setDeleteModal({ isOpen: false, service: null });
   };
 
   // Start editing a service
@@ -210,8 +262,11 @@ const ServicesContent = ({ shopId }) => {
     resetForm();
   };
 
+  // Ensure services is always an array
+  const servicesList = Array.isArray(services) ? services : [];
+
   // Display loading state
-  if (isLoading && services.length === 0) {
+  if (isLoading && servicesList.length === 0) {
     return (
       <div className="bg-white rounded-lg shadow p-6">
         <h3 className="text-lg font-semibold text-gray-800 mb-4">Services</h3>
@@ -224,6 +279,44 @@ const ServicesContent = ({ shopId }) => {
 
   return (
     <div className="bg-white rounded-lg shadow">
+      {/* Delete Confirmation Modal */}
+      {deleteModal.isOpen && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-sm w-full mx-4">
+            <div className="flex items-center mb-4">
+              <div className="mx-auto flex-shrink-0 flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
+                <AlertCircle className="h-6 w-6 text-red-600" />
+              </div>
+            </div>
+            
+            <div className="text-center">
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Delete Service
+              </h3>
+              <p className="text-sm text-gray-500 mb-6">
+                Are you sure you want to delete "{deleteModal.service?.name}"? 
+                This action cannot be undone.
+              </p>
+            </div>
+            
+            <div className="flex space-x-3">
+              <button
+                onClick={cancelDelete}
+                className="flex-1 bg-white border border-gray-300 rounded-md px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={confirmDelete}
+                className="flex-1 bg-red-600 border border-transparent rounded-md px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Toast Notification */}
       {toast && (
         <div className={`fixed top-4 right-4 z-50 p-4 rounded-md shadow-lg max-w-sm ${
@@ -387,7 +480,7 @@ const ServicesContent = ({ shopId }) => {
 
       {/* Services List */}
       <div className="p-6">
-        {services.length > 0 ? (
+        {servicesList.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
@@ -410,7 +503,7 @@ const ServicesContent = ({ shopId }) => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {services.map((service) => (
+                {servicesList.map((service) => (
                   <tr key={service.id}>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm font-medium text-gray-900">{service.name}</div>
@@ -479,4 +572,4 @@ const ServicesContent = ({ shopId }) => {
   );
 };
 
-export default ServicesContent
+export default ServicesContent;

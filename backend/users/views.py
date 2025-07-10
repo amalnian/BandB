@@ -15,6 +15,9 @@ from math import radians, cos, sin, asin, sqrt
 import cloudinary.uploader
 from cloudinary.exceptions import Error as CloudinaryError
 
+
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 from django.core.paginator import Paginator
 from django.conf import settings
 from django.core.mail import send_mail
@@ -56,7 +59,7 @@ from rest_framework_simplejwt.views import (
 )
 
 import razorpay
-
+from chat.models import Notification
 # Project-specific
 from .models import CustomUser, Wallet, WalletTransaction
 from .authentication import CoustomJWTAuthentication
@@ -75,7 +78,7 @@ from shop.models import (
     BookingFeedback,
     Shop,
     ShopImage,
-    Notification,
+    # Notification,
     Service,
     OTP,
     BusinessHours,
@@ -89,7 +92,7 @@ from shop.serializers import (
     ShopSerializer,
     ShopUpdateSerializer,
     ShopImageSerializer,
-    NotificationSerializer,
+    # NotificationSerializer,
     ServiceSerializer,
     BusinessHoursSerializer,
     BookingSerializer,
@@ -2054,6 +2057,85 @@ class VerifyRazorpayPaymentView(APIView):
                     
                     logger.info(f"Booking created successfully: {booking.id}")
                     
+                    # Create or get conversation between user and shop owner
+                    try:
+                        # Check if shop has a user/owner field
+                        logger.info(f"Shop object attributes: {dir(shop)}")
+                        
+                        # Try different possible field names for shop owner
+                        shop_owner = None
+                        if hasattr(shop, 'user'):
+                            shop_owner = shop.user
+                            logger.info(f"Shop owner found via 'user' field: {shop_owner}")
+                        else:
+                            logger.error("No shop owner field found!")
+                            raise Exception("Shop owner field not found")
+                        
+                        if not shop_owner:
+                            logger.error("Shop owner is None!")
+                            raise Exception("Shop owner is None")
+                        
+                        logger.info(f"Current user: {request.user.id}, Shop owner: {shop_owner.id}")
+                        
+                        # Check if users are the same (booking own shop)
+                        if request.user.id == shop_owner.id:
+                            logger.warning("User is booking their own shop - skipping conversation creation")
+                        else:
+                            # Look for existing conversation
+                            logger.info("Looking for existing conversation...")
+                            existing_conversation = Conversation.objects.filter(
+                                participants=request.user
+                            ).filter(
+                                participants=shop_owner
+                            ).first()
+                            
+                            logger.info(f"Existing conversation found: {existing_conversation}")
+                            
+                            if not existing_conversation:
+                                logger.info("Creating new conversation...")
+                                conversation = Conversation.objects.create()
+                                conversation.participants.add(shop_owner, request.user)
+                                logger.info(f"New conversation created with ID: {conversation.id}")
+                                
+                                # Create initial message about the booking
+                                service_names = ", ".join([service.name for service in services])
+                                initial_message = (
+                                    f"Hello! Your booking has been confirmed for {appointment_date} "
+                                    f"at {appointment_time}. Services: {service_names}. "
+                                    f"Total amount: ₹{booking_data['total_amount']}. "
+                                    f"Payment ID: {razorpay_payment_id}. Booking ID: {booking.id}"
+                                )
+                                
+                                message = Message.objects.create(
+                                    conversation=conversation,
+                                    sender=shop_owner,
+                                    content=initial_message
+                                )
+                                logger.info(f"Initial message created with ID: {message.id}")
+                            else:
+                                logger.info("Adding message to existing conversation...")
+                                # Add a new message to existing conversation
+                                service_names = ", ".join([service.name for service in services])
+                                booking_message = (
+                                    f"New booking confirmed! Date: {appointment_date} "
+                                    f"at {appointment_time}. Services: {service_names}. "
+                                    f"Total: ₹{booking_data['total_amount']}. "
+                                    f"Payment ID: {razorpay_payment_id}. Booking ID: {booking.id}"
+                                )
+                                
+                                message = Message.objects.create(
+                                    conversation=existing_conversation,
+                                    sender=shop_owner,
+                                    content=booking_message
+                                )
+                                logger.info(f"Booking message created with ID: {message.id}")
+                                
+                    except Exception as conversation_error:
+                        logger.error(f"Error creating conversation: {str(conversation_error)}")
+                        logger.error(f"Error type: {type(conversation_error)}")
+                        # Don't fail the entire booking - log error but continue
+                        logger.warning("Conversation creation failed, but booking will continue")
+                    
                     return Response({
                         'success': True,
                         'message': 'Booking created successfully',
@@ -2082,7 +2164,6 @@ class VerifyRazorpayPaymentView(APIView):
                 'success': False,
                 'error': 'Payment verification failed'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
 
 # class AvailableTimeSlotsView(APIView):
 #     """
@@ -2468,13 +2549,35 @@ class BookingStatusUpdateAPIView(APIView):
                     else:
                         booking.booking_status = new_status
                         booking.save()
+                        
                 elif new_status == 'completed':
+                    # Check if appointment time has passed
+                    if not booking.is_appointment_time_passed():
+                        return Response({
+                            'success': False, 
+                            'message': 'Booking cannot be completed before the appointment time'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
+                    # Check if booking is confirmed
+                    if booking.booking_status != 'confirmed':
+                        return Response({
+                            'success': False, 
+                            'message': 'Only confirmed bookings can be marked as completed'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
                     if hasattr(booking, 'mark_completed'):
                         booking.mark_completed()
                     else:
                         booking.booking_status = new_status
                         booking.save()
+                        
                 elif new_status == 'cancelled':
+                    if booking.booking_status == 'completed':
+                        return Response({
+                            'success': False, 
+                            'message': 'Completed bookings cannot be cancelled'
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    
                     if hasattr(booking, 'cancel_booking'):
                         booking.cancel_booking()
                     else:
@@ -2483,6 +2586,10 @@ class BookingStatusUpdateAPIView(APIView):
                 else:
                     booking.booking_status = new_status
                     booking.save()
+                    
+            except ValidationError as e:
+                return Response({'success': False, 'message': str(e)}, 
+                              status=status.HTTP_400_BAD_REQUEST)
             except Exception as e:
                 logger.error(f"Error updating booking status: {str(e)}")
                 return Response({'success': False, 'message': 'Failed to update booking status'}, 
@@ -2785,6 +2892,7 @@ from rest_framework.permissions import IsAuthenticated
 from decimal import Decimal
 from datetime import datetime
 import math
+from django.core.cache import cache
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -2926,14 +3034,90 @@ class CreateBookingView(APIView):
                     # Update booking payment status
                     booking.payment_status = 'paid'
                     booking.save()
+                    
+                # Send notification to shop owner about new booking
+                logger.info(f"Preparing notification for booking {booking.id}")
                 
+                try:
+                    # Get shop owner (sender is booking user, receiver is shop owner)
+                    shop_owner = None
+                    if hasattr(shop, 'user'):
+                        shop_owner = shop.user
+                        logger.info(f"Shop owner found for notification: {shop_owner}")
+                    else:
+                        logger.error("No shop owner field found for notification!")
+                        raise Exception("Shop owner field not found")
+                    
+                    if not shop_owner:
+                        logger.error("Shop owner is None for notification!")
+                        raise Exception("Shop owner is None")
+                    
+                    # Check if shop owner is different from booking user
+                    if request.user.id == shop_owner.id:
+                        logger.warning("User is booking their own shop - skipping notification")
+                    else:
+                        # Check if shop owner is online
+                        ONLINE_USERS = f'chat:online_users'
+                        curr_users = cache.get(ONLINE_USERS, [])
+                        logger.info(f"Current online users: {curr_users}")
+                        
+                        # Check if shop owner is online
+                        is_shop_owner_online = shop_owner.id in [user["id"] for user in curr_users]
+                        logger.info(f"Shop owner {shop_owner.id} online status: {is_shop_owner_online}")
+                        
+                        if is_shop_owner_online:
+                            # Send real-time notification via WebSocket
+                            logger.info("Sending real-time notification to shop owner")
+                            channel_layer = get_channel_layer()
+                            
+                            # Create notification message
+                            notification_message = f"New booking from {request.user.username} for {shop.name}"
+                            
+                            data = {
+                                'type': 'notification',
+                                'message': {
+                                    'sender': request.user.username,
+                                    'content': notification_message,
+                                    'booking_id': booking.id,
+                                    'shop_name': shop.name,
+                                    'appointment_date': appointment_date.strftime('%Y-%m-%d'),
+                                    'appointment_time': appointment_time.strftime('%H:%M'),
+                                    'total_amount': float(total_amount)
+                                }
+                            }
+                            
+                            async_to_sync(channel_layer.group_send)(
+                                f'user_{shop_owner.id}',
+                                data
+                            )
+                            logger.info(f"Real-time notification sent to shop owner {shop_owner.id}")
+                        else:
+                            logger.info("Shop owner is offline, notification will be stored in database only")
+                        
+                        # Always create database notification for persistence
+                        notification = Notification.objects.create(
+                            sender=request.user,  # Booking user is the sender
+                            receiver=shop_owner,  # Shop owner is the receiver
+                            message=f"New booking from {request.user.username} for {shop.name}",
+                            # Add additional fields if your Notification model has them
+                            # booking_id=booking.id,  # Uncomment if your model has this field
+                            # notification_type='booking',  # Uncomment if your model has this field
+                        )
+                        logger.info(f"Database notification created with ID: {notification.id}")
+                        
+                except Exception as notification_error:
+                    logger.error(f"Error sending notification: {str(notification_error)}")
+                    logger.error(f"Notification error type: {type(notification_error)}")
+                    # Don't fail the entire booking - log error but continue
+                    logger.warning("Notification failed, but booking will continue")
+
                 # Calculate end time for response
                 end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
 
                 # DEBUG: Create or get conversation between user and shop owner
                 try:
                     # Check if shop has a user/owner field
-                    logger.info(f"Shop object attributes: {dir(shop)}")
+                    # logger.info(f"Shop object attributes: {dir(shop)}")
                     
                     # Try different possible field names for shop owner
                     shop_owner = None
@@ -3190,10 +3374,7 @@ def cancel_booking(request, booking_id):
                             amount=Decimal(str(refund_amount)),
                             description=f'Refund for cancelled booking - Booking ID: {booking.id} - {booking.shop.name}'
                         )
-                        
-                        # FIXED: Remove manual balance update - it's handled automatically in WalletTransaction.save()
-                        # wallet.balance += refund_amount  # ← REMOVED THIS LINE
-                        # wallet.save()                    # ← REMOVED THIS LINE
+
                         
                         # Instead, just refresh to get the updated balance
                         wallet.refresh_from_db()
