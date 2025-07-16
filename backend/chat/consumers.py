@@ -41,7 +41,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         await self.accept()
         ONLINE_USERS = f'chat:online_users_{self.conversation_id}'
-        curr_users = cache.get(ONLINE_USERS, [])
+        curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
 
         new_user = {
             "id": self.user.id,
@@ -51,7 +51,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         if new_user not in curr_users:
             curr_users.append(new_user)
 
-        cache.set(ONLINE_USERS, curr_users, timeout=None)
+        await sync_to_async(cache.set)(ONLINE_USERS, curr_users, timeout=None)
         await self.channel_layer.group_send(
             self.room_group_name,
             {
@@ -61,18 +61,16 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
         )
 
-
     async def disconnect(self, close_code):
-
         if hasattr(self, 'room_group_name'):
             user = self.scope["user"]
             conversation_id = self.scope["conversation_id"]
             ONLINE_USERS = f'chat:online_users_{conversation_id}'
-            curr_users = cache.get(ONLINE_USERS, [])
+            curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
 
             curr_users = [u for u in curr_users if u['id'] != user.id]
 
-            cache.set(ONLINE_USERS, curr_users, timeout=None)
+            await sync_to_async(cache.set)(ONLINE_USERS, curr_users, timeout=None)
 
             await self.channel_layer.group_send(
                 self.room_group_name,
@@ -88,10 +86,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 self.channel_name
             )
 
-
     async def receive(self, text_data):
         text_data_json = json.loads(text_data)
         event_type = text_data_json.get('type')
+        
         if event_type == 'chat_message':
             message_content = text_data_json.get('message')
             user_id = text_data_json.get('user')
@@ -99,8 +97,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
             try:
                 user = await self.get_user(user_id)
                 conversation = await self.get_conversation(self.conversation_id)
-                from .serializer import UserListSerializer
-                user_data = UserListSerializer(user).data
+                
+                # Use simple user data instead of complex serializer
+                user_data = {
+                    "id": user.id,
+                    "username": user.username,
+                    "profile_url": user.profile_url,
+                    "role": user.role
+                }
+                
                 message = await self.save_message(conversation, user, message_content)
                 await self.channel_layer.group_send(
                     self.room_group_name,
@@ -114,10 +119,17 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 )
             except Exception as e:
                 print(f"Error saving message: {e}")
+                import traceback
+                traceback.print_exc()
         
         elif event_type == 'typing':
             try:
-                user_data = await self.get_user_data(self.scope['user'])
+                user_data = {
+                    "id": self.scope['user'].id,
+                    "username": self.scope['user'].username,
+                    "profile_url": self.scope['user'].profile_url,
+                    "role": self.scope['user'].role
+                }
                 receiver_id = text_data_json.get('receiver')
 
                 if receiver_id is not None:
@@ -166,8 +178,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             except Exception as e:
                 print(f"Error deleting message: {e}")
 
-
-    # helper functions
+    # Helper functions
     async def chat_message(self, event):
         id = event['id']
         message = event['message']
@@ -193,7 +204,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
         }))
 
     async def online_status(self, event):
-        
         await self.send(text_data=json.dumps(event))
     
     async def message_deleted(self, event):
@@ -202,26 +212,10 @@ class ChatConsumer(AsyncWebsocketConsumer):
             'message_id': event['message_id'],
         }))
 
-    async def get_online_users(self):
-        users = await self.channel_layer.redis.smembers("chat:online_users")
-        online_users = []
-        for user in users:
-            try:
-                online_users.append(json.loads(user))
-            except json.JSONDecodeError:
-                continue
-        return online_users
-
-    
     @database_sync_to_async
     def get_user(self, user_id): 
         from users.models import CustomUser as Users
         return Users.objects.get(id=user_id)
-
-    @database_sync_to_async
-    def get_user_data(self, user):
-        from .serializer import UserListSerializer
-        return UserListSerializer(user).data
 
     @database_sync_to_async
     def get_conversation(self, conversation_id):
@@ -229,7 +223,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
         try:
             return Conversation.objects.get(id=conversation_id)
         except Conversation.DoesNotExist:
-            print(F"Conversation with id {conversation_id} does not exist")
+            print(f"Conversation with id {conversation_id} does not exist")
             return None
 
     @database_sync_to_async
@@ -245,11 +239,15 @@ class ChatConsumer(AsyncWebsocketConsumer):
     def delete_message(self, message_id, user):
         from .models import Message
         from django.core.exceptions import PermissionDenied
-        message = Message.objects.get(id=message_id)
-        if message.sender != user:
-            raise PermissionDenied("You can't delete this message")
-        message.delete()
-        return True
+        try:
+            message = Message.objects.get(id=message_id)
+            if message.sender != user:
+                raise PermissionDenied("You can't delete this message")
+            message.delete()
+            return True
+        except Message.DoesNotExist:
+            print(f"Message with id {message_id} does not exist")
+            return False
 
 
 class UserConsumer(AsyncWebsocketConsumer):
@@ -293,18 +291,18 @@ class UserConsumer(AsyncWebsocketConsumer):
             
         except Exception as e:
             print(f"❌ Connection failed: {e}")
+            import traceback
+            traceback.print_exc()
             await self.close(code=4002)
 
     async def disconnect(self, close_code):
         print(f"🔌 WebSocket disconnected for user {self.user_id}")
-        # Remove user from online users
         try:
             ONLINE_USERS = f'chat:online_users'
             curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
             curr_users = [u for u in curr_users if u.get("id") != self.user.id]
             await sync_to_async(cache.set)(ONLINE_USERS, curr_users, timeout=None)
             
-            # Leave room group
             await self.channel_layer.group_discard(
                 self.user_group_name,
                 self.channel_name
@@ -312,7 +310,6 @@ class UserConsumer(AsyncWebsocketConsumer):
         except Exception as e:
             print(f"❌ Error during disconnect: {e}")
 
-    # THIS IS THE CRUCIAL METHOD - IT HANDLES INCOMING MESSAGES
     async def notification(self, event):
         """Handle notification messages sent from signals"""
         print(f"📨 Sending notification to user {self.user_id}: {event}")
@@ -328,9 +325,7 @@ class UserConsumer(AsyncWebsocketConsumer):
     async def send_unsent_notifications(self):
         """Send any unsent notifications to the user"""
         try:
-            notifications = await sync_to_async(list)(
-                Notification.objects.filter(receiver=self.user).order_by('-timestamp')[:10]
-            )
+            notifications = await self.get_unsent_notifications()
             
             for notification in notifications:
                 await self.send(text_data=json.dumps({
@@ -342,9 +337,6 @@ class UserConsumer(AsyncWebsocketConsumer):
                     }
                 }))
             
-            # Optionally delete sent notifications
-            # await sync_to_async(Notification.objects.filter(receiver=self.user).delete)()
-            
         except Exception as e:
             print(f"❌ Error sending unsent notifications: {e}")
 
@@ -355,3 +347,8 @@ class UserConsumer(AsyncWebsocketConsumer):
             return Users.objects.get(id=user_id)
         except Users.DoesNotExist:
             return None
+    
+    @database_sync_to_async
+    def get_unsent_notifications(self):
+        """Get unsent notifications for the user"""
+        return list(Notification.objects.filter(receiver=self.user).order_by('-timestamp')[:10])

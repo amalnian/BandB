@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react"
-import { Search, Bell, Menu, X } from "lucide-react"
+import { Search, Menu, X } from "lucide-react"
 import { 
   getUserProfile 
 } from "@/endpoints/APIs"
+import NotificationDropdown from "./NotificationDropdown"
 
 // Custom Avatar component to replace shadcn/ui
 const Avatar = ({ children, src, alt }) => (
@@ -67,22 +68,22 @@ export default function Header({ onSearch, searchQuery, onClearSearch }) {
       if (response.data && response.data.success) {
         setUserProfile(response.data.data)
       } else {
-        // Fallback to localStorage if API fails
-        const userData = localStorage.getItem("user_data")
-        if (userData) {
-          setUserProfile(JSON.parse(userData))
+        // Fallback to state if API fails
+        const userData = JSON.parse(sessionStorage.getItem("user_data") || "{}")
+        if (userData && Object.keys(userData).length > 0) {
+          setUserProfile(userData)
         }
       }
     } catch (error) {
       console.error("Failed to fetch user profile:", error)
       
-      // Fallback to localStorage if API fails
-      const userData = localStorage.getItem("user_data")
-      if (userData) {
+      // Fallback to state if API fails
+      const userData = JSON.parse(sessionStorage.getItem("user_data") || "{}")
+      if (userData && Object.keys(userData).length > 0) {
         try {
-          setUserProfile(JSON.parse(userData))
+          setUserProfile(userData)
         } catch (parseError) {
-          console.error("Failed to parse user data from localStorage:", parseError)
+          console.error("Failed to parse user data from session:", parseError)
         }
       }
     } finally {
@@ -180,7 +181,7 @@ export default function Header({ onSearch, searchQuery, onClearSearch }) {
       return userProfile.address
     }
     
-    // return "Location not set"
+    return "Location not set"
   }
 
   return (
@@ -250,10 +251,8 @@ export default function Header({ onSearch, searchQuery, onClearSearch }) {
 
       {/* User profile */}
       <div className="flex items-center">
-        <Button variant="ghost" size="icon" className="mr-2">
-          <Bell className="h-5 w-5" />
-          <span className="sr-only">Notifications</span>
-        </Button>
+        {/* Notification Dropdown */}
+        <NotificationDropdown />
 
         <div className="flex items-center ml-4">
           {loading ? (

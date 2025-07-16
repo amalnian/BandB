@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getSocket, testConnection } from '../../../service/webSocket';
+import { getSocket, testConnection } from '@/service/webSocket';
 import { useSelector } from 'react-redux';
 import toast, { Toaster } from 'react-hot-toast';
 import { MessageSquareText } from 'lucide-react';

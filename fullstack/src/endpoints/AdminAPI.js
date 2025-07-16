@@ -7,7 +7,7 @@ export const logout = () => axios.post("logout/");
 export const refreshToken = () => axios.post("token/refresh/");
 
 // Dashboard APIs
-export const getDashboardStats = () => axios.get("dashboard/stats/");
+// export const getDashboardStats = () => axios.get("dashboard/stats/");
 export const getRecentAppointments = () => axios.get("dashboard/appointments/");
 
 // Customer APIs
@@ -93,3 +93,47 @@ export const getAdminProfile = () => axios.get('settings/profile/');
 export const updateAdminProfile = (formData) => axios.put('settings/profile/', formData);
 
 export const changeAdminPassword = (passwordData) => axios.post('settings/change-password/', passwordData);
+
+
+
+
+
+
+
+export const getDashboardStats = (dateRange) => 
+    axios.get('dashboard/stats/', { 
+        params: dateRange 
+    });
+
+export const getRevenueChart = (chartType) => 
+    axios.get('dashboard/revenue-chart/', { 
+        params: { type: chartType } 
+    });
+
+export const getShopsPerformance = (dateRange) => 
+    axios.get('dashboard/shops-performance/', { 
+        params: dateRange 
+    });
+
+export const getRecentBookings = (limit = 10) => 
+    axios.get('dashboard/recent-bookings/', { 
+        params: { limit } 
+    });
+
+export const getCommissionReport = (dateRange) => 
+    axios.get('dashboard/commission-report/', { 
+        params: dateRange 
+    });
+
+// Additional admin features
+export const payShopCommission = (shopId, amount) => 
+    axios.post('dashboard/pay-shop/', { 
+        shop_id: shopId, 
+        amount: amount 
+    });
+
+export const exportData = (exportType) => 
+    axios.get('dashboard/export/', { 
+        params: { type: exportType },
+        responseType: 'blob' // Important for file downloads
+    });

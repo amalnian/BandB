@@ -222,13 +222,13 @@ const WalletManagement = () => {
               <Wallet className="w-12 h-12 text-blue-200" />
             </div>
             
-            <button
+            {/* <button
               onClick={() => setShowAddMoney(true)}
               className="mt-4 bg-white/20 hover:bg-white/30 text-white px-6 py-2 rounded-lg font-medium transition-colors flex items-center"
             >
               <Plus className="w-4 h-4 mr-2" />
               Add Money
-            </button>
+            </button> */}
           </div>
 
           {/* Filter and Actions */}

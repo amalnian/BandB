@@ -107,20 +107,9 @@ export const closeSocket = () => {
 };
 
 // Test connection function
+// Either remove this function entirely or change it to:
 export const testConnection = async (userId) => {
     console.log("🧪 Testing WebSocket connection...");
-    
-    // Test if the server is reachable
-    try {
-        const response = await fetch(`http://localhost:8000/ws/user/${userId}/`, {
-            method: 'HEAD',
-            mode: 'no-cors'
-        });
-        console.log("🌐 Server reachable via HTTP");
-    } catch (error) {
-        console.error("❌ Server not reachable via HTTP:", error);
-        return false;
-    }
-    
+    // Don't test WebSocket endpoints with HTTP requests
     return true;
 };

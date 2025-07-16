@@ -79,6 +79,24 @@ class CustomUser(AbstractUser):
         self.location_enabled = True
         self.save()
 
+    def get_display_name(self):
+        """Get the appropriate display name based on user role"""
+        if self.role == 'shop' and hasattr(self, 'shop'):
+            return self.shop.name
+        return self.username
+
+    def get_display_image(self):
+        """Get the appropriate display image based on user role"""
+        if self.role == 'shop' and hasattr(self, 'shop'):
+            # Get the primary shop image or first image
+            primary_image = self.shop.images.filter(is_primary=True).first()
+            if primary_image:
+                return primary_image.image_url
+            # If no primary image, get the first image
+            first_image = self.shop.images.first()
+            if first_image:
+                return first_image.image_url
+        return self.profile_url
         
 class Wallet(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='wallet')

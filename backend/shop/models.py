@@ -30,10 +30,12 @@ class Shop(models.Model):
     
     def get_average_rating(self):
         """
-        Calculate the average rating from shop reviews
+        Calculate the average rating from shop reviews (BookingFeedback)
         """
+        # Use the correct related name - it should be 'bookingfeedback_set' by default
+        # or if you set a related_name in BookingFeedback, use that
         reviews = self.reviews.all()
-        if not reviews:
+        if not reviews.exists():
             return None
         total = sum(review.rating for review in reviews)
         return round(total / reviews.count(), 1)
@@ -340,7 +342,7 @@ class BookingFeedback(models.Model):
     
     booking = models.OneToOneField('Booking', on_delete=models.CASCADE, related_name='feedback')
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='reviews')
     
     # Rating and feedback
     rating = models.IntegerField(choices=RATING_CHOICES)
@@ -365,39 +367,6 @@ class BookingFeedback(models.Model):
 
     
 
-
-
-class Notification(models.Model):
-    """
-    Notifications for shops.
-    """
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='notifications')
-    message = models.TextField()
-    read = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    def time_ago(self):
-        """Returns a human-readable time difference (e.g., '3 hours ago')"""
-        now = timezone.now()
-        diff = now - self.created_at
-        
-        seconds = diff.total_seconds()
-        if seconds < 60:
-            return f"{int(seconds)} seconds ago"
-        minutes = seconds // 60
-        if minutes < 60:
-            return f"{int(minutes)} minute{'s' if minutes != 1 else ''} ago"
-        hours = minutes // 60
-        if hours < 24:
-            return f"{int(hours)} hour{'s' if hours != 1 else ''} ago"
-        days = hours // 24
-        return f"{int(days)} day{'s' if days != 1 else ''} ago"
-    
-    def __str__(self):
-        return f"{self.message[:50]}... ({self.created_at.strftime('%Y-%m-%d %H:%M')})"
-    
-    class Meta:
-        ordering = ['-created_at']
 
 
 class SpecialClosingDay(models.Model):
@@ -425,28 +394,3 @@ def get_weekday_mapping():
 
 
 
-class Barber(models.Model):
-    first_name = models.CharField(max_length=50)
-    last_name = models.CharField(max_length=50)
-    phone = models.CharField(max_length=15, blank=True)
-    is_active = models.BooleanField(default=True)
-    years_experience = models.PositiveIntegerField(default=0)
-
-    def __str__(self):
-        return f"{self.first_name} {self.last_name}"
-    
-
-class ShopReview(models.Model):
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='reviews')
-    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    rating = models.PositiveSmallIntegerField(
-        choices=[(1, '1'), (2, '2'), (3, '3'), (4, '4'), (5, '5')]
-    )
-    comment = models.TextField(blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    
-    class Meta:
-        unique_together = ('shop', 'user')
-        
-    def __str__(self):
-        return f"{self.user.email}'s review for {self.shop.name}"

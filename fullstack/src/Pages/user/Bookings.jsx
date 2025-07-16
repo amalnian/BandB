@@ -35,6 +35,7 @@ const UserBookings = () => {
   }, [currentPage, pageSize]);
 
   const fetchBookings = async () => {
+
     try {
       setLoading(true);
       setError('');
@@ -45,18 +46,19 @@ const UserBookings = () => {
       };
       
       const response = await getUserBookings(params);
-      
+      console.log('API called with page:', currentPage, 'Response:', response.data);
       // Handle paginated response
-      if (response.data.results) {
-        setBookings(response.data.results);
-        setTotalCount(response.data.count);
-        setTotalPages(response.data.total_pages);
-      } else {
-        // Fallback for non-paginated response
-        setBookings(response.data);
-        setTotalCount(response.data.length);
-        setTotalPages(1);
-      }
+    if (response.data.results) {
+      setBookings(response.data.results);
+      setTotalCount(response.data.count);
+      setTotalPages(response.data.total_pages || Math.ceil(response.data.count / pageSize));
+      // ADD IT HERE:
+    } else {
+      // Fallback for non-paginated response
+      setBookings(response.data);
+      setTotalCount(response.data.length);
+      setTotalPages(1);
+    }
     } catch (err) {
       setError('Failed to fetch bookings');
       console.error('Error fetching bookings:', err);
@@ -234,9 +236,23 @@ const UserBookings = () => {
     }
   };
 
-  const canCancelBooking = (booking) => {
-    return booking.booking_status !== 'completed' && booking.booking_status !== 'cancelled';
-  };
+const canCancelBooking = (booking) => {
+  // Check if booking status allows cancellation
+  if (booking.booking_status === 'completed' || booking.booking_status === 'cancelled') {
+    return false;
+  }
+  
+  // Check if appointment time has passed
+  const appointmentDateTime = new Date(`${booking.appointment_date}T${booking.appointment_time}`);
+  const currentDateTime = new Date();
+  
+  // If appointment time is in the past, disable cancellation
+  if (appointmentDateTime < currentDateTime) {
+    return false;
+  }
+  
+  return true;
+};
 
   const canGiveFeedback = (booking) => {
     return booking.booking_status === 'completed' && !booking.has_feedback;

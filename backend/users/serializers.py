@@ -24,19 +24,23 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
 
 
 class CustomUserCreateSerializer(serializers.ModelSerializer):
+    display_name = serializers.CharField(source='get_display_name', read_only=True)
+    display_image = serializers.CharField(source='get_display_image', read_only=True)
+
     class Meta:
         model = CustomUser
-        fields = ('id', 'first_name', 'last_name', 'username', 'email', 'password', 'role', 'phone','current_latitude', 'current_longitude', 'location_enabled')
+        fields = ('id','display_name', 'display_image', 'first_name', 'last_name', 'username', 'email', 'password', 'role', 'phone','current_latitude', 'current_longitude', 'location_enabled')
         extra_kwargs = {
             'password': {'write_only': True}  # Make password write-only
         }
-    def validate_latitude(self, value):
-        if not (-90 <= float(value) <= 90):
+    
+    def validate_current_latitude(self, value):  # Fixed method name
+        if value is not None and not (-90 <= float(value) <= 90):
             raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
         return value
     
-    def validate_longitude(self, value):
-        if not (-180 <= float(value) <= 180):
+    def validate_current_longitude(self, value):  # Fixed method name
+        if value is not None and not (-180 <= float(value) <= 180):
             raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
         return value
 
@@ -57,10 +61,10 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("User with this email already exists, it should be unique")
         return value
         
-    def validate_phone_number(self, value):  # Fixed method name
-        if value and not re.match(r'^\d{10}$', value):
-            raise serializers.ValidationError("Phone number must be exactly 10 digits.")
-        if value and CustomUser.objects.filter(phone_number=value).exists():
+    def validate_phone(self, value):  # Fixed method name to match model field
+        if value and not re.match(r'^\+?1?\d{9,15}$', value):  # Updated regex to match model validator
+            raise serializers.ValidationError("Phone number must be in the format: '+999999999'. Up to 15 digits allowed.")
+        if value and CustomUser.objects.filter(phone=value).exists():  # Fixed field name
             raise serializers.ValidationError("Phone number already exists.")
         return value
         

@@ -82,7 +82,6 @@ from shop.models import (
     Service,
     OTP,
     BusinessHours,
-    Barber,
     SpecialClosingDay,
     Booking,
 )
@@ -2040,11 +2039,11 @@ class VerifyRazorpayPaymentView(APIView):
                     # Create booking with explicit field mapping
                     booking = Booking.objects.create(
                         user=request.user,
-                        shop=shop,  # Use shop object, not ID
+                        shop=shop,
                         appointment_date=appointment_date,
                         appointment_time=appointment_time,
                         total_amount=booking_data['total_amount'],
-                        booking_status='confirmed',  # Paid bookings are confirmed
+                        booking_status='confirmed',
                         payment_status='paid',
                         payment_method='razorpay',
                         razorpay_order_id=razorpay_order_id,
@@ -2056,6 +2055,76 @@ class VerifyRazorpayPaymentView(APIView):
                     booking.services.set(services)
                     
                     logger.info(f"Booking created successfully: {booking.id}")
+                    
+                    # Send notification to shop owner about new booking
+                    try:
+                        shop_owner = None
+                        if hasattr(shop, 'user'):
+                            shop_owner = shop.user
+                            logger.info(f"Shop owner found for notification: {shop_owner}")
+                        else:
+                            logger.error("No shop owner field found for notification!")
+                            raise Exception("Shop owner field not found")
+                        
+                        if not shop_owner:
+                            logger.error("Shop owner is None for notification!")
+                            raise Exception("Shop owner is None")
+                        
+                        # Check if shop owner is different from booking user
+                        if request.user.id == shop_owner.id:
+                            logger.warning("User is booking their own shop - skipping notification")
+                        else:
+                            # Check if shop owner is online
+                            ONLINE_USERS = f'chat:online_users'
+                            curr_users = cache.get(ONLINE_USERS, [])
+                            logger.info(f"Current online users: {curr_users}")
+                            
+                            # Check if shop owner is online
+                            is_shop_owner_online = shop_owner.id in [user["id"] for user in curr_users]
+                            logger.info(f"Shop owner {shop_owner.id} online status: {is_shop_owner_online}")
+                            
+                            if is_shop_owner_online:
+                                # Send real-time notification via WebSocket
+                                logger.info("Sending real-time notification to shop owner")
+                                channel_layer = get_channel_layer()
+                                
+                                # Create notification message
+                                notification_message = f"New booking from {request.user.username} for {shop.name}"
+                                
+                                data = {
+                                    'type': 'notification',
+                                    'message': {
+                                        'sender': request.user.username,
+                                        'content': notification_message,
+                                        'booking_id': booking.id,
+                                        'shop_name': shop.name,
+                                        'appointment_date': appointment_date.strftime('%Y-%m-%d'),
+                                        'appointment_time': appointment_time.strftime('%H:%M'),
+                                        'total_amount': float(booking_data['total_amount'])
+                                    }
+                                }
+                                
+                                async_to_sync(channel_layer.group_send)(
+                                    f'user_{shop_owner.id}',
+                                    data
+                                )
+                                logger.info(f"Real-time notification sent to shop owner {shop_owner.id}")
+                            else:
+                                logger.info("Shop owner is offline, notification will be stored in database only")
+                            
+                            # Always create database notification for persistence
+                            notification = Notification.objects.create(
+                                sender=request.user,
+                                receiver=shop_owner,
+                                message=f"New booking from {request.user.username} for {shop.name}",
+                            )
+                            logger.info(f"Database notification created with ID: {notification.id}")
+                            
+                    except Exception as notification_error:
+                        logger.error(f"Error sending notification: {str(notification_error)}")
+                        logger.error(f"Notification error type: {type(notification_error)}")
+                        # Don't fail the entire booking - log error but continue
+                        logger.warning("Notification failed, but booking will continue")
                     
                     # Create or get conversation between user and shop owner
                     try:
@@ -3099,9 +3168,6 @@ class CreateBookingView(APIView):
                             sender=request.user,  # Booking user is the sender
                             receiver=shop_owner,  # Shop owner is the receiver
                             message=f"New booking from {request.user.username} for {shop.name}",
-                            # Add additional fields if your Notification model has them
-                            # booking_id=booking.id,  # Uncomment if your model has this field
-                            # notification_type='booking',  # Uncomment if your model has this field
                         )
                         logger.info(f"Database notification created with ID: {notification.id}")
                         
@@ -3352,7 +3418,7 @@ def cancel_booking(request, booking_id):
             except Exception:
                 pass
             
-            # Handle wallet refund for paid bookings - FIXED: Remove manual balance update
+            # Handle wallet refund for paid bookings
             refund_amount = 0
             if booking.payment_status == 'paid' and (booking.payment_method == 'wallet' or booking.payment_method == 'razorpay'):
                 try:
@@ -3374,11 +3440,10 @@ def cancel_booking(request, booking_id):
                             amount=Decimal(str(refund_amount)),
                             description=f'Refund for cancelled booking - Booking ID: {booking.id} - {booking.shop.name}'
                         )
-
                         
-                        # Instead, just refresh to get the updated balance
+                        # Refresh wallet to get updated balance
                         wallet.refresh_from_db()
-
+                        
                         # Update booking payment status
                         booking.payment_status = 'refunded'
                         
@@ -3390,6 +3455,77 @@ def cancel_booking(request, booking_id):
                     pass
             
             booking.save()
+            
+            # Send notification to shop owner about booking cancellation
+            try:
+                shop_owner = None
+                if hasattr(booking.shop, 'user'):
+                    shop_owner = booking.shop.user
+                    logger.info(f"Shop owner found for cancellation notification: {shop_owner}")
+                else:
+                    logger.error("No shop owner field found for cancellation notification!")
+                    raise Exception("Shop owner field not found")
+                
+                if not shop_owner:
+                    logger.error("Shop owner is None for cancellation notification!")
+                    raise Exception("Shop owner is None")
+                
+                # Check if shop owner is different from booking user
+                if request.user.id == shop_owner.id:
+                    logger.warning("User is cancelling their own shop booking - skipping notification")
+                else:
+                    # Check if shop owner is online
+                    ONLINE_USERS = f'chat:online_users'
+                    curr_users = cache.get(ONLINE_USERS, [])
+                    logger.info(f"Current online users: {curr_users}")
+                    
+                    # Check if shop owner is online
+                    is_shop_owner_online = shop_owner.id in [user["id"] for user in curr_users]
+                    logger.info(f"Shop owner {shop_owner.id} online status: {is_shop_owner_online}")
+                    
+                    if is_shop_owner_online:
+                        # Send real-time notification via WebSocket
+                        logger.info("Sending real-time cancellation notification to shop owner")
+                        channel_layer = get_channel_layer()
+                        
+                        # Create notification message
+                        notification_message = f"Booking cancelled by {request.user.username} for {booking.shop.name}"
+                        
+                        data = {
+                            'type': 'notification',
+                            'message': {
+                                'sender': request.user.username,
+                                'content': notification_message,
+                                'booking_id': booking.id,
+                                'shop_name': booking.shop.name,
+                                'appointment_date': booking.appointment_date.strftime('%Y-%m-%d'),
+                                'appointment_time': booking.appointment_time.strftime('%H:%M'),
+                                'reason': cancellation_reason,
+                                'refund_amount': float(refund_amount) if refund_amount else 0
+                            }
+                        }
+                        
+                        async_to_sync(channel_layer.group_send)(
+                            f'user_{shop_owner.id}',
+                            data
+                        )
+                        logger.info(f"Real-time cancellation notification sent to shop owner {shop_owner.id}")
+                    else:
+                        logger.info("Shop owner is offline, cancellation notification will be stored in database only")
+                    
+                    # Always create database notification for persistence
+                    notification = Notification.objects.create(
+                        sender=request.user,
+                        receiver=shop_owner,
+                        message=f"Booking cancelled by {request.user.username} for {booking.shop.name}. Reason: {cancellation_reason}",
+                    )
+                    logger.info(f"Database cancellation notification created with ID: {notification.id}")
+                    
+            except Exception as notification_error:
+                logger.error(f"Error sending cancellation notification: {str(notification_error)}")
+                logger.error(f"Cancellation notification error type: {type(notification_error)}")
+                # Don't fail the entire cancellation - log error but continue
+                logger.warning("Cancellation notification failed, but booking cancellation will continue")
         
         # Serialize the booking data
         try:
@@ -3532,6 +3668,82 @@ class BookingFeedbackView(APIView):
                 with transaction.atomic():
                     feedback = BookingFeedback.objects.create(**validated_data)
                     logger.info(f"Feedback created successfully with ID: {feedback.id}")
+                    
+                    # Send notification to shop owner about new feedback
+                    logger.info(f"Preparing notification for feedback {feedback.id}")
+                    
+                    try:
+                        # Get shop owner (sender is feedback user, receiver is shop owner)
+                        shop_owner = None
+                        if hasattr(booking.shop, 'user'):
+                            shop_owner = booking.shop.user
+                            logger.info(f"Shop owner found for notification: {shop_owner}")
+                        else:
+                            logger.error("No shop owner field found for notification!")
+                            raise Exception("Shop owner field not found")
+                        
+                        if not shop_owner:
+                            logger.error("Shop owner is None for notification!")
+                            raise Exception("Shop owner is None")
+                        
+                        # Check if shop owner is different from feedback user
+                        if request.user.id == shop_owner.id:
+                            logger.warning("User is providing feedback for their own shop - skipping notification")
+                        else:
+                            # Check if shop owner is online
+                            ONLINE_USERS = f'chat:online_users'
+                            curr_users = cache.get(ONLINE_USERS, [])
+                            logger.info(f"Current online users: {curr_users}")
+                            
+                            # Check if shop owner is online
+                            is_shop_owner_online = shop_owner.id in [user["id"] for user in curr_users]
+                            logger.info(f"Shop owner {shop_owner.id} online status: {is_shop_owner_online}")
+                            
+                            if is_shop_owner_online:
+                                # Send real-time notification via WebSocket
+                                logger.info("Sending real-time notification to shop owner")
+                                channel_layer = get_channel_layer()
+                                
+                                # Create notification message
+                                rating_stars = "⭐" * rating
+                                notification_message = f"New feedback from {request.user.username} for {booking.shop.name} - {rating_stars} ({rating}/5)"
+                                
+                                data = {
+                                    'type': 'notification',
+                                    'message': {
+                                        'sender': request.user.username,
+                                        'content': notification_message,
+                                        'feedback_id': feedback.id,
+                                        'booking_id': booking.id,
+                                        'shop_name': booking.shop.name,
+                                        'rating': rating,
+                                        'feedback_text': feedback.feedback_text[:100] + '...' if len(feedback.feedback_text) > 100 else feedback.feedback_text
+                                    }
+                                }
+                                
+                                async_to_sync(channel_layer.group_send)(
+                                    f'user_{shop_owner.id}',
+                                    data
+                                )
+                                logger.info(f"Real-time notification sent to shop owner {shop_owner.id}")
+                            else:
+                                logger.info("Shop owner is offline, notification will be stored in database only")
+                            
+                            # Always create database notification for persistence
+                            rating_stars = "⭐" * rating
+                            notification = Notification.objects.create(
+                                sender=request.user,  # Feedback user is the sender
+                                receiver=shop_owner,  # Shop owner is the receiver
+                                message=f"New feedback from {request.user.username} for {booking.shop.name} - {rating_stars} ({rating}/5)"
+                            )
+                            logger.info(f"Database notification created with ID: {notification.id}")
+                            
+                    except Exception as notification_error:
+                        logger.error(f"Error sending notification: {str(notification_error)}")
+                        logger.error(f"Notification error type: {type(notification_error)}")
+                        # Don't fail the entire feedback - log error but continue
+                        logger.warning("Notification failed, but feedback will continue")
+                        
             except Exception as db_error:
                 logger.error(f"Database error creating feedback: {str(db_error)}")
                 raise
@@ -3564,7 +3776,6 @@ class BookingFeedbackView(APIView):
                 'error': f'Failed to submit feedback: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
 class UserBookingFeedbackListView(APIView):
     """
     Get all feedback submitted by the authenticated user
@@ -3589,4 +3800,199 @@ class UserBookingFeedbackListView(APIView):
             logger.error(f"Error fetching user feedbacks for user {request.user.id}: {str(e)}", exc_info=True)
             return Response({
                 'error': f'Failed to fetch feedbacks: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+
+
+
+
+
+
+
+class NotificationListView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Get query parameters with proper type conversion
+            page = int(request.GET.get('page', 1))
+            per_page = int(request.GET.get('per_page', 20))
+            unread_only = request.GET.get('unread_only', 'false').lower() == 'true'
+            
+            # Validate parameters
+            if page < 1:
+                page = 1
+            if per_page < 1 or per_page > 100:
+                per_page = 20
+            
+            # Get user's notifications
+            notifications = Notification.objects.filter(
+                receiver=request.user
+            ).select_related('sender').order_by('-timestamp')
+            
+            # Filter unread notifications if requested
+            if unread_only:
+                notifications = notifications.filter(is_read=False)
+            
+            # Paginate results
+            paginator = Paginator(notifications, per_page)
+            page_obj = paginator.get_page(page)
+            
+            # Serialize notifications
+            notifications_data = []
+            for notification in page_obj:
+                sender_data = {
+                    'id': notification.sender.id if notification.sender else None,
+                    'username': notification.sender.username if notification.sender else 'Unknown',
+                    'name': getattr(notification.sender, 'name', '') if notification.sender else '',
+                    'profile_picture': getattr(notification.sender, 'profile_picture', None) if notification.sender else None
+                }
+                
+                notifications_data.append({
+                    'id': notification.id,
+                    'sender': sender_data,
+                    'message': notification.message,
+                    'timestamp': notification.timestamp.isoformat(),
+                    'is_read': notification.is_read,
+                    'time_ago': self.get_time_ago(notification.timestamp)
+                })
+            
+            # Get unread count
+            unread_count = Notification.objects.filter(
+                receiver=request.user, 
+                is_read=False
+            ).count()
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'notifications': notifications_data,
+                    'pagination': {
+                        'current_page': page_obj.number,
+                        'total_pages': paginator.num_pages,
+                        'total_count': paginator.count,
+                        'has_next': page_obj.has_next(),
+                        'has_previous': page_obj.has_previous()
+                    },
+                    'unread_count': unread_count
+                }
+            })
+            
+        except ValueError as e:
+            return Response({
+                'success': False,
+                'message': f'Invalid parameter: {str(e)}'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'Error fetching notifications'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def get_time_ago(self, timestamp):
+        """Convert timestamp to human readable time ago format"""
+        try:
+            now = timezone.now()
+            diff = now - timestamp
+            
+            if diff.days > 0:
+                return f"{diff.days} day{'s' if diff.days > 1 else ''} ago"
+            elif diff.seconds > 3600:
+                hours = diff.seconds // 3600
+                return f"{hours} hour{'s' if hours > 1 else ''} ago"
+            elif diff.seconds > 60:
+                minutes = diff.seconds // 60
+                return f"{minutes} minute{'s' if minutes > 1 else ''} ago"
+            else:
+                return "Just now"
+        except Exception:
+            return "Unknown time"
+
+
+class NotificationMarkReadView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            notification_id = request.data.get('notification_id')
+            
+            if not notification_id:
+                return Response({
+                    'success': False,
+                    'message': 'Notification ID is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            notification = Notification.objects.get(
+                id=notification_id,
+                receiver=request.user
+            )
+            notification.is_read = True
+            notification.save()
+            
+            return Response({
+                'success': True,
+                'message': 'Notification marked as read'
+            })
+            
+        except Notification.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Notification not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'Error marking notification as read'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NotificationMarkAllReadView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            updated_count = Notification.objects.filter(
+                receiver=request.user,
+                is_read=False
+            ).update(is_read=True)
+            
+            return Response({
+                'success': True,
+                'message': f'{updated_count} notifications marked as read'
+            })
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'Error marking all notifications as read'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class NotificationDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, notification_id):
+        try:
+            notification = Notification.objects.get(
+                id=notification_id,
+                receiver=request.user
+            )
+            notification.delete()
+            
+            return Response({
+                'success': True,
+                'message': 'Notification deleted successfully'
+            })
+            
+        except Notification.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'Notification not found'
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            return Response({
+                'success': False,
+                'message': 'Error deleting notification'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

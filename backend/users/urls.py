@@ -69,6 +69,17 @@ urlpatterns = [
     
     # Get all feedback by the authenticated user
     path('shop/user/feedbacks/', UserBookingFeedbackListView.as_view(), name='user_feedbacks'),
+
+
+
+
+
+
+    path('notifications/', views.NotificationListView.as_view(), name='notification-list'),
+    path('notifications/mark-read/', views.NotificationMarkReadView.as_view(), name='notification-mark-read'),
+    path('notifications/mark-all-read/', views.NotificationMarkAllReadView.as_view(), name='notification-mark-all-read'),
+    path('notifications/delete/<int:notification_id>/', views.NotificationDeleteView.as_view(), name='notification-delete'),
 ]
+
 
 

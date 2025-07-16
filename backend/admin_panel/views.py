@@ -27,7 +27,7 @@ import jwt
 
 # App imports
 from users.models import CustomUser
-from shop.models import Shop
+from shop.models import Booking, Shop
 from users.serializers import (
     AdminUserSerializer,
     CustomTokenObtainPairSerializer,
@@ -419,7 +419,6 @@ class AdminProfileView(APIView):
     """
     Get and update admin profile information
     """
-    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -527,7 +526,6 @@ class AdminChangePasswordView(APIView):
     """
     Change admin password
     """
-    authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -582,5 +580,579 @@ class AdminChangePasswordView(APIView):
         except Exception as e:
             return Response(
                 {'error': f'Failed to change password: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+
+
+
+
+
+
+
+
+# admin_views.py
+from django.db.models import Sum, Count, Avg, Q
+from django.utils import timezone
+from datetime import datetime, timedelta
+from rest_framework.views import APIView
+from rest_framework.generics import ListAPIView
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+from decimal import Decimal
+import calendar
+
+# Import your models - CRITICAL: Make sure these imports are correct
+# from .models import BookingFeedback  # Add this if you have this model
+
+import logging
+logger = logging.getLogger(__name__)
+
+
+class AdminDashboardStatsView(APIView):
+    """Get overall dashboard statistics"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Get date range from query params (default to last 30 days)
+            end_date = timezone.now().date()
+            start_date = end_date - timedelta(days=30)
+            
+            if request.GET.get('start_date'):
+                start_date = datetime.strptime(request.GET.get('start_date'), '%Y-%m-%d').date()
+            if request.GET.get('end_date'):
+                end_date = datetime.strptime(request.GET.get('end_date'), '%Y-%m-%d').date()
+
+            # Base queryset for paid bookings
+            paid_bookings = Booking.objects.filter(
+                payment_status='paid',
+                created_at__date__range=[start_date, end_date]
+            )
+
+            # Calculate total revenue and admin commission
+            total_revenue = paid_bookings.aggregate(
+                total=Sum('total_amount')
+            )['total'] or Decimal('0.00')
+            
+            admin_commission = total_revenue * Decimal('0.10')  # 10% commission
+            shop_earnings = total_revenue - admin_commission
+
+            # Booking statistics
+            total_bookings = Booking.objects.count()
+            completed_bookings = paid_bookings.filter(booking_status='completed').count()
+            cancelled_bookings = Booking.objects.filter(
+                booking_status='cancelled',
+                created_at__date__range=[start_date, end_date]
+            ).count()
+
+            # Calculate completion rate
+            completion_rate = (completed_bookings / total_bookings * 100) if total_bookings > 0 else 0
+
+            # Active shops count
+            active_shops = Shop.objects.filter(
+                booking__payment_status='paid',
+                booking__created_at__date__range=[start_date, end_date]
+            ).distinct().count()
+
+            # Top performing shops
+            top_shops = Shop.objects.filter(
+                booking__payment_status='paid',
+                booking__created_at__date__range=[start_date, end_date]
+            ).annotate(
+                total_revenue=Sum('booking__total_amount'),
+                total_bookings=Count('booking')
+            ).order_by('-total_revenue')[:5]
+
+            top_shops_data = []
+            for shop in top_shops:
+                shop_commission = shop.total_revenue * Decimal('0.10')
+                top_shops_data.append({
+                    'id': shop.id,
+                    'name': shop.name,
+                    'total_revenue': float(shop.total_revenue),
+                    'admin_commission': float(shop_commission),
+                    'shop_earnings': float(shop.total_revenue - shop_commission),
+                    'total_bookings': shop.total_bookings
+                })
+
+            return Response({
+                'date_range': {
+                    'start_date': start_date,
+                    'end_date': end_date
+                },
+                'financial_stats': {
+                    'total_revenue': float(total_revenue),
+                    'admin_commission': float(admin_commission),
+                    'shop_earnings': float(shop_earnings),
+                    'commission_rate': 10.0
+                },
+                'booking_stats': {
+                    'total_bookings': total_bookings,
+                    'completed_bookings': completed_bookings,
+                    'cancelled_bookings': cancelled_bookings,
+                    'completion_rate': round(completion_rate, 2)
+                },
+                'general_stats': {
+                    'active_shops': active_shops,
+                    'top_shops': top_shops_data
+                }
+            })
+
+        except Exception as e:
+            logger.error(f"Error in AdminDashboardStatsView: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminRevenueChartView(APIView):
+    """Get revenue data for charts"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Get chart type (daily, weekly, monthly)
+            chart_type = request.GET.get('type', 'daily')
+            
+            # Get date range
+            end_date = timezone.now().date()
+            
+            if chart_type == 'daily':
+                start_date = end_date - timedelta(days=30)
+            elif chart_type == 'weekly':
+                start_date = end_date - timedelta(weeks=12)
+            else:  # monthly
+                start_date = end_date - timedelta(days=365)
+
+            # Get bookings data grouped by date
+            bookings = Booking.objects.filter(
+                payment_status='paid',
+                created_at__date__range=[start_date, end_date]
+            ).values('created_at__date').annotate(
+                daily_revenue=Sum('total_amount'),
+                daily_bookings=Count('id')
+            ).order_by('created_at__date')
+
+            # Process data for chart
+            chart_data = []
+            for booking in bookings:
+                date = booking['created_at__date']
+                revenue = float(booking['daily_revenue'])
+                admin_commission = revenue * 0.10
+                
+                if chart_type == 'daily':
+                    label = date.strftime('%Y-%m-%d')
+                elif chart_type == 'weekly':
+                    label = f"Week {date.strftime('%W')}, {date.year}"
+                else:  # monthly
+                    label = date.strftime('%B %Y')
+                
+                chart_data.append({
+                    'date': label,
+                    'total_revenue': revenue,
+                    'admin_commission': admin_commission,
+                    'shop_earnings': revenue - admin_commission,
+                    'bookings_count': booking['daily_bookings']
+                })
+
+            return Response({
+                'chart_type': chart_type,
+                'data': chart_data
+            })
+
+        except Exception as e:
+            logger.error(f"Error in AdminRevenueChartView: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminShopsPerformanceView(APIView):
+    """Get shops performance data"""
+    permission_classes = [IsAuthenticated]
+    
+    def get_shop_email(self, shop):
+        """Get shop email - it's automatically set from user's email"""
+        return shop.email or 'N/A'
+    
+    def get(self, request):
+        try:
+            logger.info("AdminShopsPerformanceView called")
+            
+            # Get date range
+            end_date = timezone.now().date()
+            start_date = end_date - timedelta(days=30)
+            
+            if request.GET.get('start_date'):
+                try:
+                    start_date = datetime.strptime(request.GET.get('start_date'), '%Y-%m-%d').date()
+                except ValueError as e:
+                    logger.error(f"Invalid start_date format: {e}")
+                    return Response(
+                        {'error': 'Invalid start_date format. Use YYYY-MM-DD'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+                    
+            if request.GET.get('end_date'):
+                try:
+                    end_date = datetime.strptime(request.GET.get('end_date'), '%Y-%m-%d').date()
+                except ValueError as e:
+                    logger.error(f"Invalid end_date format: {e}")
+                    return Response(
+                        {'error': 'Invalid end_date format. Use YYYY-MM-DD'}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+            logger.info(f"Date range: {start_date} to {end_date}")
+
+            # # Check if models exist and have required fields
+            # try:
+            #     # Test query to check if models and fields exist
+            #     test_booking = Booking.objects.filter(
+            #         payment_status='paid',
+            #         created_at__date__gte=start_date,
+            #         created_at__date__lte=end_date
+            #     ).first()
+            #     logger.info(f"Test booking query successful: {test_booking}")
+            # except Exception as field_error:
+            #     logger.error(f"Field error in Booking model: {field_error}")
+            #     return Response(
+            #         {'error': f'Database field error: {str(field_error)}'}, 
+            #         status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            #     )
+
+            # Get shops with their performance data
+            try:
+                shops_with_bookings = Shop.objects.filter(
+                    booking__payment_status='paid',
+                    booking__created_at__date__gte=start_date,
+                    booking__created_at__date__lte=end_date
+                ).distinct().select_related('user')  # Add select_related for user
+                
+                logger.info(f"Shops with bookings: {shops_with_bookings.count()}")
+            except Exception as shop_error:
+                logger.error(f"Error querying shops: {shop_error}")
+                return Response(
+                    {'error': f'Shop query error: {str(shop_error)}'}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+            shops_data = []
+            for shop in shops_with_bookings:
+                try:
+                    logger.info(f"Processing shop: {shop.id} - {shop.name}")
+                    
+                    # Calculate stats for each shop individually
+                    shop_bookings = Booking.objects.filter(
+                        shop=shop,
+                        payment_status='paid',
+                        booking_status='completed',
+                        created_at__date__gte=start_date,
+                        created_at__date__lte=end_date
+                    )
+                    
+                    # Check if total_amount field exists, if not try amount or price
+                    total_revenue = Decimal('0.00')
+                    try:
+                        total_revenue = shop_bookings.aggregate(
+                            total=Sum('total_amount')
+                        )['total'] or Decimal('0.00')
+                    except Exception:
+                        # Try alternative field names
+                        try:
+                            total_revenue = shop_bookings.aggregate(
+                                total=Sum('amount')
+                            )['total'] or Decimal('0.00')
+                        except Exception:
+                            try:
+                                total_revenue = shop_bookings.aggregate(
+                                    total=Sum('price')
+                                )['total'] or Decimal('0.00')
+                            except Exception:
+                                logger.warning(f"Could not find amount field for shop {shop.id}")
+                                total_revenue = Decimal('0.00')
+                    
+                    total_bookings = shop_bookings.count()
+                    
+                    # Check if booking_status field exists
+                    completed_bookings = 0
+                    try:
+                        completed_bookings = shop_bookings.filter(booking_status='completed').count()
+                    except Exception:
+                        # Try alternative field names
+                        try:
+                            completed_bookings = shop_bookings.filter(status='completed').count()
+                        except Exception:
+                            logger.warning(f"Could not find booking status field for shop {shop.id}")
+                            completed_bookings = 0
+                    
+                    admin_commission = float(total_revenue * Decimal('0.10'))
+                    completion_rate = (completed_bookings / total_bookings * 100) if total_bookings > 0 else 0
+                    
+                    # Calculate average rating using the shop's method
+                    average_rating = 0
+                    try:
+                        rating = shop.get_average_rating()
+                        average_rating = float(rating) if rating else 0
+                    except Exception as rating_error:
+                        logger.warning(f"Error getting rating for shop {shop.id}: {rating_error}")
+                        # Fallback: Try to get rating from reviews directly
+                        try:
+                            reviews = shop.reviews.all()
+                            if reviews.exists():
+                                total_rating = sum(review.rating for review in reviews)
+                                average_rating = total_rating / reviews.count()
+                        except Exception:
+                            average_rating = 0
+                    
+                    # Get owner name - prioritize owner_name field, then user info
+                    owner_name = 'N/A'
+                    try:
+                        if shop.owner_name:
+                            owner_name = shop.owner_name
+                        elif shop.user:  # Make sure shop.user exists
+                            # Try to get full name from user
+                            if hasattr(shop.user, 'get_full_name'):
+                                full_name = shop.user.get_full_name()
+                                if full_name and full_name.strip():
+                                    owner_name = full_name
+                                else:
+                                    owner_name = shop.user.username
+                            else:
+                                owner_name = shop.user.username
+                    except Exception as owner_error:
+                        logger.warning(f"Error getting owner name for shop {shop.id}: {owner_error}")
+                        owner_name = 'N/A'
+                    
+                    shops_data.append({
+                        'id': shop.id,
+                        'name': shop.name,
+                        'owner_name': owner_name,
+                        'total_revenue': float(total_revenue),
+                        'admin_commission': admin_commission,
+                        'shop_earnings': float(total_revenue) - admin_commission,
+                        'total_bookings': total_bookings,
+                        'completed_bookings': completed_bookings,
+                        'completion_rate': round(completion_rate, 2),
+                        'average_rating': round(average_rating, 2),
+                        'location': shop.address or 'N/A',
+                        'phone': shop.phone or 'N/A',
+                        'email': self.get_shop_email(shop)
+                    })
+                    
+                except Exception as shop_error:
+                    logger.error(f"Error processing shop {shop.id}: {shop_error}")
+                    # Continue with next shop instead of breaking
+                    continue
+
+            # Sort by total revenue
+            shops_data.sort(key=lambda x: x['total_revenue'], reverse=True)
+
+            logger.info(f"Successfully processed {len(shops_data)} shops")
+
+            return Response({
+                'date_range': {
+                    'start_date': start_date.strftime('%Y-%m-%d'),
+                    'end_date': end_date.strftime('%Y-%m-%d')
+                },
+                'shops': shops_data,
+                'total_shops': len(shops_data)
+            })
+
+        except Exception as e:
+            logger.error(f"Error in AdminShopsPerformanceView: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return Response(
+                {'error': f'Internal server error: {str(e)}'}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+
+class AdminRecentBookingsView(APIView):
+    """Get recent bookings for admin dashboard"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            limit = int(request.GET.get('limit', 10))
+            
+            recent_bookings = Booking.objects.filter(
+                payment_status='paid'
+            ).select_related('user', 'shop').prefetch_related('services').order_by('-created_at')[:limit]
+            
+            bookings_data = []
+            for booking in recent_bookings:
+                admin_commission = float(booking.total_amount * Decimal('0.10'))
+                
+                bookings_data.append({
+                    'id': booking.id,
+                    'user_name': booking.user.username if booking.user else 'N/A',
+                    'user_email': booking.user.email if booking.user else 'N/A',
+                    'shop_name': booking.shop.name if booking.shop else 'N/A',
+                    'services': [service.name for service in booking.services.all()],
+                    'appointment_date': booking.appointment_date,
+                    'appointment_time': booking.appointment_time,
+                    'total_amount': float(booking.total_amount),
+                    'admin_commission': admin_commission,
+                    'booking_status': booking.booking_status,
+                    'payment_status': booking.payment_status,
+                    'created_at': booking.created_at
+                })
+
+            return Response({
+                'recent_bookings': bookings_data
+            })
+
+        except Exception as e:
+            logger.error(f"Error in AdminRecentBookingsView: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminCommissionReportView(APIView):
+    """Get detailed commission report for admin"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            # Get date range
+            end_date = timezone.now().date()
+            start_date = end_date - timedelta(days=30)
+            
+            if request.GET.get('start_date'):
+                start_date = datetime.strptime(request.GET.get('start_date'), '%Y-%m-%d').date()
+            if request.GET.get('end_date'):
+                end_date = datetime.strptime(request.GET.get('end_date'), '%Y-%m-%d').date()
+
+            # Get daily commission data for chart
+            daily_commission = Booking.objects.filter(
+                payment_status='paid',
+                created_at__date__range=[start_date, end_date]
+            ).values('created_at__date').annotate(
+                daily_revenue=Sum('total_amount'),
+                daily_bookings=Count('id')
+            ).order_by('created_at__date')
+
+            commission_details = []
+            total_commission = Decimal('0.00')
+            total_bookings = 0
+
+            for day_data in daily_commission:
+                commission_amount = day_data['daily_revenue'] * Decimal('0.10')
+                total_commission += commission_amount
+                total_bookings += day_data['daily_bookings']
+                
+                commission_details.append({
+                    'date': day_data['created_at__date'].strftime('%Y-%m-%d'),
+                    'commission_amount': float(commission_amount),
+                    'bookings_count': day_data['daily_bookings'],
+                    'revenue': float(day_data['daily_revenue'])
+                })
+
+            return Response({
+                'date_range': {
+                    'start_date': start_date,
+                    'end_date': end_date
+                },
+                'summary': {
+                    'total_commission': float(total_commission),
+                    'total_bookings': total_bookings,
+                    'commission_rate': 10.0
+                },
+                'commission_details': commission_details
+            })
+
+        except Exception as e:
+            logger.error(f"Error in AdminCommissionReportView: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminPayShopCommissionView(APIView):
+    """Pay commission to shop (if you want to track payments)"""
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        try:
+            shop_id = request.data.get('shop_id')
+            amount = request.data.get('amount')
+            
+            # You can add your payment processing logic here
+            # For now, just return success
+            
+            return Response({
+                'success': True,
+                'message': f'Payment of ₹{amount} processed for shop {shop_id}'
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in AdminPayShopCommissionView: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class AdminExportDataView(APIView):
+    """Export dashboard data to CSV"""
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            from django.http import HttpResponse
+            import csv
+            
+            export_type = request.GET.get('type', 'shops')  # shops, bookings, commission
+            
+            response = HttpResponse(content_type='text/csv')
+            
+            if export_type == 'shops':
+                response['Content-Disposition'] = 'attachment; filename="shops_performance.csv"'
+                writer = csv.writer(response)
+                writer.writerow(['Shop Name', 'Owner', 'Total Revenue', 'Commission', 'Bookings', 'Rating'])
+                
+                # Get shops data (you can reuse logic from AdminShopsPerformanceView)
+                shops = Shop.objects.filter(
+                    booking__payment_status='paid'
+                ).distinct()
+                
+                for shop in shops:
+                    shop_bookings = Booking.objects.filter(
+                        shop=shop,
+                        payment_status='paid'
+                    )
+                    
+                    total_revenue = shop_bookings.aggregate(
+                        total=Sum('total_amount')
+                    )['total'] or Decimal('0.00')
+                    
+                    total_bookings = shop_bookings.count()
+                    average_rating = shop.get_average_rating() or 0
+                    
+                    writer.writerow([
+                        shop.name,
+                        shop.owner_name or shop.user.username,
+                        float(total_revenue),
+                        float(total_revenue * Decimal('0.10')),
+                        total_bookings,
+                        round(float(average_rating), 2) if average_rating else 0
+                    ])
+            
+            return response
+            
+        except Exception as e:
+            logger.error(f"Error in AdminExportDataView: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

@@ -13,6 +13,12 @@ export default function UsersManagement() {
   const [currentUser, setCurrentUser] = useState(null)
   const [formMode, setFormMode] = useState("create") // "create" or "edit"
   
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
+  const [totalCount, setTotalCount] = useState(0)
+  const [pageSize] = useState(10) // items per page
+  
   // Form state
   const [formData, setFormData] = useState({
     first_name: "",
@@ -25,16 +31,58 @@ export default function UsersManagement() {
   
   useEffect(() => {
     fetchUsers()
-  }, [])
+  }, [currentPage, searchTerm])
   
-  const fetchUsers = async () => {
+  const fetchUsers = async (page = currentPage) => {
     setLoading(true)
     try {
-      const response = await adminAPI.getUsers()
-      setUsers(response.data)
+      // Build query parameters
+      const params = new URLSearchParams({
+        page: page.toString(),
+        page_size: pageSize.toString()
+      })
+      
+      if (searchTerm.trim()) {
+        params.append('search', searchTerm.trim())
+      }
+      
+      const response = await adminAPI.getUsers(`?${params.toString()}`)
+      
+      // DEBUG: Log the entire response structure
+      console.log('=== API DEBUG INFO ===')
+      console.log('Full response:', response)
+      console.log('Response.data:', response.data)
+      console.log('Response.data.results:', response.data.results)
+      console.log('Response.data.count:', response.data.count)
+      console.log('Response.data.next:', response.data.next)
+      console.log('Response.data.previous:', response.data.previous)
+      console.log('=== END DEBUG INFO ===')
+      
+      // Extract users from paginated response
+      const usersData = Array.isArray(response.data?.results) ? response.data.results : []
+      const totalCount = response.data?.count || 0
+      const totalPages = Math.ceil(totalCount / pageSize)
+      
+      setUsers(usersData)
+      setTotalCount(totalCount)
+      setTotalPages(totalPages)
+      
+      console.log('Final users data:', usersData)
+      console.log('Total count:', totalCount)
+      console.log('Total pages:', totalPages)
+      
     } catch (error) {
       console.error("Error fetching users:", error)
+      console.log('Error details:', {
+        message: error.message,
+        response: error.response,
+        status: error.response?.status,
+        data: error.response?.data
+      })
       toast.error("Failed to fetch users")
+      setUsers([]) // Set empty array on error
+      setTotalCount(0)
+      setTotalPages(1)
     } finally {
       setLoading(false)
     }
@@ -42,15 +90,34 @@ export default function UsersManagement() {
   
   const handleSearch = (e) => {
     setSearchTerm(e.target.value)
+    setCurrentPage(1) // Reset to first page when searching
   }
   
-  const filteredUsers = users.filter(user => {
-    const fullName = `${user.first_name || ''} ${user.last_name || ''}`.toLowerCase()
-    const email = (user.email || '').toLowerCase()
-    const search = searchTerm.toLowerCase()
-    
-    return fullName.includes(search) || email.includes(search)
-  })
+  const handlePageChange = (page) => {
+    setCurrentPage(page)
+  }
+  
+  const handlePrevious = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1)
+    }
+  }
+  
+  const handleNext = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1)
+    }
+  }
+  
+  // Add debug logging for users state
+  console.log('Current users state:', users)
+  console.log('Users is array?', Array.isArray(users))
+  console.log('Users type:', typeof users)
+  
+  // Remove client-side filtering since we're using server-side search
+  const filteredUsers = users
+  
+  console.log('Filtered users:', filteredUsers)
   
   const openCreateModal = () => {
     setFormData({
@@ -102,7 +169,7 @@ export default function UsersManagement() {
       }
       
       closeModal()
-      fetchUsers()
+      fetchUsers(currentPage)
     } catch (error) {
       console.error(`Error ${formMode === "create" ? "creating" : "updating"} user:`, error)
       toast.error(
@@ -122,7 +189,7 @@ export default function UsersManagement() {
     try {
       await adminAPI.deleteUser(userId)
       toast.success("User deleted successfully!", { id: loadingToast })
-      fetchUsers()
+      fetchUsers(currentPage)
     } catch (error) {
       console.error("Error deleting user:", error)
       toast.error("Failed to delete user", { id: loadingToast })
@@ -139,7 +206,7 @@ export default function UsersManagement() {
         `User ${currentStatus ? "deactivated" : "activated"} successfully!`,
         { id: loadingToast }
       )
-      fetchUsers()
+      fetchUsers(currentPage)
     } catch (error) {
       console.error("Error updating user status:", error)
       toast.error(`Failed to ${currentStatus ? "deactivate" : "activate"} user`, { id: loadingToast })
@@ -303,6 +370,92 @@ export default function UsersManagement() {
             </tbody>
           </table>
         </div>
+        
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="bg-white px-4 py-3 border-t border-gray-200 sm:px-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center">
+                <p className="text-sm text-gray-700">
+                  Showing{" "}
+                  <span className="font-medium">{((currentPage - 1) * pageSize) + 1}</span>
+                  {" "}to{" "}
+                  <span className="font-medium">
+                    {Math.min(currentPage * pageSize, totalCount)}
+                  </span>
+                  {" "}of{" "}
+                  <span className="font-medium">{totalCount}</span>
+                  {" "}results
+                </p>
+              </div>
+              <div className="flex items-center space-x-2">
+                <button
+                  onClick={handlePrevious}
+                  disabled={currentPage === 1}
+                  className={`px-3 py-1 rounded-md text-sm font-medium ${
+                    currentPage === 1
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Previous
+                </button>
+                
+                {/* Page numbers */}
+                <div className="flex space-x-1">
+                  {[...Array(totalPages)].map((_, index) => {
+                    const page = index + 1
+                    const isCurrentPage = page === currentPage
+                    
+                    // Show first page, last page, current page, and pages around current
+                    if (
+                      page === 1 ||
+                      page === totalPages ||
+                      (page >= currentPage - 1 && page <= currentPage + 1)
+                    ) {
+                      return (
+                        <button
+                          key={page}
+                          onClick={() => handlePageChange(page)}
+                          className={`px-3 py-1 rounded-md text-sm font-medium ${
+                            isCurrentPage
+                              ? 'bg-blue-600 text-white'
+                              : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                          }`}
+                        >
+                          {page}
+                        </button>
+                      )
+                    }
+                    
+                    // Show ellipsis
+                    if (page === currentPage - 2 || page === currentPage + 2) {
+                      return (
+                        <span key={page} className="px-3 py-1 text-gray-500">
+                          ...
+                        </span>
+                      )
+                    }
+                    
+                    return null
+                  })}
+                </div>
+                
+                <button
+                  onClick={handleNext}
+                  disabled={currentPage === totalPages}
+                  className={`px-3 py-1 rounded-md text-sm font-medium ${
+                    currentPage === totalPages
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* User Form Modal */}
         {isModalOpen && (

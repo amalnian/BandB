@@ -1,9 +1,11 @@
 import random
+import logging
 from rest_framework import serializers
 from .models import Booking, BookingFeedback, Shop, ShopImage
 from users.models import CustomUser
-from shop.models import Service, Notification, SpecialClosingDay, BusinessHours
+from shop.models import Service, SpecialClosingDay, BusinessHours
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+logger = logging.getLogger(__name__)
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -144,7 +146,7 @@ class ServiceSerializer(serializers.ModelSerializer):
     """
     Serializer for shop services.
     """
-    shop = serializers.StringRelatedField(read_only=True)  # Make shop read-only
+    shop = serializers.StringRelatedField(read_only=True)
     
     class Meta:
         model = Service
@@ -152,7 +154,78 @@ class ServiceSerializer(serializers.ModelSerializer):
             'id', 'name', 'description', 'price', 
             'duration_minutes', 'is_active', 'shop'
         ]
-        read_only_fields = ['shop']  # Ensure shop cannot be set via API
+        read_only_fields = ['shop']
+    
+    def validate_name(self, value):
+        """
+        Validate the name field.
+        """
+        logger.info(f"Validating name: {value}")
+        
+        if not value or not value.strip():
+            logger.error("Service name is empty")
+            raise serializers.ValidationError("Service name cannot be empty.")
+        
+        # Strip whitespace and return cleaned value
+        cleaned_value = value.strip()
+        logger.info(f"Name cleaned: {cleaned_value}")
+        return cleaned_value
+    
+    def validate(self, attrs):
+        """
+        Validate that the service name doesn't already exist for this shop (case-insensitive).
+        """
+        logger.info(f"Full validation started with attrs: {attrs}")
+        
+        name = attrs.get('name')
+        if not name:
+            logger.info("No name provided, skipping duplicate check")
+            return attrs
+            
+        # Get the shop from the view context
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            logger.error("No authenticated user found in context")
+            return attrs
+        
+        # Determine the shop
+        shop = None
+        if hasattr(request.user, 'shop'):
+            shop = request.user.shop
+            logger.info(f"Using user.shop: {shop}")
+        else:
+            shop = request.user
+            logger.info(f"Using user as shop: {shop}")
+        
+        # Build the query to check for existing services with same name
+        query = Service.objects.filter(
+            shop=shop,
+            name__iexact=name.strip()
+        )
+        
+        logger.info(f"Checking for existing services with name '{name}' for shop {shop}")
+        
+        # If this is an update operation, exclude the current instance
+        if self.instance:
+            query = query.exclude(pk=self.instance.pk)
+            logger.info(f"Update operation - excluding current instance ID: {self.instance.pk}")
+        else:
+            logger.info("Create operation - checking all services")
+        
+        existing_services = query.all()
+        logger.info(f"Found {len(existing_services)} existing services: {[s.name for s in existing_services]}")
+        
+        # Check if a service with this name already exists for this shop
+        if query.exists():
+            error_msg = f'A service with the name "{name}" already exists for this shop.'
+            logger.error(error_msg)
+            raise serializers.ValidationError({
+                'name': error_msg
+            })
+        
+        logger.info("Validation passed successfully")
+        return attrs
+
 
 # class AppointmentSerializer(serializers.ModelSerializer):
 #     """
@@ -178,19 +251,19 @@ class ServiceSerializer(serializers.ModelSerializer):
 #         return data
 
 
-class NotificationSerializer(serializers.ModelSerializer):
-    """
-    Serializer for shop notifications with human-readable time.
-    """
-    time = serializers.SerializerMethodField()
+# class NotificationSerializer(serializers.ModelSerializer):
+#     """
+#     Serializer for shop notifications with human-readable time.
+#     """
+#     time = serializers.SerializerMethodField()
     
-    class Meta:
-        model = Notification
-        fields = ['id', 'message', 'read', 'time']
+#     class Meta:
+#         model = Notification
+#         fields = ['id', 'message', 'read', 'time']
     
-    def get_time(self, obj):
-        # Return the human-readable time ago
-        return obj.time_ago()
+#     def get_time(self, obj):
+#         # Return the human-readable time ago
+#         return obj.time_ago()
     
 
 class BusinessHoursSerializer(serializers.ModelSerializer):

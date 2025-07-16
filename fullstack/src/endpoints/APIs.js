@@ -127,24 +127,24 @@ export const uploadUserAvatar = (formData) => {
 };
 
 
-// Notification APIs
-export const getNotifications = (params = {}) => {
-  const queryParams = new URLSearchParams({
-    page: params.page || 1,
-    limit: params.limit || 20,
-    is_read: params.is_read
-  }).toString();
+// // Notification APIs
+// export const getNotifications = (params = {}) => {
+//   const queryParams = new URLSearchParams({
+//     page: params.page || 1,
+//     limit: params.limit || 20,
+//     is_read: params.is_read
+//   }).toString();
   
-  return axios.get(`user/notifications/?${queryParams}`);
-};
+//   return axios.get(`user/notifications/?${queryParams}`);
+// };
 
-export const markNotificationAsRead = (notificationId) => {
-  return axios.patch(`user/notifications/${notificationId}/`, { is_read: true });
-};
+// export const markNotificationAsRead = (notificationId) => {
+//   return axios.patch(`user/notifications/${notificationId}/`, { is_read: true });
+// };
 
-export const markAllNotificationsAsRead = () => {
-  return axios.patch('user/notifications/mark-all-read/');
-};
+// export const markAllNotificationsAsRead = () => {
+//   return axios.patch('user/notifications/mark-all-read/');
+// };
 
 // Categories and Services APIs
 export const getServiceCategories = () => axios.get('service-categories/');
@@ -237,8 +237,7 @@ export const getBookingStats = () => {
 
 
 // Get user's bookings
-export const getUserBookings = () => axios.get('bookings/')
-
+export const getUserBookings = (params = {}) => axios.get('bookings/', { params })
 
 
 // Cancel a booking
@@ -314,3 +313,34 @@ export const getBookingFeedback = (bookingId) =>
 export const getUserFeedbacks = () =>
   axios.get('/shop/user/feedbacks/');
 
+
+
+
+
+
+
+
+export const getNotifications = (params = {}) => {
+  const queryParams = new URLSearchParams();
+  
+  if (params.page) queryParams.append('page', params.page);
+  if (params.per_page) queryParams.append('per_page', params.per_page);
+  if (params.unread_only) queryParams.append('unread_only', params.unread_only);
+  
+  const queryString = queryParams.toString();
+  const url = queryString ? `notifications/?${queryString}` : 'notifications/';
+  
+  return axios.get(url);
+};
+
+export const markNotificationAsRead = (notificationId) => 
+  axios.post('notifications/mark-read/', { notification_id: notificationId });
+
+export const markAllNotificationsAsRead = () => 
+  axios.post('notifications/mark-all-read/');
+
+export const deleteNotification = (notificationId) => 
+  axios.delete(`notifications/delete/${notificationId}/`);
+
+export const getUnreadNotificationsCount = () => 
+  axios.get('notifications/?unread_only=true&per_page=1');

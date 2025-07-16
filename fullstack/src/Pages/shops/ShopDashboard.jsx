@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-// Using Lucide React icons (available in Claude environment)
 import { 
   CalendarCheck, 
   DollarSign, 
@@ -7,102 +6,138 @@ import {
   ShoppingBag,
   Calendar,
   TrendingUp,
-  ClipboardList,
-  X,
-  Bell,
+  TrendingDown,
+  BarChart3,
+  PieChart,
+  Download,
+  Filter,
   Eye,
-  Edit
+  Star,
+  Clock,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line, PieChart as RechartsPieChart, Cell,Pie } from 'recharts';
 
-const DemoShopDashboard = () => {
+// Import your API functions
+import { 
+  getSalesChart, 
+  getMostBookedServices, 
+  getRevenueStats, 
+  getBookingStats,
+  getServicePerformance,
+  getPaymentMethodStats,
+  exportSalesReport
+} from '@/endpoints/ShopAPI';
+
+const ShopSalesDashboard = () => {
   const [isLoading, setIsLoading] = useState(true);
-  const [selectedSection, setSelectedSection] = useState('dashboard');
+  const [selectedPeriod, setSelectedPeriod] = useState('7');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [refreshing, setRefreshing] = useState(false);
 
-  // Simulate loading
-  useEffect(() => {
-    const timer = setTimeout(() => {
+  // State for real data
+  const [salesData, setSalesData] = useState([]);
+  const [mostBookedServices, setMostBookedServices] = useState([]);
+  const [revenueStats, setRevenueStats] = useState({
+    totalRevenue: 0,
+    totalBookings: 0,
+    avgOrderValue: 0,
+    completionRate: 0,
+    growthRate: 0,
+    pendingBookings: 0,
+    completedBookings: 0,
+    cancelledBookings: 0
+  });
+  const [servicePerformance, setServicePerformance] = useState([]);
+  const [paymentStats, setPaymentStats] = useState([]);
+  const [error, setError] = useState(null);
+
+  // Fetch all dashboard data
+  const fetchDashboardData = async () => {
+    try {
+      setIsLoading(true);
+      setError(null);
+
+      const [
+        salesResponse,
+        servicesResponse,
+        statsResponse,
+        servicePerformanceResponse,
+        paymentStatsResponse
+      ] = await Promise.all([
+        getSalesChart(selectedPeriod),
+        getMostBookedServices(selectedPeriod),
+        getRevenueStats(selectedPeriod),
+        getServicePerformance(selectedPeriod),
+        getPaymentMethodStats(selectedPeriod)
+      ]);
+
+      setSalesData(salesResponse.data.sales_data || []);
+      setMostBookedServices(servicesResponse.data.services || []);
+      setRevenueStats(statsResponse.data || {});
+      setServicePerformance(servicePerformanceResponse.data.services || []);
+      setPaymentStats(paymentStatsResponse.data.payment_methods || []);
+
+    } catch (err) {
+      console.error('Error fetching dashboard data:', err);
+      setError('Failed to load dashboard data. Please try again.');
+    } finally {
       setIsLoading(false);
-    }, 1000);
-    return () => clearTimeout(timer);
-  }, []);
-
-  // Mock data
-  const mockStats = {
-    appointments_today: 12,
-    total_sales: 85420,
-    total_customers: 247,
-    products: 18
+    }
   };
 
-  const mockAppointments = [
-    {
-      id: 1,
-      customer_name: "Rajesh Kumar",
-      service: "Hair Cut & Styling",
-      time: "2:30 PM",
-      status: "confirmed"
-    },
-    {
-      id: 2,
-      customer_name: "Priya Sharma",
-      service: "Facial Treatment",
-      time: "3:15 PM",
-      status: "completed"
-    },
-    {
-      id: 3,
-      customer_name: "Amit Patel",
-      service: "Beard Trimming",
-      time: "4:00 PM",
-      status: "pending"
-    },
-    {
-      id: 4,
-      customer_name: "Sneha Reddy",
-      service: "Manicure & Pedicure",
-      time: "4:45 PM",
-      status: "confirmed"
-    },
-    {
-      id: 5,
-      customer_name: "Vikram Singh",
-      service: "Hair Wash & Cut",
-      time: "5:30 PM",
-      status: "pending"
-    }
-  ];
+  // Fetch data on component mount and when period changes
+  useEffect(() => {
+    fetchDashboardData();
+  }, [selectedPeriod]);
 
-  const mockNotifications = [
-    {
-      id: 1,
-      message: "New appointment booked by Rajesh Kumar for tomorrow",
-      time: "2 hours ago",
-      read: false
-    },
-    {
-      id: 2,
-      message: "Payment received for booking #123 - ₹1,500",
-      time: "5 hours ago",
-      read: true
-    },
-    {
-      id: 3,
-      message: "Reminder: Staff meeting at 6 PM today",
-      time: "1 day ago",
-      read: false
-    },
-    {
-      id: 4,
-      message: "Customer review: 5 stars from Priya Sharma",
-      time: "2 days ago",
-      read: true
-    }
-  ];
+  // Refresh data
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await fetchDashboardData();
+    setRefreshing(false);
+  };
 
-  const navigateToSection = (section) => {
-    setSelectedSection(section);
-    // In a real app, this would use React Router
-    console.log(`Navigating to: ${section}`);
+  // Export sales report
+  const handleExportReport = async (format = 'pdf') => {
+    try {
+      const response = await exportSalesReport(selectedPeriod, format);
+      const blob = new Blob([response.data], { 
+        type: format === 'pdf' ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sales-report-${selectedPeriod}days.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Error exporting report:', err);
+    }
+  };
+
+  // Colors for charts
+  const COLORS = ['#3B82F6', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+
+  // Format currency
+  const formatCurrency = (amount) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 0
+    }).format(amount);
+  };
+
+  // Format date for display
+  const formatDate = (dateString) => {
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: '2-digit',
+      month: 'short'
+    });
   };
 
   if (isLoading) {
@@ -110,7 +145,7 @@ const DemoShopDashboard = () => {
       <div className="flex items-center justify-center h-64 bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading dashboard...</p>
+          <p className="text-gray-600">Loading sales dashboard...</p>
         </div>
       </div>
     );
@@ -120,246 +155,265 @@ const DemoShopDashboard = () => {
     <div className="min-h-screen bg-gray-50 p-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
+          <div>
+            <h1 className="text-3xl font-bold text-gray-900">Sales Dashboard</h1>
+            <p className="text-gray-600 mt-2">Track your shop's performance and revenue</p>
+          </div>
+          
+          <div className="flex items-center space-x-4 mt-4 md:mt-0">
+            {/* Period Filter */}
+            <div className="flex items-center space-x-2">
+              <Filter className="w-4 h-4 text-gray-500" />
+              <select
+                value={selectedPeriod}
+                onChange={(e) => setSelectedPeriod(e.target.value)}
+                className="px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+                <option value="365">Last year</option>
+              </select>
+            </div>
 
+            {/* Export Button */}
+            <div className="relative">
+              <button
+                onClick={() => handleExportReport('pdf')}
+                className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export PDF</span>
+              </button>
+            </div>
+
+            {/* Refresh Button */}
+            <button
+              onClick={handleRefresh}
+              disabled={refreshing}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>Refresh</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg flex items-center space-x-2">
+            <AlertCircle className="w-5 h-5 text-red-600" />
+            <span className="text-red-800">{error}</span>
+          </div>
+        )}
 
         {/* Stats Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow">
+          <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-500">Today's Appointments</p>
-                <h3 className="text-2xl font-bold text-gray-900 mt-1">{mockStats.appointments_today}</h3>
-                <p className="text-xs text-green-600 mt-1">↑ 12% from yesterday</p>
-              </div>
-              <div className="p-3 bg-blue-100 rounded-full text-blue-600">
-                <CalendarCheck className="w-6 h-6" />
-              </div>
-            </div>
-            <div className="mt-4">
-              <button 
-                onClick={() => navigateToSection("appointments")}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                View all appointments →
-              </button>
-            </div>
-          </div>
-
-          <div className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium text-gray-500">Total Sales</p>
-                <h3 className="text-2xl font-bold text-gray-900 mt-1">₹{mockStats.total_sales.toLocaleString()}</h3>
-                <p className="text-xs text-green-600 mt-1">↑ 8% from last month</p>
+                <p className="text-sm font-medium text-gray-500">Total Revenue</p>
+                <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                  {formatCurrency(revenueStats.totalRevenue || 0)}
+                </h3>
+                <p className={`text-xs mt-1 ${revenueStats.growthRate >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {revenueStats.growthRate >= 0 ? '↑' : '↓'} {Math.abs(revenueStats.growthRate || 0)}% from last period
+                </p>
               </div>
               <div className="p-3 bg-green-100 rounded-full text-green-600">
                 <DollarSign className="w-6 h-6" />
               </div>
             </div>
-            <div className="mt-4">
-              <button 
-                onClick={() => navigateToSection("sales")}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                View sales history →
-              </button>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm font-medium text-gray-500">Total Bookings</p>
+                <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                  {revenueStats.totalBookings || 0}
+                </h3>
+                <p className="text-xs text-blue-600 mt-1">
+                  {revenueStats.completedBookings || 0} completed
+                </p>
+              </div>
+              <div className="p-3 bg-blue-100 rounded-full text-blue-600">
+                <CalendarCheck className="w-6 h-6" />
+              </div>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow">
+          <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-500">Total Customers</p>
-                <h3 className="text-2xl font-bold text-gray-900 mt-1">{mockStats.total_customers}</h3>
-                <p className="text-xs text-green-600 mt-1">↑ 15% this month</p>
+                <p className="text-sm font-medium text-gray-500">Avg Order Value</p>
+                <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                  {formatCurrency(revenueStats.avgOrderValue || 0)}
+                </h3>
+                <p className="text-xs text-purple-600 mt-1">
+                  Per booking average
+                </p>
               </div>
               <div className="p-3 bg-purple-100 rounded-full text-purple-600">
-                <Users className="w-6 h-6" />
+                <TrendingUp className="w-6 h-6" />
               </div>
-            </div>
-            <div className="mt-4">
-              <button 
-                onClick={() => navigateToSection("customers")}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                View customers →
-              </button>
             </div>
           </div>
 
-          <div className="bg-white rounded-lg shadow-sm border p-6 hover:shadow-md transition-shadow">
+          <div className="bg-white rounded-lg shadow-sm border p-6">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-sm font-medium text-gray-500">Services</p>
-                <h3 className="text-2xl font-bold text-gray-900 mt-1">{mockStats.products}</h3>
-                <p className="text-xs text-blue-600 mt-1">3 new this week</p>
+                <p className="text-sm font-medium text-gray-500">Completion Rate</p>
+                <h3 className="text-2xl font-bold text-gray-900 mt-1">
+                  {revenueStats.completionRate || 0}%
+                </h3>
+                <p className="text-xs text-amber-600 mt-1">
+                  {revenueStats.pendingBookings || 0} pending
+                </p>
               </div>
               <div className="p-3 bg-amber-100 rounded-full text-amber-600">
-                <ShoppingBag className="w-6 h-6" />
+                <Star className="w-6 h-6" />
               </div>
-            </div>
-            <div className="mt-4">
-              <button 
-                onClick={() => navigateToSection("services")}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                Manage services →
-              </button>
             </div>
           </div>
         </div>
 
-        {/* Recent Appointments */}
-        <div className="bg-white rounded-lg shadow-sm border mb-8">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-gray-900">Today's Appointments</h3>
-              <button 
-                onClick={() => navigateToSection("appointments")}
-                className="text-sm text-blue-600 hover:text-blue-800 font-medium"
-              >
-                View all →
-              </button>
+        {/* Charts Section */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+          {/* Sales Chart */}
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Sales Trend</h3>
+              <BarChart3 className="w-5 h-5 text-gray-500" />
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={salesData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="date" 
+                    tickFormatter={formatDate}
+                    fontSize={12}
+                  />
+                  <YAxis 
+                    tickFormatter={(value) => `₹${value}`}
+                    fontSize={12}
+                  />
+                  <Tooltip 
+                    formatter={(value, name) => [
+                      name === 'revenue' ? formatCurrency(value) : value,
+                      name === 'revenue' ? 'Revenue' : 'Bookings'
+                    ]}
+                    labelFormatter={(label) => `Date: ${formatDate(label)}`}
+                  />
+                  <Line 
+                    type="monotone" 
+                    dataKey="revenue" 
+                    stroke="#3B82F6" 
+                    strokeWidth={2}
+                    dot={{ fill: '#3B82F6' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
             </div>
           </div>
-          <div className="p-6">
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead>
-                  <tr className="text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    <th className="pb-3 px-2">Customer</th>
-                    <th className="pb-3 px-2">Service</th>
-                    <th className="pb-3 px-2">Time</th>
-                    <th className="pb-3 px-2">Status</th>
-                    <th className="pb-3 px-2">Actions</th>
+
+          {/* Most Booked Services */}
+          <div className="bg-white rounded-lg shadow-sm border p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">Most Booked Services</h3>
+              <ShoppingBag className="w-5 h-5 text-gray-500" />
+            </div>
+            <div className="h-64">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={mostBookedServices}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis 
+                    dataKey="name" 
+                    angle={-45}
+                    textAnchor="end"
+                    height={80}
+                    fontSize={12}
+                  />
+                  <YAxis fontSize={12} />
+                  <Tooltip 
+                    formatter={(value, name) => [
+                      value,
+                      name === 'bookings' ? 'Bookings' : 'Revenue'
+                    ]}
+                  />
+                  <Bar dataKey="bookings" fill="#3B82F6" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        </div>
+
+        {/* Service Performance Table */}
+        <div className="bg-white rounded-lg shadow-sm border p-6 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Service Performance</h3>
+            <Eye className="w-5 h-5 text-gray-500" />
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-gray-200">
+                  <th className="text-left py-3 px-4 font-medium text-gray-600">Service</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-600">Bookings</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-600">Revenue</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-600">Avg Price</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-600">Growth</th>
+                </tr>
+              </thead>
+              <tbody>
+                {servicePerformance.map((service, index) => (
+                  <tr key={index} className="border-b border-gray-100">
+                    <td className="py-3 px-4 text-gray-900">{service.name}</td>
+                    <td className="py-3 px-4 text-right text-gray-900">{service.bookings}</td>
+                    <td className="py-3 px-4 text-right text-gray-900">
+                      {formatCurrency(service.revenue)}
+                    </td>
+                    <td className="py-3 px-4 text-right text-gray-900">
+                      {formatCurrency(service.avgPrice)}
+                    </td>
+                    <td className={`py-3 px-4 text-right ${service.growth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {service.growth >= 0 ? '↑' : '↓'} {Math.abs(service.growth)}%
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-200">
-                  {mockAppointments.map((appointment) => (
-                    <tr key={appointment.id} className="hover:bg-gray-50">
-                      <td className="py-3 px-2">
-                        <div className="flex items-center">
-                          <div className="w-8 h-8 bg-gray-300 rounded-full flex items-center justify-center mr-3">
-                            <span className="text-sm font-medium text-gray-600">
-                              {appointment.customer_name.charAt(0)}
-                            </span>
-                          </div>
-                          <div className="font-medium text-gray-900">{appointment.customer_name}</div>
-                        </div>
-                      </td>
-                      <td className="py-3 px-2 text-gray-700">{appointment.service}</td>
-                      <td className="py-3 px-2 text-gray-700 font-medium">{appointment.time}</td>
-                      <td className="py-3 px-2">
-                        <span className={`inline-flex px-2 py-1 text-xs font-medium rounded-full ${
-                          appointment.status === 'confirmed' 
-                            ? 'bg-green-100 text-green-800' 
-                            : appointment.status === 'completed'
-                            ? 'bg-blue-100 text-blue-800'
-                            : 'bg-yellow-100 text-yellow-800'
-                        }`}>
-                          {appointment.status.charAt(0).toUpperCase() + appointment.status.slice(1)}
-                        </span>
-                      </td>
-                      <td className="py-3 px-2">
-                        <div className="flex space-x-2">
-                          <button className="text-blue-600 hover:text-blue-800 p-1">
-                            <Eye className="w-4 h-4" />
-                          </button>
-                          <button className="text-green-600 hover:text-green-800 p-1">
-                            <Edit className="w-4 h-4" />
-                          </button>
-                          <button className="text-red-600 hover:text-red-800 p-1">
-                            <X className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
 
-        {/* Bottom Section */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          {/* Notifications */}
-          <div className="bg-white rounded-lg shadow-sm border">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Recent Notifications</h3>
-            </div>
-            <div className="p-4">
-              <div className="space-y-4">
-                {mockNotifications.map((notification) => (
-                  <div key={notification.id} className={`p-3 rounded-lg border ${!notification.read ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
-                    <div className="flex items-start">
-                      <div className={`p-2 rounded-full mr-3 ${!notification.read ? 'bg-blue-200 text-blue-600' : 'bg-gray-200 text-gray-600'}`}>
-                        <Bell className="w-4 h-4" />
-                      </div>
-                      <div className="flex-1">
-                        <p className={`text-sm ${!notification.read ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
-                          {notification.message}
-                        </p>
-                        <p className="text-xs text-gray-500 mt-1">{notification.time}</p>
-                      </div>
-                      {!notification.read && (
-                        <div className="w-2 h-2 bg-blue-600 rounded-full mt-2"></div>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
+        {/* Payment Methods Chart */}
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Payment Methods</h3>
+            <PieChart className="w-5 h-5 text-gray-500" />
           </div>
-
-          {/* Quick Actions */}
-          <div className="bg-white rounded-lg shadow-sm border">
-            <div className="px-6 py-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900">Quick Actions</h3>
-            </div>
-            <div className="p-6">
-              <div className="grid grid-cols-2 gap-4">
-                <button 
-                  className="flex flex-col items-center justify-center p-4 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors duration-200 border border-blue-200"
-                  onClick={() => navigateToSection("appointments")}
+          <div className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <RechartsPieChart>
+                <Pie
+                  data={paymentStats}
+                  cx="50%"
+                  cy="50%"
+                  labelLine={false}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  outerRadius={80}
+                  fill="#8884d8"
+                  dataKey="value"
                 >
-                  <div className="p-3 bg-blue-100 rounded-full text-blue-600 mb-2">
-                    <Calendar className="w-6 h-6" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-900">Add Appointment</span>
-                </button>
-                
-                <button 
-                  className="flex flex-col items-center justify-center p-4 bg-green-50 rounded-lg hover:bg-green-100 transition-colors duration-200 border border-green-200"
-                  onClick={() => navigateToSection("customers")}
-                >
-                  <div className="p-3 bg-green-100 rounded-full text-green-600 mb-2">
-                    <Users className="w-6 h-6" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-900">Add Customer</span>
-                </button>
-                
-                <button 
-                  className="flex flex-col items-center justify-center p-4 bg-amber-50 rounded-lg hover:bg-amber-100 transition-colors duration-200 border border-amber-200"
-                  onClick={() => navigateToSection("services")}
-                >
-                  <div className="p-3 bg-amber-100 rounded-full text-amber-600 mb-2">
-                    <ShoppingBag className="w-6 h-6" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-900">Add Service</span>
-                </button>
-                
-                <button 
-                  className="flex flex-col items-center justify-center p-4 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors duration-200 border border-purple-200"
-                  onClick={() => navigateToSection("reports")}
-                >
-                  <div className="p-3 bg-purple-100 rounded-full text-purple-600 mb-2">
-                    <TrendingUp className="w-6 h-6" />
-                  </div>
-                  <span className="text-sm font-medium text-gray-900">View Reports</span>
-                </button>
-              </div>
-            </div>
+                  {paymentStats.map((entry, index) => (
+                    <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                  ))}
+                </Pie>
+                <Tooltip formatter={(value) => formatCurrency(value)} />
+              </RechartsPieChart>
+            </ResponsiveContainer>
           </div>
         </div>
       </div>
@@ -367,4 +421,4 @@ const DemoShopDashboard = () => {
   );
 };
 
-export default DemoShopDashboard;
+export default ShopSalesDashboard;

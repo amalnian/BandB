@@ -26,7 +26,7 @@ export const getDashboardStats = () => axios.get("dashboard/stats/");
 
 export const getRecentAppointments = () => axios.get("appointments/recent/");
 
-export const getNotifications = () => axios.get("notifications/");
+// export const getNotifications = () => axios.get("notifications/");
 
 // Business Hours APIs (Missing in your original file)
 export const getBusinessHours = () => axios.get("shop/business-hours/");
@@ -72,10 +72,10 @@ export const getReports = (params) => axios.get("reports/", { params });
 
 export const getAnalytics = (params) => axios.get("analytics/", { params });
 
-// Notifications APIs
-export const markNotificationAsRead = (id) => axios.put(`notifications/${id}/read/`);
+// // Notifications APIs
+// export const markNotificationAsRead = (id) => axios.put(`notifications/${id}/read/`);
 
-export const markAllNotificationsAsRead = () => axios.put("notifications/mark-all-read/");
+// export const markAllNotificationsAsRead = () => axios.put("notifications/mark-all-read/");
 
 // Shop Status/Approval APIs (You might need these)
 export const getShopStatus = () => axios.get("shop/status/");
@@ -105,4 +105,52 @@ export const getShopRatingSummary = (shopId) => axios.get(`shops/${shopId}/ratin
 
 export const getShopFeedback = (shopId) => {
   return axios.get(`/shops/${shopId}/feedbacks/`);
+};
+
+
+
+
+// Add these functions to your ShopAPI.js file
+
+// Sales Analytics APIs
+export const getSalesReport = (period = '7') => {
+  return axios.get(`shop/sales-report/?period=${period}`);
+};
+
+export const getSalesChart = (period = '7') => {
+  return axios.get(`shop/sales-chart/?period=${period}`);
+};
+
+export const getMostBookedServices = (period = '7') => {
+  return axios.get(`shop/most-booked-services/?period=${period}`);
+};
+
+export const getRevenueStats = (period = '7') => {
+  return axios.get(`shop/revenue-stats/?period=${period}`);
+};
+
+export const getBookingStats = (period = '7') => {
+  return axios.get(`shop/booking-stats/?period=${period}`);
+};
+
+export const getServicePerformance = (period = '7') => {
+  return axios.get(`shop/service-performance/?period=${period}`);
+};
+
+export const getCustomerAnalytics = (period = '7') => {
+  return axios.get(`shop/customer-analytics/?period=${period}`);
+};
+
+export const getPaymentMethodStats = (period = '7') => {
+  return axios.get(`shop/payment-method-stats/?period=${period}`);
+};
+
+export const getHourlyBookingStats = (period = '7') => {
+  return axios.get(`shop/hourly-booking-stats/?period=${period}`);
+};
+
+export const exportSalesReport = (period = '7', format = 'pdf') => {
+  return axios.get(`shop/export-sales-report/?period=${period}&format=${format}`, {
+    responseType: 'blob'
+  });
 };

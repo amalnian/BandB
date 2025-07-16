@@ -3,12 +3,16 @@ from users.models import *
 from .models import *
 
 class UserListSerializer(serializers.ModelSerializer):
+    display_name = serializers.CharField(source='get_display_name', read_only=True)
+    display_image = serializers.CharField(source='get_display_image', read_only=True)
+    
     class Meta:
         model = CustomUser
-        fields = ('id', 'username','profile_url')
+        fields = ('id', 'username', 'profile_url', 'role', 'display_name', 'display_image')
 
 class ConversationSerializer(serializers.ModelSerializer):
     participants = UserListSerializer(many=True, read_only=True)
+    
     class Meta:
         model = Conversation
         fields = ('id', 'participants', 'created_at')
@@ -20,6 +24,7 @@ class ConversationSerializer(serializers.ModelSerializer):
 class MessageSerializer(serializers.ModelSerializer):
     sender = UserListSerializer()
     participants = serializers.SerializerMethodField()
+    
     class Meta:
         model = Message
         fields = ('id', 'conversation', 'sender', 'content', 'timestamp', 'participants')

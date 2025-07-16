@@ -34,7 +34,15 @@ class Notification(models.Model):
     sender = models.ForeignKey(Users, related_name='sent_notifications', on_delete=models.CASCADE)
     receiver = models.ForeignKey(Users, related_name='received_notifications', on_delete=models.CASCADE)
     message = models.TextField()
+    is_read = models.BooleanField(default=False)
     timestamp = models.DateTimeField(auto_now_add=True)
-
+    
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['receiver', 'is_read']),
+            models.Index(fields=['receiver', 'timestamp']),
+        ]
+    
     def __str__(self):
         return f'From {self.sender.username} to {self.receiver.username} - {self.message[:20]}'

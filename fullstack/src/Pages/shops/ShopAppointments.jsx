@@ -7,6 +7,7 @@ const AppointmentsContent = () => {
   const [stats, setStats] = useState({});
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState({});
+  const [cancelModal, setCancelModal] = useState({ show: false, bookingId: null });
   const [filters, setFilters] = useState({
     status: 'all',
     date: '',
@@ -57,6 +58,15 @@ const isAppointmentTimePassed = (appointmentDate, appointmentTime) => {
   
   return now > appointmentDateTime;
 };  
+
+const handleCancelClick = (bookingId) => {
+  setCancelModal({ show: true, bookingId });
+};
+
+const confirmCancel = () => {
+  handleStatusUpdate(cancelModal.bookingId, 'cancelled');
+  setCancelModal({ show: false, bookingId: null });
+};
 
 const fetchBookings = async (page = currentPage) => {
   try {
@@ -474,7 +484,7 @@ const fetchBookings = async (page = currentPage) => {
                             {updating[booking.id] ? 'Updating...' : 'Confirm'}
                           </button>
                           <button
-                            onClick={() => handleStatusUpdate(booking.id, 'cancelled')}
+                            onClick={() => handleCancelClick(booking.id)}
                             disabled={updating[booking.id]}
                             className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 disabled:opacity-50 transition-colors"
                           >
@@ -501,7 +511,7 @@ const fetchBookings = async (page = currentPage) => {
                           )}
                           
                           <button
-                            onClick={() => handleStatusUpdate(booking.id, 'cancelled')}
+                            onClick={() =>  handleCancelClick(booking.id)}
                             disabled={updating[booking.id]}
                             className="px-3 py-1 bg-red-500 text-white text-sm rounded hover:bg-red-600 disabled:opacity-50 transition-colors"
                           >
@@ -580,7 +590,33 @@ const fetchBookings = async (page = currentPage) => {
               </div>
             </div>
           )}
+
+              {cancelModal.show && (
+      <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+        <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+          <h3 className="text-lg font-semibold mb-4">Confirm Cancellation</h3>
+          <p className="text-gray-600 mb-6">Are you sure you want to cancel this appointment? This action cannot be undone.</p>
+          <div className="flex justify-end space-x-3">
+            <button
+              onClick={() => setCancelModal({ show: false, bookingId: null })}
+              className="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300"
+            >
+              No, Keep It
+            </button>
+            <button
+              onClick={confirmCancel}
+              className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600"
+            >
+              Yes, Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
         </>
+
+
+
       )}
     </div>
   );

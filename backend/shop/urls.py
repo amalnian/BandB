@@ -114,4 +114,18 @@ urlpatterns = [
 
     path('shops/<int:shop_id>/rating-summary/', views.get_shop_rating_summary, name='shop_rating_summary'),
 
+
+
+
+
+
+    path('shop/sales-chart/', views.SalesChartView.as_view(), name='sales_chart'),
+    path('shop/most-booked-services/', views.MostBookedServicesView.as_view(), name='most_booked_services'),
+    path('shop/revenue-stats/', views.RevenueStatsView.as_view(), name='revenue_stats'),
+    path('shop/service-performance/', views.ServicePerformanceView.as_view(), name='service_performance'),
+    path('shop/payment-method-stats/', views.PaymentMethodStatsView.as_view(), name='payment_method_stats'),
+    path('shop/booking-stats/', views.BookingStatsView.as_view(), name='booking_stats'),
+    path('shop/customer-analytics/', views.CustomerAnalyticsView.as_view(), name='customer_analytics'),
+    path('shop/hourly-booking-stats/', views.HourlyBookingStatsView.as_view(), name='hourly_booking_stats'),
+    path('shop/export-sales-report/', views.ExportSalesReportView.as_view(), name='export_sales_report'),
 ]

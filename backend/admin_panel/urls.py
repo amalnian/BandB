@@ -13,6 +13,7 @@ from .views import (
     Logout,
     RecentAppointmentsView
 )
+from admin_panel import views
 
 # Create a router for ViewSets
 router = DefaultRouter()
@@ -29,9 +30,20 @@ urlpatterns = [
     path('check/', AdminStatusView.as_view(), name='check-admin'),
     
     # Dashboard data endpoints
-    path('dashboard/stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
+    # path('dashboard/stats/', DashboardStatsView.as_view(), name='dashboard-stats'),
     path('dashboard/appointments/', RecentAppointmentsView.as_view(), name='recent-appointments'),
-    path('profile/',AdminProfileView.as_view(), name='admin_profile'),
-    path('change-password/',AdminChangePasswordView.as_view(), name='admin_change_password'),
+    path('settings/profile/',AdminProfileView.as_view(), name='admin_profile'),
+    path('settings/change-password/',AdminChangePasswordView.as_view(), name='admin_change_password'),
 
+
+
+    path('dashboard/stats/', views.AdminDashboardStatsView.as_view(), name='admin_dashboard_stats'),
+    path('dashboard/revenue-chart/', views.AdminRevenueChartView.as_view(), name='admin_revenue_chart'),
+    path('dashboard/shops-performance/', views.AdminShopsPerformanceView.as_view(), name='admin_shops_performance'),
+    path('dashboard/recent-bookings/', views.AdminRecentBookingsView.as_view(), name='admin_recent_bookings'),
+    path('dashboard/commission-report/', views.AdminCommissionReportView.as_view(), name='admin_commission_report'),
+    
+    # Additional admin features
+    path('dashboard/pay-shop/', views.AdminPayShopCommissionView.as_view(), name='admin_pay_shop'),
+    path('dashboard/export/', views.AdminExportDataView.as_view(), name='admin_export_data'),
 ]
