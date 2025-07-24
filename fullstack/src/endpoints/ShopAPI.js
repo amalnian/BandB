@@ -154,3 +154,24 @@ export const exportSalesReport = (period = '7', format = 'pdf') => {
     responseType: 'blob'
   });
 };
+
+
+export const getSpecificShopPayments = (filters = {}) => {
+    const { shop_id, ...otherFilters } = filters;
+    
+    if (!shop_id) {
+        throw new Error('shop_id is required');
+    }
+    
+    const params = new URLSearchParams();
+    
+    if (otherFilters.payment_method) params.append('payment_method', otherFilters.payment_method);
+    if (otherFilters.start_date) params.append('start_date', otherFilters.start_date);
+    if (otherFilters.end_date) params.append('end_date', otherFilters.end_date);
+    
+    const queryString = params.toString();
+    const url = queryString ? `shop/${shop_id}/payments/?${queryString}` : `shop/${shop_id}/payments/`;
+    
+    return axios.get(url);
+};
+

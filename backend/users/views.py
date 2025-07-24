@@ -1032,13 +1032,23 @@ class NearbyShopsView(APIView):
             user_lng = request.GET.get('longitude')
             radius = float(request.GET.get('radius', 10))
             
+            print(f"Request params - lat: {user_lat}, lng: {user_lng}, radius: {radius}")
+
+
             if not user_lat or not user_lng:
                 user = request.user
+                print(f"User stored location - lat: {user.current_latitude}, lng: {user.current_longitude}")
                 if user.current_latitude and user.current_longitude:
                     user_lat = float(user.current_latitude)
                     user_lng = float(user.current_longitude)
+                    print(f"Using stored coordinates - lat: {user_lat}, lng: {user_lng}")
                 else:
-                    return Response({'error': 'Location coordinates are required. Please enable location access.'}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response({
+                        'error': 'No location available. Please enable location access to see nearby shops.',
+                        'fallback_needed': True
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+            
             else:
                 try:
                     user_lat = float(user_lat)
@@ -1054,7 +1064,8 @@ class NearbyShopsView(APIView):
                 is_approved=True,
                 is_email_verified=True
             ).select_related('user').prefetch_related('images')
-            
+            print(f"Total shops in database: {shops.count()}")  # ADD THIS LINE
+
             nearby_shops = []
             for shop in shops:
                 try:
@@ -1062,6 +1073,9 @@ class NearbyShopsView(APIView):
                     shop_lng = float(shop.longitude)
                     distance = self.calculate_distance(user_lat, user_lng, shop_lat, shop_lng)
                     
+                    print(f"Shop: {shop.name}, Distance: {distance}, Radius: {radius}")  # ADD THIS LINE
+
+
                     if distance <= radius:
                         try:
                             average_rating = shop.get_average_rating() if hasattr(shop, 'get_average_rating') else 0.0

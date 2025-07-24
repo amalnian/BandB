@@ -145,7 +145,7 @@ const ShopSalesDashboard = () => {
       <div className="flex items-center justify-center h-64 bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Loading sales dashboard...</p>
+          {/* <p className="text-gray-600">Loading sales dashboard...</p> */}
         </div>
       </div>
     );
@@ -157,7 +157,7 @@ const ShopSalesDashboard = () => {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">Sales Dashboard</h1>
+            {/* <h1 className="text-3xl font-bold text-gray-900">Sales </h1> */}
             <p className="text-gray-600 mt-2">Track your shop's performance and revenue</p>
           </div>
           
@@ -178,7 +178,7 @@ const ShopSalesDashboard = () => {
             </div>
 
             {/* Export Button */}
-            <div className="relative">
+            {/* <div className="relative">
               <button
                 onClick={() => handleExportReport('pdf')}
                 className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
@@ -186,17 +186,17 @@ const ShopSalesDashboard = () => {
                 <Download className="w-4 h-4" />
                 <span>Export PDF</span>
               </button>
-            </div>
+            </div> */}
 
             {/* Refresh Button */}
-            <button
+            {/* <button
               onClick={handleRefresh}
               disabled={refreshing}
               className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50"
             >
               <RefreshCw className={`w-4 h-4 ${refreshing ? 'animate-spin' : ''}`} />
               <span>Refresh</span>
-            </button>
+            </button> */}
           </div>
         </div>
 
@@ -363,8 +363,8 @@ const ShopSalesDashboard = () => {
                   <th className="text-left py-3 px-4 font-medium text-gray-600">Service</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-600">Bookings</th>
                   <th className="text-right py-3 px-4 font-medium text-gray-600">Revenue</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-600">Avg Price</th>
-                  <th className="text-right py-3 px-4 font-medium text-gray-600">Growth</th>
+                  {/* <th className="text-right py-3 px-4 font-medium text-gray-600">Avg Price</th>
+                  <th className="text-right py-3 px-4 font-medium text-gray-600">Growth</th> */}
                 </tr>
               </thead>
               <tbody>
@@ -375,12 +375,12 @@ const ShopSalesDashboard = () => {
                     <td className="py-3 px-4 text-right text-gray-900">
                       {formatCurrency(service.revenue)}
                     </td>
-                    <td className="py-3 px-4 text-right text-gray-900">
+                    {/* <td className="py-3 px-4 text-right text-gray-900">
                       {formatCurrency(service.avgPrice)}
                     </td>
                     <td className={`py-3 px-4 text-right ${service.growth >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {service.growth >= 0 ? '↑' : '↓'} {Math.abs(service.growth)}%
-                    </td>
+                    </td> */}
                   </tr>
                 ))}
               </tbody>

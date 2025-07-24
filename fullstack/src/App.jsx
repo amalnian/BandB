@@ -92,6 +92,8 @@ const DashboardContent = LazyComponent(() => import("./Pages/admin/DashboardCont
 const UsersManagement = LazyComponent(() => import("./Pages/admin/UserManagement"))
 const ShopManagement = LazyComponent(() => import("./Pages/admin/ShopManagement"))
 const AdminSettings = LazyComponent(() => import("./Pages/admin/Settings"))
+const AdminShopPaymentsList = LazyComponent(() => import("./Pages/admin/Payments"))
+
 
 // Shop components
 const ShopLoginPage = LazyComponent(() => import("./Pages/shops/ShopLogin"))
@@ -105,6 +107,7 @@ const ShopCustomers = LazyComponent(() => import("./Pages/shops/ShopCustomers"))
 const ShopFeedback = LazyComponent(() => import("./Pages/shops/components/Feedback"))
 const ShopSettings = LazyComponent(() => import("./Pages/shops/ShopSettings"))
 const ChatShop = LazyComponent(() => import("./Pages/chat/ChatPage"))
+const ShopPaymentsList = LazyComponent(() => import("./Pages/shops/components/Payments"))
 
 // Enhanced Protected Route for HttpOnly Cookies
 const SimpleProtectedUserRoute = ({ children }) => {
@@ -245,6 +248,7 @@ function App() {
                 <Route path="dashboard" element={<DashboardContent />} />
                 <Route path="users" element={<UsersManagement />} />
                 <Route path="shops" element={<ShopManagement />} />
+                <Route path="payments" element={<AdminShopPaymentsList />} />
                 <Route path="settings" element={
                   <ErrorBoundary>
                     <AdminSettings />
@@ -271,6 +275,7 @@ function App() {
                 <Route path="feedbacks" element={<ShopFeedback />} />
                 <Route path="settings" element={<ShopSettings />} />
                 <Route path="chat" element={<ChatShop />} />
+                <Route path="payments" element={<ShopPaymentsList />} />
               </Route>
 
               {/* Redirect any unknown routes to login */}

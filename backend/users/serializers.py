@@ -367,7 +367,9 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'is_active',
             'date_joined',
             'last_login',
-            'location_enabled'
+            'location_enabled',
+            'current_latitude',
+            'current_longitude'
         ]
         read_only_fields = ['id', 'date_joined', 'last_login', 'role', 'is_active']
     

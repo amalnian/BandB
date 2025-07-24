@@ -22,6 +22,7 @@ from .views import (
     # ShopProfileView,
     ShopRegisterView,
     ShopResetPasswordView,
+    ShopSpecificPaymentView,
     ShopUpdateView,
     ShopVerifyForgotPasswordOTPView,
     ShopVerifyOTPView,
@@ -86,11 +87,6 @@ urlpatterns = [
     path('shop/business-hours/', BusinessHoursView.as_view(), name='business_hours'),
     path('shop/business-hours/update/', BusinessHoursUpdateView.as_view(), name='business_hours_update'),
     
-    # Available Slots endpoint
-    # path('shop/available-slots/', AvailableSlotsView.as_view(), name='available_slots'),
-    
-    # Appointment endpoint
-    # path('shop/appointments/create/', AppointmentCreateView.as_view(), name='create_appointment'),
     
     # Special Closing Days endpoints
     path('shop/special-closing-days/', SpecialClosingDayView.as_view(), name='special_closing_days'),
@@ -128,4 +124,8 @@ urlpatterns = [
     path('shop/customer-analytics/', views.CustomerAnalyticsView.as_view(), name='customer_analytics'),
     path('shop/hourly-booking-stats/', views.HourlyBookingStatsView.as_view(), name='hourly_booking_stats'),
     path('shop/export-sales-report/', views.ExportSalesReportView.as_view(), name='export_sales_report'),
+
+
+
+    path('shop/<int:shop_id>/payments/', ShopSpecificPaymentView.as_view(), name='shop-payments'),
 ]

@@ -1,3 +1,4 @@
+from venv import logger
 from chat.models import Notification
 from channels.db import database_sync_to_async
 from channels_redis.core import RedisChannelLayer
@@ -117,6 +118,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
                         'timestamp': message.timestamp.isoformat(),
                     }
                 )
+                await self.send_message_notifications(message, user)
+
             except Exception as e:
                 print(f"Error saving message: {e}")
                 import traceback
@@ -248,6 +251,66 @@ class ChatConsumer(AsyncWebsocketConsumer):
         except Message.DoesNotExist:
             print(f"Message with id {message_id} does not exist")
             return False
+
+
+    async def send_message_notifications(self, message, sender):
+        """Send notifications to other participants"""
+        try:
+            participants = await self.get_conversation_participants(message.conversation)
+            
+
+            ONLINE_USERS = f'chat:online_users'
+            curr_users = cache.get(ONLINE_USERS, [])
+            logger.info(f"Current online users: {curr_users}")
+            # Check conversation-specific online users
+            # ONLINE_USERS = f'chat:online_users_{self.conversation_id}'
+            # curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
+            # print('online',curr_users)
+            # print(ONLINE_USERS)
+            online_user_ids = [user_data["id"] for user_data in curr_users]
+            
+            notification_data = {
+                'type': 'notification',
+                'message': {
+                    'sender': sender.username,
+                    'content': message.content,
+                    'timestamp': message.timestamp.isoformat(),
+                    'conversation_id': self.conversation_id
+                }
+            }
+            
+            for participant in participants:
+                if participant.id != sender.id:  # Don't notify sender
+                    if participant.id in online_user_ids:
+                        # Send real-time notification
+                        await self.channel_layer.group_send(
+                            f'user_{participant.id}',
+                            notification_data
+                        )
+                        print(f"✅ Real-time notification sent to user {participant.id}")
+                    else:
+                        # Save notification for offline user
+                        await self.save_notification(sender, participant, message.content)
+                        print(f"✅ Notification saved for offline user {participant.id}")
+        
+        except Exception as e:
+            print(f"❌ Error sending notifications: {e}")
+    
+    # *** ADD THESE HELPER METHODS ***
+    @database_sync_to_async
+    def get_conversation_participants(self, conversation):
+        return list(conversation.participants.all())
+    
+    @database_sync_to_async
+    def save_notification(self, sender, receiver, message):
+        from .models import Notification
+        return Notification.objects.create(
+            sender=sender,
+            receiver=receiver,
+            message=message
+        )
+
+
 
 
 class UserConsumer(AsyncWebsocketConsumer):

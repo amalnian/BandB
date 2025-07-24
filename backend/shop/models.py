@@ -394,3 +394,42 @@ def get_weekday_mapping():
 
 
 
+
+
+
+
+
+
+class ShopCommissionPayment(models.Model):
+    PAYMENT_STATUS_CHOICES = [
+        ('pending', 'Pending'),
+        ('paid', 'Paid'),
+        ('failed', 'Failed'),
+    ]
+    
+    PAYMENT_METHOD_CHOICES = [
+        ('bank_transfer', 'Bank Transfer'),
+        ('upi', 'UPI'),
+        ('cash', 'Cash'),
+        ('cheque', 'Cheque'),
+    ]
+
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='commission_payments')
+    amount = models.DecimalField(max_digits=10, decimal_places=2)
+    payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
+    transaction_reference = models.CharField(max_length=100, blank=True)  # UTR, transaction ID, etc.
+    payment_date = models.DateTimeField()
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='paid')
+    
+    # Admin who made the payment
+    paid_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
+    
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"Payment to {self.shop.name} - ₹{self.amount}"

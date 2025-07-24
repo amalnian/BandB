@@ -126,6 +126,12 @@ export default function AdminLayout() {
               </Link>
             </li> */}
             <li>
+              <Link to="/admin/payments" className="flex items-center p-2 rounded-md hover:bg-gray-800">
+                <Scissors size={20} />
+                {sidebarOpen && <span className="ml-3">Payments</span>}
+              </Link>
+            </li>
+            <li>
               <Link to="/admin/settings" className="flex items-center p-2 rounded-md hover:bg-gray-800">
                 <Settings size={20} />
                 {sidebarOpen && <span className="ml-3">Settings</span>}

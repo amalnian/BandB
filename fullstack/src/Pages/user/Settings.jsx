@@ -40,6 +40,8 @@ export default function Settings() {
     city: "",
     state: "",
     zip_code: "",
+    current_latitude:'',
+    current_longitude:'',
     profile_url: null
   })
   const [passwordData, setPasswordData] = useState({
@@ -384,6 +386,39 @@ export default function Settings() {
                         type="tel"
                         value={profileData.phone}
                         onChange={(e) => setProfileData(prev => ({ ...prev, phone: e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      />
+                      {errors.phone && (
+                        <p className="text-red-600 text-sm mt-1">{errors.phone[0]}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <Mail className="h-4 w-4 inline mr-2" />
+                        Longitude
+                      </label>
+                      <input
+                        type="number"
+                        value={profileData.current_longitude}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, current_longitude:e.target.value }))}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
+                      />
+                      {errors.email && (
+                        <p className="text-red-600 text-sm mt-1">{errors.email[0]}</p>
+                      )}
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-2">
+                        <Phone className="h-4 w-4 inline mr-2" />
+                        Latitude
+                      </label>
+                      <input
+                        type="number"
+                        value={profileData.current_latitude}
+                        onChange={(e) => setProfileData(prev => ({ ...prev, current_latitude: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                       />
                       {errors.phone && (

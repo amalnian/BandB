@@ -1,4 +1,5 @@
-// components/layout/Sidebar.js
+// Updated Sidebar.js to handle payments link correctly
+
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { 
@@ -11,22 +12,20 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
   const location = useLocation();
   const navigate = useNavigate();
 
-  
   const handleLogout = async () => {
     try {
-      // Call logout API to clear cookies on server side
       await logoutAPI();
     } catch (error) {
       console.error("Logout API error:", error);
-      // Continue with logout even if API call fails
     } finally {
-      // Clear only localStorage data (cookies are handled by server)
       localStorage.removeItem("shop_data");
       localStorage.removeItem("user_data");
-      // Redirect to login
       navigate("/shop/login");
     }
   };
+
+  // Get shopId from shopData
+  const shopId = shopData?.id || shopData?.shop_id;
 
   const menuItems = [
     { path: '/shop/dashboard', icon: FaChartLine, label: 'Dashboard', requiresApproval: true },
@@ -34,6 +33,15 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
     { path: '/shop/services', icon: FaShoppingBag, label: 'Services', requiresApproval: true },
     { path: '/shop/chat', icon: FaUsers, label: 'Chats', requiresApproval: true },
     { path: '/shop/feedbacks', icon: FaChartLine, label: 'Feedbacks', requiresApproval: true },
+    { 
+      // Option 1: If using nested route
+      path: '/shop/payments', 
+      // Option 2: If using shopId in URL (uncomment this line and comment above)
+      // path: `/shop/${shopId}/payments`,
+      icon: FaChartLine, 
+      label: 'Payments', 
+      requiresApproval: true 
+    },
     { path: '/shop/settings', icon: FaCog, label: 'Settings', requiresApproval: false },
   ];
 
@@ -41,6 +49,13 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
     if (!isApproved && item.requiresApproval) {
       e.preventDefault();
       alert('Please complete your shop profile and wait for approval to access other features.');
+      return;
+    }
+    
+    // If payments link and no shopId, prevent navigation
+    if (item.path.includes('payments') && !shopId) {
+      e.preventDefault();
+      alert('Shop ID not available. Please try logging out and back in.');
       return;
     }
   };
@@ -62,6 +77,10 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
         </div>
         <p className="mt-2 text-blue-200 text-sm truncate">
           {shopData?.name || "Your Shop"}
+        </p>
+        {/* Debug info - remove in production */}
+        <p className="mt-1 text-blue-200 text-xs">
+          ID: {shopId || 'Not available'}
         </p>
       </div>
       

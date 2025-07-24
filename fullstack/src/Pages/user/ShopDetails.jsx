@@ -588,7 +588,7 @@ const fetchRatingSummary = async () => {
               <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
               
               {/* Status Badge */}
-              <div className="absolute top-6 left-6">
+              {/* <div className="absolute top-6 left-6">
                 {shopData.is_active ? (
                   <span className="bg-green-500 text-white px-3 py-1 rounded-full text-sm font-medium shadow-lg">
                     Open Now
@@ -598,7 +598,7 @@ const fetchRatingSummary = async () => {
                     Closed
                   </span>
                 )}
-              </div>
+              </div> */}
               
               {/* Distance Badge */}
               {distance && (

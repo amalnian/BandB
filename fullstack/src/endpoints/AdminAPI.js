@@ -137,3 +137,23 @@ export const exportData = (exportType) =>
         params: { type: exportType },
         responseType: 'blob' // Important for file downloads
     });
+
+
+
+
+export const recordShopPayment = (paymentData) => 
+    axios.post('record-payment/', paymentData);
+
+
+export const getShopPayments = (filters = {}) => {
+    const params = new URLSearchParams();
+    
+    // Add filters to query parameters
+    if (filters.shop_id) params.append('shop_id', filters.shop_id);
+    if (filters.payment_method) params.append('payment_method', filters.payment_method);
+    if (filters.start_date) params.append('start_date', filters.start_date);
+    if (filters.end_date) params.append('end_date', filters.end_date);
+    
+    return axios.get(`record-payment/?${params.toString()}`);
+};
+

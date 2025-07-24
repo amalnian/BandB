@@ -7,7 +7,7 @@ import {
 import { 
     TrendingUp, DollarSign, Users, ShoppingBag, 
     Calendar, Filter, Download, Eye, Star, AlertCircle,
-    RefreshCw
+    RefreshCw, X, CreditCard, FileText, Check
 } from 'lucide-react';
 import { 
     getDashboardStats, 
@@ -15,8 +15,8 @@ import {
     getShopsPerformance, 
     getRecentBookings, 
     getCommissionReport,
-    payShopCommission,
     exportData,
+    recordShopPayment
 } from '@/endpoints/AdminAPI';
 
 const DashboardContent = () => {
@@ -33,6 +33,20 @@ const DashboardContent = () => {
         end_date: new Date().toISOString().split('T')[0]
     });
 
+    // Payment Modal State
+    const [paymentModal, setPaymentModal] = useState({
+        isOpen: false,
+        shop: null,
+        amount: 0
+    });
+    const [paymentForm, setPaymentForm] = useState({
+        payment_method: 'bank_transfer',
+        transaction_reference: '',
+        payment_date: new Date().toISOString().split('T')[0],
+        notes: ''
+    });
+    const [paymentLoading, setPaymentLoading] = useState(false);
+
     const colors = ['#8884d8', '#82ca9d', '#ffc658', '#ff7300', '#0088fe'];
 
     const fetchDashboardData = async () => {
@@ -47,7 +61,7 @@ const DashboardContent = () => {
                 getRecentBookings(10),
                 getCommissionReport(dateRange)
             ]);
-            console.log(statsRes.data)
+            console.log(statsRes)
             setDashboardData(statsRes.data);
             setRevenueChart(chartRes.data.data || []);
             setShopsPerformance(shopsRes.data.shops || []);
@@ -61,15 +75,54 @@ const DashboardContent = () => {
         }
     };
 
-    const handlePayCommission = async (shopId, amount) => {
+    const openPaymentModal = (shop, amount) => {
+        setPaymentModal({
+            isOpen: true,
+            shop,
+            amount
+        });
+        setPaymentForm({
+            payment_method: 'bank_transfer',
+            transaction_reference: '',
+            payment_date: new Date().toISOString().split('T')[0],
+            notes: ''
+        });
+    };
+
+    const closePaymentModal = () => {
+        setPaymentModal({
+            isOpen: false,
+            shop: null,
+            amount: 0
+        });
+        setPaymentForm({
+            payment_method: 'bank_transfer',
+            transaction_reference: '',
+            payment_date: new Date().toISOString().split('T')[0],
+            notes: ''
+        });
+    };
+
+    const handlePaymentSubmit = async (e) => {
+        e.preventDefault();
+        setPaymentLoading(true);
+
         try {
-            await payShopCommission(shopId, amount);
-            alert('Payment processed successfully!');
-            // Refresh data after payment
-            fetchDashboardData();
+            const paymentData = {
+                shop_id: paymentModal.shop.id,
+                amount: paymentModal.amount,
+                ...paymentForm
+            };
+
+            await recordShopPayment(paymentData);
+            alert('Payment recorded successfully!');
+            closePaymentModal();
+            fetchDashboardData(); // Refresh data
         } catch (error) {
-            console.error('Payment failed:', error);
-            alert(`Payment failed: ${error.message || 'Unknown error'}`);
+            console.error('Payment recording failed:', error);
+            alert(`Payment recording failed: ${error.response?.data?.error || error.message}`);
+        } finally {
+            setPaymentLoading(false);
         }
     };
 
@@ -144,6 +197,112 @@ const DashboardContent = () => {
         return new Date(dateString).toLocaleDateString('en-IN');
     };
 
+    // Payment Modal Component
+    const PaymentModal = () => (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+                <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">Record Payment</h3>
+                    <button
+                        onClick={closePaymentModal}
+                        className="text-gray-400 hover:text-gray-600"
+                    >
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                <div className="mb-4 p-4 bg-gray-50 rounded-lg">
+                    <p className="text-sm text-gray-600">Shop</p>
+                    <p className="font-medium text-gray-900">{paymentModal.shop?.name}</p>
+                    <p className="text-sm text-gray-600 mt-1">Amount</p>
+                    <p className="text-lg font-bold text-green-600">{formatCurrency(paymentModal.amount)}</p>
+                </div>
+
+                <form onSubmit={handlePaymentSubmit} className="space-y-4">
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Payment Method *
+                        </label>
+                        <select
+                            value={paymentForm.payment_method}
+                            onChange={(e) => setPaymentForm({...paymentForm, payment_method: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                        >
+                            <option value="bank_transfer">Bank Transfer</option>
+                            <option value="upi">UPI</option>
+                            <option value="cash">Cash</option>
+                            <option value="cheque">Cheque</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Transaction Reference
+                        </label>
+                        <input
+                            type="text"
+                            value={paymentForm.transaction_reference}
+                            onChange={(e) => setPaymentForm({...paymentForm, transaction_reference: e.target.value})}
+                            placeholder="UTR, Transaction ID, Cheque No., etc."
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Payment Date *
+                        </label>
+                        <input
+                            type="date"
+                            value={paymentForm.payment_date}
+                            onChange={(e) => setPaymentForm({...paymentForm, payment_date: e.target.value})}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                            required
+                        />
+                    </div>
+
+                    <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                            Notes
+                        </label>
+                        <textarea
+                            value={paymentForm.notes}
+                            onChange={(e) => setPaymentForm({...paymentForm, notes: e.target.value})}
+                            placeholder="Any additional notes about the payment..."
+                            rows={3}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                    </div>
+
+                    <div className="flex space-x-3 pt-4">
+                        <button
+                            type="button"
+                            onClick={closePaymentModal}
+                            className="flex-1 px-4 py-2 text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200 focus:outline-none focus:ring-2 focus:ring-gray-500"
+                        >
+                            Cancel
+                        </button>
+                        <button
+                            type="submit"
+                            disabled={paymentLoading}
+                            className="flex-1 px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+                        >
+                            {paymentLoading ? (
+                                <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                                <>
+                                    <Check className="w-4 h-4 mr-2" />
+                                    Record Payment
+                                </>
+                            )}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+
     return (
         <div className="p-6 bg-gray-50 min-h-screen">
             <div className="max-w-7xl mx-auto">
@@ -154,14 +313,14 @@ const DashboardContent = () => {
                             <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
                             <p className="text-gray-600">Manage your barbershop business analytics and revenue</p>
                         </div>
-                        <button 
+                        {/* <button 
                             onClick={fetchDashboardData}
                             className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
                             disabled={loading}
                         >
                             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                             <span>Refresh</span>
-                        </button>
+                        </button> */}
                     </div>
                 </div>
 
@@ -386,13 +545,13 @@ const DashboardContent = () => {
                         <div className="bg-white rounded-lg shadow-md p-6">
                             <div className="flex justify-between items-center mb-4">
                                 <h2 className="text-xl font-semibold text-gray-900">Shops Performance</h2>
-                                <button 
+                                {/* <button 
                                     onClick={() => handleExport('shops')}
                                     className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
                                 >
                                     <Download className="w-4 h-4" />
                                     <span>Export</span>
-                                </button>
+                                </button> */}
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="min-w-full divide-y divide-gray-200">
@@ -403,8 +562,8 @@ const DashboardContent = () => {
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shop Earnings</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Remaining Earnings</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Bookings</th>
-                                            {/* <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Completion</th> */}
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rating</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
                                         </tr>
@@ -430,45 +589,45 @@ const DashboardContent = () => {
                                                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
                                                     {formatCurrency(shop.shop_earnings)}
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                                                    <div>
-                                                        <div>{shop.total_bookings} Completed</div>
-                                                        {/* <div className="text-xs text-gray-500">{shop.completed_bookings} completed</div> */}
-                                                    </div>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-green-600">
+                                                    {formatCurrency(shop.remaining_earnings)}
                                                 </td>
-                                                {/* <td className="px-6 py-4 whitespace-nowrap">
-                                                    <div className="flex items-center">
-                                                        <div className="w-full bg-gray-200 rounded-full h-2">
-                                                            <div 
-                                                                className="bg-green-600 h-2 rounded-full" 
-                                                                style={{ width: `${Math.min(shop.completion_rate || 0, 100)}%` }}
-                                                            ></div>
-                                                        </div>
-                                                        <span className="ml-2 text-sm text-gray-600">{shop.completion_rate || 0}%</span>
-                                                    </div>
-                                                </td> */}
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                    {shop.total_bookings}
+                                                </td>
                                                 <td className="px-6 py-4 whitespace-nowrap">
                                                     <div className="flex items-center">
-                                                        <Star className="w-4 h-4 text-yellow-400 fill-current" />
-                                                        <span className="ml-1 text-sm text-gray-900">{shop.average_rating || 0}</span>
+                                                        <Star className="w-4 h-4 text-yellow-500 mr-1" />
+                                                        <span className="text-sm text-gray-900">
+                                                            {shop.average_rating ? parseFloat(shop.average_rating).toFixed(1) : 'N/A'}
+                                                        </span>
                                                     </div>
                                                 </td>
-                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                                    <button className="text-blue-600 hover:text-blue-900 mr-3">
-                                                        <Eye className="w-4 h-4" />
-                                                    </button>
-                                                    <button 
-                                                        onClick={() => handlePayCommission(shop.id, shop.shop_earnings)}
-                                                        className="text-green-600 hover:text-green-900 px-2 py-1 rounded"
-                                                    >
-                                                        Pay
-                                                    </button>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                                    <div className="flex space-x-2">
+                                                        <button 
+                                                            onClick={() => window.open(`/shops/${shop.id}`, '_blank')}
+                                                            className="text-blue-600 hover:text-blue-800 p-1 rounded"
+                                                            title="View Shop"
+                                                        >
+                                                            <Eye className="w-4 h-4" />
+                                                        </button>
+                                                        {shop.shop_earnings > 0 && (
+                                                            <button 
+                                                                onClick={() => openPaymentModal(shop, shop.remaining_earnings)}
+                                                                className="text-green-600 hover:text-green-800 p-1 rounded"
+                                                                title="Record Payment"
+                                                            >
+                                                                <CreditCard className="w-4 h-4" />
+                                                            </button>
+                                                        )}
+                                                    </div>
                                                 </td>
                                             </tr>
                                         )) : (
                                             <tr>
-                                                <td colSpan="9" className="px-6 py-4 text-center text-gray-500">
-                                                    No shops performance data available
+                                                <td colSpan="8" className="px-6 py-4 text-center text-gray-500">
+                                                    No shops data available
                                                 </td>
                                             </tr>
                                         )}
@@ -477,52 +636,46 @@ const DashboardContent = () => {
                             </div>
                         </div>
 
-                        {/* Commission Summary */}
+                        {/* Commission Report */}
                         {/* {commissionReport && (
-                            <div className="mt-8 bg-white rounded-lg shadow-md p-6">
-                                <h2 className="text-xl font-semibold text-gray-900 mb-4">Commission Summary</h2>
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                            <div className="bg-white rounded-lg shadow-md p-6 mt-8">
+                                <div className="flex justify-between items-center mb-4">
+                                    <h2 className="text-xl font-semibold text-gray-900">Commission Report</h2>
+                                    <button 
+                                        onClick={() => handleExport('commission')}
+                                        className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                        <span>Export Report</span>
+                                    </button>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                     <div className="bg-blue-50 p-4 rounded-lg">
-                                        <h3 className="text-sm font-medium text-blue-600">Total Commission Earned</h3>
-                                        <p className="text-2xl font-bold text-blue-900">{formatCurrency(commissionReport.total_commission_earned)}</p>
+                                        <h3 className="text-sm font-medium text-blue-800">Total Commission Earned</h3>
+                                        <p className="text-2xl font-bold text-blue-900">
+                                            {formatCurrency(commissionReport.total_commission || 0)}
+                                        </p>
                                     </div>
                                     <div className="bg-green-50 p-4 rounded-lg">
-                                        <h3 className="text-sm font-medium text-green-600">Commission Paid</h3>
-                                        <p className="text-2xl font-bold text-green-900">{formatCurrency(commissionReport.commission_paid)}</p>
+                                        <h3 className="text-sm font-medium text-green-800">Commission Paid</h3>
+                                        <p className="text-2xl font-bold text-green-900">
+                                            {formatCurrency(commissionReport.commission_paid || 0)}
+                                        </p>
                                     </div>
                                     <div className="bg-yellow-50 p-4 rounded-lg">
-                                        <h3 className="text-sm font-medium text-yellow-600">Pending Commission</h3>
-                                        <p className="text-2xl font-bold text-yellow-900">{formatCurrency(commissionReport.pending_commission)}</p>
-                                    </div>
-                                </div>
-                                
-                                <div className="bg-gray-50 p-4 rounded-lg">
-                                    <h3 className="text-lg font-medium text-gray-900 mb-3">Commission Breakdown</h3>
-                                    <div className="space-y-3">
-                                        {commissionReport.shop_commissions?.map((shop) => (
-                                            <div key={shop.shop_id} className="flex items-center justify-between p-3 bg-white rounded-lg">
-                                                <div>
-                                                    <p className="font-medium text-gray-900">{shop.shop_name}</p>
-                                                    <p className="text-sm text-gray-600">{shop.total_bookings} bookings</p>
-                                                </div>
-                                                <div className="text-right">
-                                                    <p className="font-semibold text-gray-900">{formatCurrency(shop.commission_amount)}</p>
-                                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
-                                                        shop.status === 'paid' 
-                                                            ? 'bg-green-100 text-green-800' 
-                                                            : 'bg-yellow-100 text-yellow-800'
-                                                    }`}>
-                                                        {shop.status}
-                                                    </span>
-                                                </div>
-                                            </div>
-                                        )) || <p className="text-gray-500">No commission data available</p>}
+                                        <h3 className="text-sm font-medium text-yellow-800">Pending Commission</h3>
+                                        <p className="text-2xl font-bold text-yellow-900">
+                                            {formatCurrency(commissionReport.pending_commission || 0)}
+                                        </p>
                                     </div>
                                 </div>
                             </div>
                         )} */}
                     </>
                 )}
+
+                {/* Payment Modal */}
+                {paymentModal.isOpen && <PaymentModal />}
             </div>
         </div>
     );

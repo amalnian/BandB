@@ -43,39 +43,39 @@ export default function Home() {
   }, [])
 
   // Initialize app - try to get location and fetch shops
-  const initializeApp = useCallback(async () => {
-    if (isInitialized) return
+ const initializeApp = useCallback(async () => {
+  if (isInitialized) return
+  
+  setIsInitialized(true)
+  
+  try {
+    // First, try to fetch nearby shops using stored coordinates from DB
+    await fetchNearbyShops(null, searchRadius)
+  } catch (err) {
+    console.log('Failed to load nearby shops with stored location:', err)
     
-    setIsInitialized(true)
-    
-    try {
-      // Try to get user location
-      const location = await getCurrentLocation()
-      // If successful, fetch nearby shops
-      await fetchNearbyShops(location, searchRadius)
-    } catch (locationErr) {
-      console.log('Location access failed, loading all shops:', locationErr)
-      // Fallback to all shops if location fails
+    // Check if the error indicates we need to fallback to all shops
+    if (err.message.includes('No location available') || err.message.includes('fallback_needed')) {
       try {
         await fetchAllShops()
       } catch (shopsErr) {
-        console.error('Failed to load shops:', shopsErr)
+        console.error('Failed to load all shops:', shopsErr)
       }
     }
-  }, [isInitialized, getCurrentLocation, fetchNearbyShops, fetchAllShops, searchRadius])
+  }
+}, [isInitialized, fetchNearbyShops, fetchAllShops, searchRadius])
 
   // Handle radius change - only refetch if we have location
-  const handleRadiusChange = useCallback(async (newRadius) => {
-    setSearchRadius(newRadius)
-    
-    if (userLocation) {
-      try {
-        await fetchNearbyShops(userLocation, newRadius)
-      } catch (err) {
-        console.error('Failed to fetch shops with new radius:', err)
-      }
-    }
-  }, [userLocation, fetchNearbyShops])
+const handleRadiusChange = useCallback(async (newRadius) => {
+  setSearchRadius(newRadius)
+  
+  // Don't pass userLocation, let it use stored coordinates
+  try {
+    await fetchNearbyShops(null, newRadius)
+  } catch (err) {
+    console.error('Failed to fetch shops with new radius:', err)
+  }
+}, [fetchNearbyShops])
 
   // Refresh location and fetch nearby shops
   const refreshLocation = useCallback(async () => {

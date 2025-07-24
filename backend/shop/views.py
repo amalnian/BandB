@@ -39,7 +39,7 @@ from rest_framework_simplejwt.views import (
 from chat.models import Notification
 from users.models import CustomUser
 from shop.models import (
-    Booking, BookingFeedback, Shop, ShopImage, Service, OTP,
+    Booking, BookingFeedback, Shop, ShopCommissionPayment, ShopImage, Service, OTP,
     BusinessHours, SpecialClosingDay
 )
 from shop.serializers import (
@@ -1182,7 +1182,6 @@ class SpecialClosingDayView(APIView):
                                     # Create database notification FIRST
                                     logger.info(f"Creating database notification for user {user.id}")
                                     
-                                    # Use the same pattern as in CreateBookingView that works
                                     notification = Notification.objects.create(
                                         sender=shop_owner,  # Shop owner is the sender
                                         receiver=user,  # Booking user is the receiver
@@ -2230,3 +2229,79 @@ class ExportSalesReportView(APIView):
         )
         response['Content-Disposition'] = f'attachment; filename="sales_report_{period}days.xlsx"'
         return response
+    
+
+
+
+
+# Add this to your Django views
+class ShopSpecificPaymentView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, shop_id):
+        """List all commission payments for a specific shop"""
+        try:
+            # Check if shop exists
+            shop = Shop.objects.get(id=shop_id)
+            
+            # Get query parameters for filtering
+            payment_method = request.query_params.get('payment_method')
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            # Start with payments for this shop only
+            payments = ShopCommissionPayment.objects.filter(shop_id=shop_id)
+            
+            # Apply additional filters
+            if payment_method:
+                payments = payments.filter(payment_method=payment_method)
+            if start_date:
+                payments = payments.filter(payment_date__gte=start_date)
+            if end_date:
+                payments = payments.filter(payment_date__lte=end_date)
+            
+            # Order by most recent first
+            payments = payments.order_by('-payment_date')
+            
+            # Calculate total amount
+            total_amount = payments.aggregate(
+                total=models.Sum('amount')
+            )['total'] or 0
+            
+            # Serialize the data
+            payment_data = []
+            for payment in payments:
+                payment_data.append({
+                    'id': payment.id,
+                    'shop_id': payment.shop.id,
+                    'shop_name': payment.shop.name,
+                    'amount': float(payment.amount),
+                    'payment_method': payment.payment_method,
+                    'transaction_reference': payment.transaction_reference,
+                    'payment_date': payment.payment_date.strftime('%Y-%m-%d'),
+                    'notes': payment.notes,
+                    'paid_by': payment.paid_by.username if payment.paid_by else None,
+                    'created_at': payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(payment, 'created_at') else None
+                })
+            
+            return Response({
+                'shop': {
+                    'id': shop.id,
+                    'name': shop.name
+                },
+                'payments': payment_data,
+                'total_count': len(payment_data),
+                'total_amount': float(total_amount)
+            })
+            
+        except Shop.DoesNotExist:
+            return Response(
+                {'error': 'Shop not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+

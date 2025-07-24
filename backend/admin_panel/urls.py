@@ -11,7 +11,8 @@ from .views import (
     AdminStatusView,
     DashboardStatsView,
     Logout,
-    RecentAppointmentsView
+    RecentAppointmentsView,
+    RecordShopPaymentView
 )
 from admin_panel import views
 
@@ -46,4 +47,6 @@ urlpatterns = [
     # Additional admin features
     path('dashboard/pay-shop/', views.AdminPayShopCommissionView.as_view(), name='admin_pay_shop'),
     path('dashboard/export/', views.AdminExportDataView.as_view(), name='admin_export_data'),
+
+    path('record-payment/', RecordShopPaymentView.as_view(), name='record-payment'),
 ]

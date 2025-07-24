@@ -27,7 +27,7 @@ import jwt
 
 # App imports
 from users.models import CustomUser
-from shop.models import Booking, Shop
+from shop.models import Booking, Shop, ShopCommissionPayment
 from users.serializers import (
     AdminUserSerializer,
     CustomTokenObtainPairSerializer,
@@ -809,29 +809,13 @@ class AdminShopsPerformanceView(APIView):
 
             logger.info(f"Date range: {start_date} to {end_date}")
 
-            # # Check if models exist and have required fields
-            # try:
-            #     # Test query to check if models and fields exist
-            #     test_booking = Booking.objects.filter(
-            #         payment_status='paid',
-            #         created_at__date__gte=start_date,
-            #         created_at__date__lte=end_date
-            #     ).first()
-            #     logger.info(f"Test booking query successful: {test_booking}")
-            # except Exception as field_error:
-            #     logger.error(f"Field error in Booking model: {field_error}")
-            #     return Response(
-            #         {'error': f'Database field error: {str(field_error)}'}, 
-            #         status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            #     )
-
             # Get shops with their performance data
             try:
                 shops_with_bookings = Shop.objects.filter(
                     booking__payment_status='paid',
                     booking__created_at__date__gte=start_date,
                     booking__created_at__date__lte=end_date
-                ).distinct().select_related('user')  # Add select_related for user
+                ).distinct().select_related('user')
                 
                 logger.info(f"Shops with bookings: {shops_with_bookings.count()}")
             except Exception as shop_error:
@@ -892,6 +876,21 @@ class AdminShopsPerformanceView(APIView):
                     
                     admin_commission = float(total_revenue * Decimal('0.10'))
                     completion_rate = (completed_bookings / total_bookings * 100) if total_bookings > 0 else 0
+                    shop_earnings = float(total_revenue) - admin_commission
+                    
+                    # Calculate total payments made to this shop
+                    try:
+                        total_payments = ShopCommissionPayment.objects.filter(
+                            shop=shop,
+                            status='paid'
+                        ).aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+                        total_payments = float(total_payments)
+                    except Exception as payment_error:
+                        logger.warning(f"Error calculating payments for shop {shop.id}: {payment_error}")
+                        total_payments = 0.00
+                    
+                    # Calculate remaining earnings
+                    remaining_earnings = shop_earnings - total_payments
                     
                     # Calculate average rating using the shop's method
                     average_rating = 0
@@ -934,7 +933,9 @@ class AdminShopsPerformanceView(APIView):
                         'owner_name': owner_name,
                         'total_revenue': float(total_revenue),
                         'admin_commission': admin_commission,
-                        'shop_earnings': float(total_revenue) - admin_commission,
+                        'shop_earnings': shop_earnings,
+                        'total_payments': total_payments,
+                        'remaining_earnings': remaining_earnings,
                         'total_bookings': total_bookings,
                         'completed_bookings': completed_bookings,
                         'completion_rate': round(completion_rate, 2),
@@ -971,7 +972,6 @@ class AdminShopsPerformanceView(APIView):
                 {'error': f'Internal server error: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-
 
 
 class AdminRecentBookingsView(APIView):
@@ -1152,6 +1152,118 @@ class AdminExportDataView(APIView):
             
         except Exception as e:
             logger.error(f"Error in AdminExportDataView: {str(e)}")
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+        
+
+
+
+
+
+
+
+
+# Add this to your existing view or create a new one
+class RecordShopPaymentView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """List all shop commission payments with optional filtering"""
+        try:
+            # Get query parameters for filtering
+            shop_id = request.query_params.get('shop_id')
+            payment_method = request.query_params.get('payment_method')
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
+            
+            # Start with all payments
+            payments = ShopCommissionPayment.objects.all()
+            
+            # Apply filters
+            if shop_id:
+                payments = payments.filter(shop_id=shop_id)
+            if payment_method:
+                payments = payments.filter(payment_method=payment_method)
+            if start_date:
+                payments = payments.filter(payment_date__gte=start_date)
+            if end_date:
+                payments = payments.filter(payment_date__lte=end_date)
+            
+            # Order by most recent first
+            payments = payments.order_by('-payment_date')
+            
+            # Serialize the data
+            payment_data = []
+            for payment in payments:
+                payment_data.append({
+                    'id': payment.id,
+                    'shop_id': payment.shop.id,
+                    'shop_name': payment.shop.name,  # Assuming shop has a name field
+                    'amount': float(payment.amount),
+                    'payment_method': payment.payment_method,
+                    'transaction_reference': payment.transaction_reference,
+                    'payment_date': payment.payment_date.strftime('%Y-%m-%d'),
+                    'notes': payment.notes,
+                    'paid_by': payment.paid_by.username if payment.paid_by else None,
+                    'created_at': payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(payment, 'created_at') else None
+                })
+            
+            return Response({
+                'payments': payment_data,
+                'total_count': len(payment_data)
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def post(self, request):
+        # Your existing POST method remains the same
+        try:
+            data = request.data
+            shop_id = data.get('shop_id')
+            amount = data.get('amount')
+            payment_method = data.get('payment_method')
+            transaction_reference = data.get('transaction_reference', '')
+            payment_date = data.get('payment_date')
+            notes = data.get('notes', '')
+            
+            # Validate required fields
+            if not all([shop_id, amount, payment_method, payment_date]):
+                return Response(
+                    {'error': 'Missing required fields'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Get shop
+            shop = Shop.objects.get(id=shop_id)
+            
+            # Create payment record
+            payment = ShopCommissionPayment.objects.create(
+                shop=shop,
+                amount=amount,
+                payment_method=payment_method,
+                transaction_reference=transaction_reference,
+                payment_date=payment_date,
+                notes=notes,
+                paid_by=request.user
+            )
+            
+            return Response({
+                'message': 'Payment recorded successfully',
+                'payment_id': payment.id
+            })
+            
+        except Shop.DoesNotExist:
+            return Response(
+                {'error': 'Shop not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
             return Response(
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

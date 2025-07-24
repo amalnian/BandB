@@ -27,38 +27,41 @@ export const useShops = () => {
     }
   }, [])
 
-  const fetchNearbyShops = useCallback(async (location, radius = 10) => {
-    if (!location || !location.latitude || !location.longitude) {
-      throw new Error('Invalid location provided')
-    }
-
-    setLoading(true)
-    setError(null)
-    
-    try {
-      // Update user location in backend
+const fetchNearbyShops = useCallback(async (location, radius = 10) => {
+  setLoading(true)
+  setError(null)
+  
+  try {
+    // Only update user location if a new location is provided
+    if (location && location.latitude && location.longitude) {
       await updateUserLocation(location)
-      
-      // Fetch nearby shops
-      const response = await getNearbyShops({
-        latitude: location.latitude,
-        longitude: location.longitude,
-        radius: radius
-      })
-      
-      if (response.data && response.data.success) {
-        setShops(response.data.shops || [])
-        return response.data.shops || []
-      } else {
-        throw new Error(response.data?.error || 'Failed to fetch nearby shops')
-      }
-    } catch (err) {
-      setError(err.message)
-      throw err
-    } finally {
-      setLoading(false)
     }
-  }, [])
+    
+    const requestParams = { radius: radius }
+    
+    if (location && location.latitude && location.longitude) {
+      requestParams.latitude = location.latitude
+      requestParams.longitude = location.longitude
+    }
+    
+    const response = await getNearbyShops(requestParams)
+    
+    console.log('Nearby shops response:', response.data) // ADD THIS DEBUG LINE
+    
+    if (response.data && response.data.success) {
+      setShops(response.data.shops || [])
+      return response.data.shops || []
+    } else {
+      throw new Error(response.data?.error || 'Failed to fetch nearby shops')
+    }
+  } catch (err) {
+    console.error('fetchNearbyShops error:', err) // ADD THIS DEBUG LINE
+    setError(err.message)
+    throw err
+  } finally {
+    setLoading(false)
+  }
+}, [])
 
   const retryFetch = useCallback(async (location = null, radius = 10) => {
     try {

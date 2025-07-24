@@ -181,7 +181,7 @@ export default function Header({ onSearch, searchQuery, onClearSearch }) {
       return userProfile.address
     }
     
-    return "Location not set"
+    return 
   }
 
   return (

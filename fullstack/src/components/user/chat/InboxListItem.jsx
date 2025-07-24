@@ -16,13 +16,13 @@ export const InboxListItem = ({ name, avatar, verified = true,onClick }) => {
       <div className="flex flex-col">
         <div className="flex items-center gap-2 text-lg font-medium text-white">
           {name}
-          {verified && (
+          {/* {verified && (
             <img
               src="https://cdn.builder.io/api/v1/image/assets/aadabba814c24e21949a3d066a352728/ac356513f4cd364f86e079687e73a62865c2b46b?placeholderIfAbsent=true"
               alt="Verified badge"
               className="w-4 h-4"
             />
-          )}
+          )} */}
         </div>
       </div>
     </article>
