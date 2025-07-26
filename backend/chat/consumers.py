@@ -46,7 +46,8 @@ class ChatConsumer(AsyncWebsocketConsumer):
 
         new_user = {
             "id": self.user.id,
-            "username": self.user.username
+            "username": await sync_to_async(self.user.get_display_name)()
+        
         }
 
         if new_user not in curr_users:
@@ -102,7 +103,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 # Use simple user data instead of complex serializer
                 user_data = {
                     "id": user.id,
-                    "username": user.username,
+            "username": await sync_to_async(self.user.get_display_name)(),
                     "profile_url": user.profile_url,
                     "role": user.role
                 }
@@ -129,7 +130,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             try:
                 user_data = {
                     "id": self.scope['user'].id,
-                    "username": self.scope['user'].username,
+            "username": await sync_to_async(self.user.get_display_name)(),
                     "profile_url": self.scope['user'].profile_url,
                     "role": self.scope['user'].role
                 }
@@ -272,7 +273,7 @@ class ChatConsumer(AsyncWebsocketConsumer):
             notification_data = {
                 'type': 'notification',
                 'message': {
-                    'sender': sender.username,
+                    "sender": await sync_to_async(self.user.get_display_name)(),
                     'content': message.content,
                     'timestamp': message.timestamp.isoformat(),
                     'conversation_id': self.conversation_id
@@ -343,7 +344,7 @@ class UserConsumer(AsyncWebsocketConsumer):
             
             new_user = {
                 "id": self.user.id,
-                "username": self.user.username
+                "username": await sync_to_async(self.user.get_display_name)(),
             }
 
             if new_user not in curr_users:
@@ -391,12 +392,19 @@ class UserConsumer(AsyncWebsocketConsumer):
             notifications = await self.get_unsent_notifications()
             
             for notification in notifications:
+                # Get conversation details for stored notifications
+                conversation = await self.get_conversation(notification.conversation_id) if notification.conversation_id else None
+                
                 await self.send(text_data=json.dumps({
                     'type': 'notification',
                     'message': {
-                        'sender': notification.sender.username,
+                        'sender': notification.sender.get_display_name(),
+                        'sender_id': notification.sender.id,
                         'content': notification.message,
                         'timestamp': notification.timestamp.isoformat(),
+                        'conversation_id': notification.conversation_id,
+                        'conversation_type': 'direct' if conversation and conversation.participants.count() == 2 else 'group',
+                        'conversation_name': conversation.name if conversation and hasattr(conversation, 'name') else f"Chat with {notification.sender.username}",
                     }
                 }))
             
@@ -415,3 +423,12 @@ class UserConsumer(AsyncWebsocketConsumer):
     def get_unsent_notifications(self):
         """Get unsent notifications for the user"""
         return list(Notification.objects.filter(receiver=self.user).order_by('-timestamp')[:10])
+    
+    @database_sync_to_async
+    def get_conversation(self, conversation_id):
+        """Get conversation by ID"""
+        from chat.models import Conversation  # Adjust import based on your model location
+        try:
+            return Conversation.objects.get(id=conversation_id)
+        except Conversation.DoesNotExist:
+            return None

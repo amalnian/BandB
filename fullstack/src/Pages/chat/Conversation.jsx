@@ -11,9 +11,14 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
   const [socket, setSocket] = useState(null);
   const [chatPartner, setChatPartner] = useState(null);
   const [contextMenu, setContextMenu] = useState(null);
+  const [connectionStatus, setConnectionStatus] = useState('disconnected');
   const typingTimeoutRef = useRef(null);
   const [deletingIndex, setDeletingIndex] = useState(null);
   const endRef = useRef();
+  const socketRef = useRef(null);
+  const reconnectTimeoutRef = useRef(null);
+  const reconnectAttempts = useRef(0);
+  const maxReconnectAttempts = 5;
 
   // Get user ID from localStorage
   const getUserId = () => {
@@ -30,9 +35,112 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
   };
 
   const actualUserId = getUserId();
-
   const websocket_url = "ws://localhost:8000/ws/chat/";
 
+  // Clean up function
+  const cleanupWebSocket = () => {
+    if (socketRef.current) {
+      socketRef.current.onopen = null;
+      socketRef.current.onclose = null;
+      socketRef.current.onmessage = null;
+      socketRef.current.onerror = null;
+      
+      if (socketRef.current.readyState === WebSocket.OPEN || 
+          socketRef.current.readyState === WebSocket.CONNECTING) {
+        socketRef.current.close();
+      }
+      socketRef.current = null;
+    }
+    
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = null;
+    }
+    
+    setSocket(null);
+    setConnectionStatus('disconnected');
+  };
+
+  // WebSocket connection function
+  const connectWebSocket = () => {
+    if (!conversationId || !actualUserId) {
+      console.error("Missing conversationId or actualUserId:", { conversationId, actualUserId });
+      return;
+    }
+
+    // Clean up existing connection
+    cleanupWebSocket();
+    
+    console.log("Attempting to connect WebSocket for user:", actualUserId);
+    setConnectionStatus('connecting');
+    
+    const websocket = new WebSocket(`${websocket_url}${conversationId}?user_id=${actualUserId}`);
+    socketRef.current = websocket;
+
+    websocket.onopen = () => {
+      console.log("WebSocket connection established");
+      console.log("Connected with user ID:", actualUserId);
+      setConnectionStatus('connected');
+      setSocket(websocket);
+      reconnectAttempts.current = 0; // Reset reconnect attempts on successful connection
+    };
+    
+    websocket.onclose = (event) => {
+      console.log("WebSocket connection closed", event.code, event.reason);
+      setConnectionStatus('disconnected');
+      setSocket(null);
+      
+      // Only attempt reconnect if it wasn't a normal closure and we haven't exceeded max attempts
+      if (event.code !== 1000 && reconnectAttempts.current < maxReconnectAttempts) {
+        reconnectAttempts.current++;
+        console.log(`Attempting to reconnect (${reconnectAttempts.current}/${maxReconnectAttempts})...`);
+        
+        reconnectTimeoutRef.current = setTimeout(() => {
+          connectWebSocket();
+        }, Math.min(1000 * Math.pow(2, reconnectAttempts.current), 10000)); // Exponential backoff
+      }
+    };
+
+    websocket.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === "chat_message") {
+          const { message, user, timestamp } = data;
+          setMessages((prev) => [...prev, { id: data.id, sender: user, content: message, timestamp }]);
+          setTimeout(() => {
+            endRef.current?.scrollIntoView({ behavior: 'smooth' });
+          }, 100);
+          setTypingUser(null);
+        } else if (data.type === "typing") {
+          const { user, receiver } = data;
+          if (receiver === actualUserId && user.id !== actualUserId) {
+            setTypingUser(user);
+            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+            typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 2000);
+          }
+        } else if (data.type === "online_status") {
+          setOnlineUsers(data?.online_users || []);
+        } else if (data.type === "message_deleted") {
+          const { message_id } = data;
+          setMessages((prev) => prev.filter((msg) => msg.id !== message_id));
+        }
+      } catch (error) {
+        console.error("Error parsing WebSocket message:", error);
+      }
+    };
+
+    websocket.onerror = (error) => {
+      console.error("WebSocket Error:", error);
+      setConnectionStatus('error');
+    };
+  };
+
+  // Fetch conversation data
   useEffect(() => {
     const fetchConversationData = async () => {
       if (!conversationId) return;
@@ -43,7 +151,7 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         setMessages(messages);
         
         setTimeout(() => {
-          endRef.current?.scrollIntoView({ behaviour: 'smooth' });
+          endRef.current?.scrollIntoView({ behavior: 'smooth' });
         }, 100);
 
         if (messages.length > 0) {
@@ -61,61 +169,15 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
     fetchConversationData();
   }, [conversationId, actualUserId]);
 
+  // WebSocket connection effect
   useEffect(() => {
-    if (!conversationId || !actualUserId) {
-      console.error("Missing conversationId or actualUserId:", { conversationId, actualUserId });
-      return;
-    }
-    console.log("actualUserId",actualUserId)
-    const websocket = new WebSocket(`${websocket_url}${conversationId}?user_id=${actualUserId}`);
-
-    websocket.onopen = () => {
-      console.log("WebSocket connection established");
-      console.log("Connected with user ID:", actualUserId);
-    };
+    connectWebSocket();
     
-    websocket.onclose = () => {
-      setIsChange(!isChange);
-      console.log("WebSocket connection closed");
-    };
-
-    websocket.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === "chat_message") {
-          const { message, user, timestamp } = data;
-          setMessages((prev) => [...prev, { id: data.id, sender: user, content: message, timestamp }]);
-          endRef.current?.scrollIntoView({ behaviour: 'smooth' });
-          setTypingUser(null);
-        } else if (data.type === "typing") {
-          const { user, receiver } = data;
-          if (receiver === actualUserId && user.id !== actualUserId) {
-            setTypingUser(user);
-            if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-            typingTimeoutRef.current = setTimeout(() => setTypingUser(null), 2000);
-          }
-        } else if (data.type === "online_status") {
-          setOnlineUsers(data?.online_users);
-        } else if (data.type === "message_deleted") {
-          const { message_id } = data;
-          setMessages((prev) => prev.filter((msg) => msg.id !== message_id));
-        }
-      } catch (error) {
-        console.error("Error parsing WebSocket message:", error);
-      } finally {
-        endRef.current?.scrollIntoView({ behaviour: 'smooth' });
-      }
-    };
-
-    websocket.onerror = (error) => console.error("WebSocket Error:", error);
-
-    setSocket(websocket);
-
+    // Cleanup on unmount or when dependencies change
     return () => {
-      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
-      websocket.close();
+      cleanupWebSocket();
     };
-  }, [conversationId, actualUserId, isChange]);
+  }, [conversationId, actualUserId]);
 
   const handleSendMessage = () => {
     if (!conversationId || !newMessage.trim()) return;
@@ -126,6 +188,8 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         user: actualUserId,
       }));
       setNewMessage("");
+    } else {
+      console.warn("WebSocket is not connected. Cannot send message.");
     }
   };
 
@@ -157,13 +221,21 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
     }
   };
 
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSendMessage();
+    }
+  };
+
   return (
-    <div className="absolute top-0 z-10 flex flex-col h-full w-full bg-white text-black rounded-2xl shadow-md overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 bg-gray-100 border-b border-gray-200">
+    <div className="flex flex-col h-[70vh] w-full bg-white text-black rounded-2xl shadow-lg overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 bg-gray-100 border-b border-gray-200 rounded-t-2xl">
         <button
           onClick={onBack}
           aria-label="Close modal"
-          className="text-sm text-black hover:underline"
+          className="text-sm text-black hover:underline flex items-center"
         >
           <svg
             width="25"
@@ -182,39 +254,54 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
               fill="black"
             />
           </svg>
+          <span className="ml-2">Back</span>
         </button>
-        <div className="text-sm text-gray-600">
-          {onlineUsers.length > 0 ? (
-            onlineUsers
-              .filter((u) => u.id !== actualUserId)
-              .map((u) => (
-                <span key={u.id} className="text-green-600 font-medium">
-                  {u.username} (online)
-                </span>
-              ))
-          ) : (
-            <span>No users online</span>
-          )}
+        
+        <div className="flex items-center space-x-2">
+          {/* Connection status indicator */}
+          <div className={`w-2 h-2 rounded-full ${
+            connectionStatus === 'connected' ? 'bg-green-500' : 
+            connectionStatus === 'connecting' ? 'bg-yellow-500' : 'bg-red-500'
+          }`}></div>
+          
+          <div className="text-sm text-gray-600">
+            {onlineUsers.length > 0 ? (
+              onlineUsers
+                .filter((u) => u.id !== actualUserId)
+                .map((u) => (
+                  <span key={u.id} className="text-green-600 font-medium">
+        {u.username} (online)  
+                  </span>
+                ))
+            ) : (
+              <span>No users online</span>
+            )}
+          </div>
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scroll-hide p-4 space-y-4 bg-white">
+      {/* Messages Container */}
+      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white">
         {loading ? (
-          <p className="text-gray-400">Loading messages...</p>
+          <div className="flex justify-center items-center h-full">
+            <p className="text-gray-400">Loading messages...</p>
+          </div>
         ) : (
           messages.map((message, index) => {
             const isSentByCurrentUser = message.sender?.id === actualUserId;
             return (
               <div
-                key={index}
+                key={`${message.id}-${index}`}
                 onContextMenu={(e) => {
-                  e.preventDefault();
-                  setDeletingIndex(index);
-                  setContextMenu({
-                    messageId: message.id,
-                    x: e.clientX,
-                    y: e.clientY,
-                  });
+                  if (isSentByCurrentUser) {
+                    e.preventDefault();
+                    setDeletingIndex(index);
+                    setContextMenu({
+                      messageId: message.id,
+                      x: e.clientX,
+                      y: e.clientY,
+                    });
+                  }
                 }}
                 className={`flex flex-col ${isSentByCurrentUser ? "items-end" : "items-start"}`}
               >
@@ -232,13 +319,22 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
                 </span>
                 {contextMenu && deletingIndex === index && (
                   <div
-                    style={{ top: contextMenu.y, left: contextMenu.x }}
-                    className="bg-white border border-gray-300 rounded-md shadow-md p-2 text-sm"
+                    style={{ 
+                      position: 'fixed',
+                      top: contextMenu.y, 
+                      left: contextMenu.x,
+                      zIndex: 1000 
+                    }}
+                    className="bg-white border border-gray-300 rounded-md shadow-md p-2 text-sm cursor-pointer hover:bg-gray-50"
                     onClick={() => {
                       handleDeleteMessage(contextMenu.messageId);
                       setContextMenu(null);
+                      setDeletingIndex(null);
                     }}
-                    onMouseLeave={() => setContextMenu(null)}
+                    onMouseLeave={() => {
+                      setContextMenu(null);
+                      setDeletingIndex(null);
+                    }}
                   >
                     Delete
                   </div>
@@ -250,13 +346,15 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
         <div ref={endRef}></div>
       </div>
 
+      {/* Typing Indicator */}
       {typingUser && (
-        <div className="px-4 py-2 text-sm text-gray-500 italic">
+        <div className="px-4 py-2 text-sm text-gray-500 italic border-t border-gray-100">
           {typingUser.username} is typing...
         </div>
       )}
 
-      <div className="flex items-center px-4 py-3 bg-gray-50 border-t border-gray-200">
+      {/* Input Area */}
+      <div className="flex items-center px-4 py-3 bg-gray-50 border-t border-gray-200 rounded-b-2xl">
         <input
           type="text"
           value={newMessage}
@@ -264,11 +362,16 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
             setNewMessage(e.target.value);
             debouncedHandleTyping();
           }}
-          onKeyDown={handleTyping}
-          placeholder="Type a message..."
-          className="flex-1 px-4 py-2 rounded-xl focus:outline-none"
+          onKeyDown={handleKeyPress}
+          placeholder={connectionStatus === 'connected' ? "Type a message..." : "Connecting..."}
+          disabled={connectionStatus !== 'connected'}
+          className="flex-1 px-4 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed border border-gray-200"
         />
-        <button onClick={handleSendMessage}>
+        <button 
+          onClick={handleSendMessage}
+          disabled={connectionStatus !== 'connected' || !newMessage.trim()}
+          className="ml-2 p-2 rounded-full hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+        >
           <img
             src="https://cdn.builder.io/api/v1/image/assets/aadabba814c24e21949a3d066a352728/eed45cf7b7b9b7c76291651e899f8a045900dabc?placeholderIfAbsent=true"
             className="aspect-[1] object-contain w-6 shrink-0"

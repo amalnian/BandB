@@ -1698,137 +1698,137 @@ class AvailableTimeSlotsView(APIView):
             total_duration += service.duration_minutes
         return total_duration if total_duration > 0 else 30
 
-class CreateBookingView(APIView):
-    """
-    Create a new booking with duration-based slot reservation
-    """
-    permission_classes = [IsAuthenticated]
+# class CreateBookingView(APIView):
+#     """
+#     Create a new booking with duration-based slot reservation
+#     """
+#     permission_classes = [IsAuthenticated]
     
-    def post(self, request):
-        """Create a new booking"""
-        try:
-            booking_data = request.data
+#     def post(self, request):
+#         """Create a new booking"""
+#         try:
+#             booking_data = request.data
             
-            # Validate required fields
-            required_fields = ['shop', 'services', 'appointment_date', 'appointment_time']
-            missing_fields = [field for field in required_fields if field not in booking_data]
+#             # Validate required fields
+#             required_fields = ['shop', 'services', 'appointment_date', 'appointment_time']
+#             missing_fields = [field for field in required_fields if field not in booking_data]
             
-            if missing_fields:
-                return Response({
-                    'success': False,
-                    'error': f'Missing required fields: {", ".join(missing_fields)}'
-                }, status=status.HTTP_400_BAD_REQUEST)
+#             if missing_fields:
+#                 return Response({
+#                     'success': False,
+#                     'error': f'Missing required fields: {", ".join(missing_fields)}'
+#                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Validate shop exists
-            shop_id = booking_data.get('shop')
-            shop = get_object_or_404(Shop, id=shop_id)
+#             # Validate shop exists
+#             shop_id = booking_data.get('shop')
+#             shop = get_object_or_404(Shop, id=shop_id)
             
-            # Validate services exist
-            service_ids = booking_data.get('services', [])
-            if not service_ids:
-                return Response({
-                    'success': False,
-                    'error': 'At least one service must be selected'
-                }, status=status.HTTP_400_BAD_REQUEST)
+#             # Validate services exist
+#             service_ids = booking_data.get('services', [])
+#             if not service_ids:
+#                 return Response({
+#                     'success': False,
+#                     'error': 'At least one service must be selected'
+#                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            services = Service.objects.filter(
-                id__in=service_ids,
-                shop=shop,
-                is_active=True
-            )
+#             services = Service.objects.filter(
+#                 id__in=service_ids,
+#                 shop=shop,
+#                 is_active=True
+#             )
             
-            if len(services) != len(service_ids):
-                return Response({
-                    'success': False,
-                    'error': 'One or more selected services are invalid'
-                }, status=status.HTTP_400_BAD_REQUEST)
+#             if len(services) != len(service_ids):
+#                 return Response({
+#                     'success': False,
+#                     'error': 'One or more selected services are invalid'
+#                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Calculate total duration
-            total_duration = sum(service.duration_minutes for service in services)
-            slots_needed = math.ceil(total_duration / 30)
+#             # Calculate total duration
+#             total_duration = sum(service.duration_minutes for service in services)
+#             slots_needed = math.ceil(total_duration / 30)
             
-            # Validate date and time
-            try:
-                appointment_date = datetime.strptime(
-                    booking_data['appointment_date'], '%Y-%m-%d'
-                ).date()
-                appointment_time = datetime.strptime(
-                    booking_data['appointment_time'], '%H:%M'
-                ).time()
-            except ValueError:
-                return Response({
-                    'success': False,
-                    'error': 'Invalid date or time format'
-                }, status=status.HTTP_400_BAD_REQUEST)
+#             # Validate date and time
+#             try:
+#                 appointment_date = datetime.strptime(
+#                     booking_data['appointment_date'], '%Y-%m-%d'
+#                 ).date()
+#                 appointment_time = datetime.strptime(
+#                     booking_data['appointment_time'], '%H:%M'
+#                 ).time()
+#             except ValueError:
+#                 return Response({
+#                     'success': False,
+#                     'error': 'Invalid date or time format'
+#                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Check if consecutive slots are still available
-            time_slots_view = AvailableTimeSlotsView()
-            are_slots_available = time_slots_view._are_consecutive_slots_available(
-                shop_id, 
-                appointment_date, 
-                appointment_time,
-                slots_needed
-            )
+#             # Check if consecutive slots are still available
+#             time_slots_view = AvailableTimeSlotsView()
+#             are_slots_available = time_slots_view._are_consecutive_slots_available(
+#                 shop_id, 
+#                 appointment_date, 
+#                 appointment_time,
+#                 slots_needed
+#             )
             
-            if not are_slots_available:
-                return Response({
-                    'success': False,
-                    'error': f'Selected time slot is no longer available. Need {slots_needed} consecutive slots for {total_duration} minutes.'
-                }, status=status.HTTP_400_BAD_REQUEST)
+#             if not are_slots_available:
+#                 return Response({
+#                     'success': False,
+#                     'error': f'Selected time slot is no longer available. Need {slots_needed} consecutive slots for {total_duration} minutes.'
+#                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Calculate total amount
-            total_amount = sum(float(service.price) for service in services)
-            service_fee = float(booking_data.get('service_fee', 25))
-            total_amount += service_fee
+#             # Calculate total amount
+#             total_amount = sum(float(service.price) for service in services)
+#             service_fee = float(booking_data.get('service_fee', 25))
+#             total_amount += service_fee
             
-            # Create booking
-            booking = Booking.objects.create(
-                user=request.user,
-                shop=shop,
-                appointment_date=appointment_date,
-                appointment_time=appointment_time,
-                total_amount=total_amount,
-                payment_method=booking_data.get('payment_method', 'wallet'),
-                status='pending',
-                notes=booking_data.get('notes', '')
-            )
+#             # Create booking
+#             booking = Booking.objects.create(
+#                 user=request.user,
+#                 shop=shop,
+#                 appointment_date=appointment_date,
+#                 appointment_time=appointment_time,
+#                 total_amount=total_amount,
+#                 payment_method=booking_data.get('payment_method', 'wallet'),
+#                 status='pending',
+#                 notes=booking_data.get('notes', '')
+#             )
             
-            # Add services to booking
-            booking.services.set(services)
+#             # Add services to booking
+#             booking.services.set(services)
             
-            # Calculate end time for response
-            end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
+#             # Calculate end time for response
+#             end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
             
-            response_data = {
-                'success': True,
-                'data': {
-                    'id': booking.id,
-                    'message': 'Booking created successfully',
-                    'shop_name': shop.name,
-                    'appointment_date': appointment_date.strftime('%Y-%m-%d'),
-                    'appointment_time': appointment_time.strftime('%H:%M'),
-                    'appointment_end_time': end_time.strftime('%H:%M'),
-                    'services': [service.name for service in services],
-                    'total_duration': total_duration,
-                    'slots_reserved': slots_needed,
-                    'total_amount': float(total_amount),
-                    'status': 'pending'
-                }
-            }
+#             response_data = {
+#                 'success': True,
+#                 'data': {
+#                     'id': booking.id,
+#                     'message': 'Booking created successfully',
+#                     'shop_name': shop.name,
+#                     'appointment_date': appointment_date.strftime('%Y-%m-%d'),
+#                     'appointment_time': appointment_time.strftime('%H:%M'),
+#                     'appointment_end_time': end_time.strftime('%H:%M'),
+#                     'services': [service.name for service in services],
+#                     'total_duration': total_duration,
+#                     'slots_reserved': slots_needed,
+#                     'total_amount': float(total_amount),
+#                     'status': 'pending'
+#                 }
+#             }
             
-            return Response(response_data, status=status.HTTP_201_CREATED)
+#             return Response(response_data, status=status.HTTP_201_CREATED)
             
-        except Shop.DoesNotExist:
-            return Response({
-                'success': False,
-                'error': 'Shop not found'
-            }, status=status.HTTP_404_NOT_FOUND)
+#         except Shop.DoesNotExist:
+#             return Response({
+#                 'success': False,
+#                 'error': 'Shop not found'
+#             }, status=status.HTTP_404_NOT_FOUND)
             
-        except Exception as e:
-            return Response({
-                'success': False,
-                'error': f'An error occurred: {str(e)}'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+#         except Exception as e:
+#             return Response({
+#                 'success': False,
+#                 'error': f'An error occurred: {str(e)}'
+#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # Additional utility view to check slot requirements

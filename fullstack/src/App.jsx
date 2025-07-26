@@ -203,88 +203,91 @@ function App() {
   
   return (
     <Provider store={store}>
-      <Notification/>
       <PersistGate loading={null} persistor={persistor}>
-      <ErrorBoundary>
-        <BrowserRouter>
-          <LocationLogger />
-          <Suspense fallback={<LoadingSpinner />}>
-            <Routes>
-              {/* User routes */}
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/signup" element={<SignupPage />} />
-              <Route path="/otp" element={<OtpVerification />} />
-              <Route path="/forgot-password" element={<ForgotPass />} />
-              
-              {/* User routes with sidebar layout */}
-              <Route path="/" element={
-                <SimpleProtectedUserRoute>
-                  <UserLayout />
-                </SimpleProtectedUserRoute>
-              }>
-                {/* Nested routes for the barber booking app */}
-                <Route index element={<Navigate to="/home" replace />} />
-                <Route path="home" element={<Home />} />
-                <Route path="shop/:shopId" element={<ShopDetail />} />
-                <Route path="booking/:shopId" element={<BookingAppointment />} />
-                <Route path="/booking-confirmation/:bookingId" element={<BookingConfirmation />} />
-                <Route path="settings" element={<Settings />} />
-                <Route path="bookings" element={<Bookings />} />
-                <Route path="chat" element={<Chat />} />
-                <Route path="wallet" element={<Wallet />} />
-              </Route>
+        <ErrorBoundary>
+          <BrowserRouter>
+            {/* Move Notification component inside BrowserRouter */}
+            <Notification/>
+            <LocationLogger />
+            <Suspense fallback={<LoadingSpinner />}>
+              <Routes>
+                {/* User routes */}
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/signup" element={<SignupPage />} />
+                <Route path="/otp" element={<OtpVerification />} />
+                <Route path="/forgot-password" element={<ForgotPass />} />
+                
+                {/* User routes with sidebar layout */}
+                <Route path="/" element={
+                  <SimpleProtectedUserRoute>
+                    <UserLayout />
+                  </SimpleProtectedUserRoute>
+                }>
+                  {/* Nested routes for the barber booking app */}
+                  <Route index element={<Navigate to="/home" replace />} />
+                  <Route path="home" element={<Home />} />
+                  <Route path="shop/:shopId" element={<ShopDetail />} />
+                  <Route path="booking/:shopId" element={<BookingAppointment />} />
+                  <Route path="/booking-confirmation/:bookingId" element={<BookingConfirmation />} />
+                  <Route path="settings" element={<Settings />} />
+                  <Route path="bookings" element={<Bookings />} />
+                  <Route path="chat" element={<Chat />} />
+                  <Route path="/chat/:conversationId" element={<Chat />} />
+                  <Route path="wallet" element={<Wallet />} />
+                </Route>
 
-              {/* Admin routes - Nested routing structure */}
-              <Route path="/admin/login" element={<AdminLoginPage />} />
-              <Route 
-                path="/admin" 
-                element={
-                  <ProtectedAdminRoute>
-                    <AdminLayout />
-                  </ProtectedAdminRoute>
-                }
-              >
-                <Route index element={<Navigate to="/admin/dashboard" replace />} />
-                <Route path="dashboard" element={<DashboardContent />} />
-                <Route path="users" element={<UsersManagement />} />
-                <Route path="shops" element={<ShopManagement />} />
-                <Route path="payments" element={<AdminShopPaymentsList />} />
-                <Route path="settings" element={
-                  <ErrorBoundary>
-                    <AdminSettings />
-                  </ErrorBoundary>
-                } />
-              </Route>
-              
-              {/* Shop routes */}
-              <Route path="/shop/login" element={<ShopLoginPage />} />
-              <Route path="/shop/register" element={<ShopRegisterPage />} />
-              <Route path="/shop/otp" element={<ShopOtpVerification />} />
-              <Route path="/shop/forgot-password" element={<ForgotPass />} />
+                {/* Admin routes - Nested routing structure */}
+                <Route path="/admin/login" element={<AdminLoginPage />} />
+                <Route 
+                  path="/admin" 
+                  element={
+                    <ProtectedAdminRoute>
+                      <AdminLayout />
+                    </ProtectedAdminRoute>
+                  }
+                >
+                  <Route index element={<Navigate to="/admin/dashboard" replace />} />
+                  <Route path="dashboard" element={<DashboardContent />} />
+                  <Route path="users" element={<UsersManagement />} />
+                  <Route path="shops" element={<ShopManagement />} />
+                  <Route path="payments" element={<AdminShopPaymentsList />} />
+                  <Route path="settings" element={
+                    <ErrorBoundary>
+                      <AdminSettings />
+                    </ErrorBoundary>
+                  } />
+                </Route>
+                
+                {/* Shop routes */}
+                <Route path="/shop/login" element={<ShopLoginPage />} />
+                <Route path="/shop/register" element={<ShopRegisterPage />} />
+                <Route path="/shop/otp" element={<ShopOtpVerification />} />
+                <Route path="/shop/forgot-password" element={<ForgotPass />} />
 
-              <Route path="/shop" element={
-                <ProtectedShopRoute>
-                  <ShopLayout />
-                </ProtectedShopRoute>
-              }>
-                <Route index element={<Navigate to="/shop/dashboard" replace />} />
-                <Route path="dashboard" element={<ShopDashboard />} />
-                <Route path="appointments" element={<ShopAppointments />} />
-                <Route path="services" element={<ShopServices />} />
-                <Route path="customers" element={<ShopCustomers />} />
-                <Route path="feedbacks" element={<ShopFeedback />} />
-                <Route path="settings" element={<ShopSettings />} />
-                <Route path="chat" element={<ChatShop />} />
-                <Route path="payments" element={<ShopPaymentsList />} />
-              </Route>
+                <Route path="/shop" element={
+                  <ProtectedShopRoute>
+                    <ShopLayout />
+                  </ProtectedShopRoute>
+                }>
+                  <Route index element={<Navigate to="/shop/dashboard" replace />} />
+                  <Route path="dashboard" element={<ShopDashboard />} />
+                  <Route path="appointments" element={<ShopAppointments />} />
+                  <Route path="services" element={<ShopServices />} />
+                  <Route path="customers" element={<ShopCustomers />} />
+                  <Route path="feedbacks" element={<ShopFeedback />} />
+                  <Route path="settings" element={<ShopSettings />} />
+                  <Route path="chat" element={<ChatShop />} />
+                  <Route path="chat/:conversationId" element={<ChatShop />} />
+                  <Route path="payments" element={<ShopPaymentsList />} />
+                </Route>
 
-              {/* Redirect any unknown routes to login */}
-              <Route path="*" element={<Navigate to="/login" replace />} />
-            </Routes>
-          </Suspense>
-        </BrowserRouter>
-      </ErrorBoundary>
-    </PersistGate>
+                {/* Redirect any unknown routes to login */}
+                <Route path="*" element={<Navigate to="/login" replace />} />
+              </Routes>
+            </Suspense>
+          </BrowserRouter>
+        </ErrorBoundary>
+      </PersistGate>
     </Provider>
   )
 }

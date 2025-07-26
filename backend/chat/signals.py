@@ -20,8 +20,12 @@ def send_message_notification(sender, instance, created, **kwargs):
         'type': 'notification',  # This must match the method name in your consumer
         'message': {
             'sender': instance.sender.username,
+            'sender_id': instance.sender.id,
             'content': instance.content,
             'timestamp': instance.timestamp.isoformat(),
+            'conversation_id': instance.conversation.id,  # Add conversation ID
+            'conversation_type': 'direct' if instance.conversation.participants.count() == 2 else 'group',  # Add conversation type
+            'conversation_name': getattr(instance.conversation, 'name', None) or f"Chat with {instance.sender.username}",  # Add conversation name
         }
     }
 
@@ -52,16 +56,18 @@ def send_message_notification(sender, instance, created, **kwargs):
                     async_to_sync(save_notification)(
                         sender=instance.sender,
                         receiver=user,
-                        message=instance.content
+                        message=instance.content,
+                        conversation_id=instance.conversation.id  # Pass conversation ID
                     )
                     print(f"✅ Notification saved for user {user.id}")
                 except Exception as e:
                     print(f"❌ Failed to save notification for user {user.id}: {e}")
             
 @sync_to_async
-def save_notification(sender, receiver, message):
+def save_notification(sender, receiver, message, conversation_id):
     Notification.objects.create(
         sender=sender,
         receiver=receiver,
-        message=message
+        message=message,
+        conversation_id=conversation_id  # Store conversation ID in notification
     )
