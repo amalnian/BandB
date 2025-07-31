@@ -54,6 +54,13 @@ class AdminTokenObtainPairView(TokenObtainPairView):
 
             user = CustomUser.objects.get(email=email)
 
+            # Check if user is active
+            if not user.is_active:
+                return Response(
+                    {"success": False, "message": "Account is inactive"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
             if not user.is_superuser:
                 return Response(
                     {"success": False, "message": "User is not an admin"},
@@ -77,24 +84,27 @@ class AdminTokenObtainPairView(TokenObtainPairView):
                 }
             }
 
+            # Environment-aware cookie settings
+            is_production = getattr(settings, 'DEBUG', True) == False
+            
             res.set_cookie(
                 key="access_token",
                 value=access_token,
                 httponly=True,
-                secure=True,
-                samesite="None",
+                secure=is_production,  # True in production, False in development
+                samesite="None" if is_production else "Lax",  # None for production, Lax for development
                 path='/',
-                max_age=3600
+                max_age=3600  # 1 hour
             )
 
             res.set_cookie(
                 key="refresh_token",
                 value=refresh_token,
                 httponly=True,
-                secure=True,
-                samesite="None",
+                secure=is_production,  # True in production, False in development
+                samesite="None" if is_production else "Lax",  # None for production, Lax for development
                 path='/',
-                max_age=3600
+                max_age=86400  # 24 hours - FIXED: was 3600 (1 hour)
             )
 
             return res
@@ -111,6 +121,7 @@ class AdminTokenObtainPairView(TokenObtainPairView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
 class AdminTokenRefreshView(TokenRefreshView):
     permission_classes = [permissions.AllowAny]
     
@@ -123,37 +134,68 @@ class AdminTokenRefreshView(TokenRefreshView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Use the serializer directly instead of modifying request
+            # Use the serializer with proper error handling for token rotation
             serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
             
-            if serializer.is_valid():
-                access_token = serializer.validated_data["access"]
+            try:
+                serializer.is_valid(raise_exception=True)
+                validated_data = serializer.validated_data
+                
+                access_token = validated_data["access"]
+                new_refresh_token = validated_data.get("refresh")  # May be None if rotation disabled
                 
                 res = Response(
                     {"success": True, "message": "Access token refreshed"},
                     status=status.HTTP_200_OK
                 )
 
+                # Environment-aware cookie settings
+                is_production = getattr(settings, 'DEBUG', True) == False
+
+                # Set new access token
                 res.set_cookie(
                     key="access_token",
                     value=access_token,
                     httponly=True,
-                    secure=True,
-                    samesite="None",
+                    secure=is_production,
+                    samesite="None" if is_production else "Lax",
                     path='/',
                     max_age=3600
                 )
+                
+                # Update refresh token cookie if we got a new one (token rotation)
+                if new_refresh_token:
+                    res.set_cookie(
+                        key="refresh_token",
+                        value=new_refresh_token,
+                        httponly=True,
+                        secure=is_production,
+                        samesite="None" if is_production else "Lax",
+                        path='/',
+                        max_age=86400  # 24 hours
+                    )
 
                 return res
-            else:
+                
+            except ValidationError as ve:
+                # Handle token validation errors
+                error_detail = ve.detail
+                if isinstance(error_detail, dict):
+                    refresh_errors = error_detail.get('refresh', [])
+                    if any('blacklisted' in str(error).lower() for error in refresh_errors):
+                        return Response(
+                            {"success": False, "message": "Session expired. Please login again."},
+                            status=status.HTTP_401_UNAUTHORIZED
+                        )
+                
                 return Response(
-                    {"success": False, "message": "Refresh token expired or invalid"},
+                    {"success": False, "message": "Invalid or expired refresh token"},
                     status=status.HTTP_401_UNAUTHORIZED
                 )
                 
         except Exception as e:
             return Response(
-                {"success": False, "message": f"An error occurred: {str(e)}"},
+                {"success": False, "message": f"Token refresh failed: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         

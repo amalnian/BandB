@@ -1,4 +1,3 @@
-
 "use client"
 
 import { useState, useEffect } from "react"
@@ -69,10 +68,14 @@ export default function ShopManagement() {
       
       const response = await getShops({
         page: currentPage,
-        search: searchTerm
+        search: searchTerm,
+        ordering: '-id' // Add ordering parameter for decreasing order of ID
       })
       
-      setShops(response.data.results)
+      // Sort by ID in descending order on frontend as fallback
+      const sortedShops = response.data.results.sort((a, b) => b.id - a.id)
+      
+      setShops(sortedShops)
       setTotalPages(Math.ceil(response.data.count / itemsPerPage))
     } catch (error) {
       console.error("Error fetching shops:", error)
@@ -371,13 +374,13 @@ export default function ShopManagement() {
               Cancel
             </button>
             
-            <button
+            {/* <button
               type="button"
               onClick={handleAddShop}
               className="rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
             >
               Add Shop
-            </button>
+            </button> */}
           </div>
         </div>
       </div>
@@ -622,6 +625,8 @@ export default function ShopManagement() {
 
   return (
     <div className="container mx-auto p-4">
+      <Toaster position="top-right" />
+      
       <h1 className="mb-6 text-2xl font-bold">Shop Management</h1>
       
       {error && !showAddModal && !showEditModal && !showDeleteModal && !showBlockModal && !showApproveModal && (

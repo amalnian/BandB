@@ -1,13 +1,16 @@
 import { useState, useEffect } from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { Link, useNavigate } from "react-router-dom"
-import toast from "react-hot-toast" // Add this import
+import { useDispatch, useSelector } from "react-redux"
+import toast from "react-hot-toast"
 import { login, googleSignIn } from "@/endpoints/APIs"
+import { setUser } from "@/store/slices/UserSlice"
 
 // Google Sign-In Hook
 const useGoogleSignIn = () => {
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const navigate = useNavigate();
+  const dispatch = useDispatch();
 
   useEffect(() => {
     // Load Google Sign-In script
@@ -29,7 +32,7 @@ const useGoogleSignIn = () => {
       };
       script.onerror = (error) => {
         console.error("Failed to load Google script:", error);
-        toast.error("Failed to load Google Sign-In"); // Add toast for script error
+        toast.error("Failed to load Google Sign-In");
       };
       document.head.appendChild(script);
     };
@@ -49,7 +52,7 @@ const useGoogleSignIn = () => {
       
       try {
         console.log("Google Sign-In response received");
-        toast.loading("Signing in with Google...", { id: "google-signin" }); // Loading toast
+        toast.loading("Signing in with Google...", { id: "google-signin" });
         
         // Send the credential to your backend
         const result = await googleSignIn(response.credential);
@@ -66,11 +69,15 @@ const useGoogleSignIn = () => {
           isGoogleUser: true,
         };
 
+        // Store in localStorage
         localStorage.setItem("user_data", JSON.stringify(userData));
+        
+        // Dispatch to Redux store
+        dispatch(setUser(userData));
         
         console.log("Google user data stored:", userData);
         
-        toast.success(`Welcome back, ${userData.name || userData.email}!`, { id: "google-signin" }); // Success toast
+        toast.success(`Welcome back, ${userData.name || userData.email}!`, { id: "google-signin" });
         
         // Navigate to home page
         navigate("/", { replace: true });
@@ -79,7 +86,7 @@ const useGoogleSignIn = () => {
         console.error("Google Sign-In failed:", error);
         
         const errorMessage = error.response?.data?.error || 'Google Sign-In failed';
-        toast.error(errorMessage, { id: "google-signin" }); // Error toast
+        toast.error(errorMessage, { id: "google-signin" });
         
         // Return error to be handled by the parent component
         if (window.handleGoogleError) {
@@ -91,7 +98,7 @@ const useGoogleSignIn = () => {
     };
 
     loadGoogleScript();
-  }, [navigate]);
+  }, [navigate, dispatch]);
 
   const renderGoogleButton = (onError) => {
     // Store error handler globally so the callback can access it
@@ -118,7 +125,7 @@ const useGoogleSignIn = () => {
                   theme: 'outline',
                   size: 'large',
                   text: 'signin_with',
-                  width: 400, // Use pixel value instead of percentage
+                  width: 400,
                   logo_alignment: 'left'
                 }
               );
@@ -160,24 +167,33 @@ export default function LoginPageUser() {
   const [error, setError] = useState("")
   const [loading, setLoading] = useState(false)
   const navigate = useNavigate()
+  const dispatch = useDispatch()
+  const { user } = useSelector((state) => state.user)
   const { renderGoogleButton, isGoogleLoading } = useGoogleSignIn()
 
   // Check if user is already logged in on component mount
-// Check if user is already logged in on component mount
-useEffect(() => {
-  const userData = localStorage.getItem("user_data")
-  if (userData) {
-    try {
-      const user = JSON.parse(userData)
-      // User is already logged in, redirect to home
-      // Remove this line: toast.success(`Welcome back, ${user.name || user.email}!`)
-      navigate("/", { replace: true })
-    } catch (error) {
-      // Invalid data, clear it
-      localStorage.removeItem("user_data")
+  useEffect(() => {
+    // Check Redux state first
+    if (user) {
+      console.log("User already logged in via Redux:", user);
+      navigate("/", { replace: true });
+      return;
     }
-  }
-}, [navigate])
+
+    // Fallback to localStorage check
+    const userData = localStorage.getItem("user_data")
+    if (userData) {
+      try {
+        const parsedUser = JSON.parse(userData)
+        // Update Redux state with localStorage data
+        dispatch(setUser(parsedUser))
+        navigate("/", { replace: true })
+      } catch (error) {
+        // Invalid data, clear it
+        localStorage.removeItem("user_data")
+      }
+    }
+  }, [navigate, dispatch, user])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -200,8 +216,7 @@ useEffect(() => {
       
       console.log("Login successful:", response)
 
-      // IMPORTANT: Store user data in localStorage for your protected routes to work
-      // Extract user data from the response - adjust this based on your API response structure
+      // Extract user data from the response
       const userData = {
         id: response.data?.userDetails?.id || response.data?.id,
         email: response.data?.userDetails?.email || response.data?.email || email,
@@ -209,16 +224,16 @@ useEffect(() => {
         first_name: response.data?.userDetail?.first_name,
         last_name: response.data?.userDetail?.last_name,
         role: response.data?.userDetail?.role || response.data?.role || 'user',
-        isGoogleUser: false, // Flag to identify regular users
-        // Add any other user fields your app needs
-        // Note: tokens are stored in httpOnly cookies, not localStorage
+        isGoogleUser: false,
       }
       
-      // Store user data in localStorage so protected routes can access it
+      // Store user data in localStorage
       localStorage.setItem("user_data", JSON.stringify(userData))
       
-      console.log("User data stored:", userData)
-      console.log("About to navigate to home page")
+      // Dispatch to Redux store
+      dispatch(setUser(userData))
+      
+      console.log("User data stored in localStorage and Redux:", userData)
       
       // Show success toast
       toast.success(`Welcome back, ${userData.name || userData.email}!`, { id: "login" })

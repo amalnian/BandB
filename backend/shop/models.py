@@ -371,11 +371,15 @@ class BookingFeedback(models.Model):
 
 class SpecialClosingDay(models.Model):
     """Model for holidays or special days when the shop is closed."""
-    date = models.DateField(unique=True)
+    shop = models.ForeignKey('Shop', on_delete=models.CASCADE, related_name='special_closing_days', null=True, blank=True)
+    date = models.DateField()
     reason = models.CharField(max_length=100, blank=True)
     
+    class Meta:
+        unique_together = ('shop', 'date')  # Ensure one closing day per shop per date
+    
     def __str__(self):
-        return f"{self.date.strftime('%Y-%m-%d')}: {self.reason}"
+        return f"{self.shop.name} - {self.date.strftime('%Y-%m-%d')}: {self.reason}"
 
 
 # Utility functions for time slot generation
@@ -433,3 +437,42 @@ class ShopCommissionPayment(models.Model):
 
     def __str__(self):
         return f"Payment to {self.shop.name} - ₹{self.amount}"
+    
+
+
+
+
+
+
+
+
+
+class TemporarySlotReservation(models.Model):
+    """
+    Temporary reservation of time slots to prevent double booking
+    during the booking process
+    """
+    user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
+    shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
+    appointment_date = models.DateField()
+    appointment_time = models.TimeField()
+    slots_needed = models.IntegerField(default=1)
+    reserved_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    session_id = models.CharField(max_length=100, blank=True, null=True)  # For anonymous users
+    
+    class Meta:
+        unique_together = ['shop', 'appointment_date', 'appointment_time']
+        indexes = [
+            models.Index(fields=['expires_at']),
+            models.Index(fields=['shop', 'appointment_date']),
+        ]
+    
+    def is_expired(self):
+        return timezone.now() > self.expires_at
+    
+    def save(self, *args, **kwargs):
+        if not self.expires_at:
+            # Default reservation time is 10 minutes
+            self.expires_at = timezone.now() + timedelta(minutes=10)
+        super().save(*args, **kwargs)

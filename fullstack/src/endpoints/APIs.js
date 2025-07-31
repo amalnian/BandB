@@ -13,47 +13,47 @@ export const googleSignIn = (credential) => {
   return axios.post('google/', { credential });
 };
 
-export const getNearbyBarbers = (locationData) => {
-  return axios.post('barber-shops/nearby/', {
-    latitude: locationData.latitude,
-    longitude: locationData.longitude,
-    radius: locationData.radius || 10, // radius in kilometers
-    limit: locationData.limit || 20
-  });
-};
+// export const getNearbyBarbers = (locationData) => {
+//   return axios.post('barber-shops/nearby/', {
+//     latitude: locationData.latitude,
+//     longitude: locationData.longitude,
+//     radius: locationData.radius || 10, // radius in kilometers
+//     limit: locationData.limit || 20
+//   });
+// };
 
-export const getBarberById = (id) => axios.get(`barber-shops/${id}/`);
+// export const getBarberById = (id) => axios.get(`barber-shops/${id}/`);
 
-export const getBarberReviews = (barberId, params = {}) => {
-  const queryParams = new URLSearchParams({
-    page: params.page || 1,
-    limit: params.limit || 10
-  }).toString();
+// export const getBarberReviews = (barberId, params = {}) => {
+//   const queryParams = new URLSearchParams({
+//     page: params.page || 1,
+//     limit: params.limit || 10
+//   }).toString();
   
-  return axios.get(`barber-shops/${barberId}/reviews/?${queryParams}`);
-};
+//   return axios.get(`barber-shops/${barberId}/reviews/?${queryParams}`);
+// };
 
-// Search and Filter APIs
-export const searchBarbers = (searchData) => {
-  return axios.post('barber-shops/search/', {
-    query: searchData.query,
-    location: searchData.location,
-    price_range: searchData.price_range,
-    rating_min: searchData.rating_min,
-    services: searchData.services,
-    page: searchData.page || 1,
-    limit: searchData.limit || 20
-  });
-};
+// // Search and Filter APIs
+// export const searchBarbers = (searchData) => {
+//   return axios.post('barber-shops/search/', {
+//     query: searchData.query,
+//     location: searchData.location,
+//     price_range: searchData.price_range,
+//     rating_min: searchData.rating_min,
+//     services: searchData.services,
+//     page: searchData.page || 1,
+//     limit: searchData.limit || 20
+//   });
+// };
 
-export const getBarberServices = (barberId) => axios.get(`barber-shops/${barberId}/services/`);
+// export const getBarberServices = (barberId) => axios.get(`barber-shops/${barberId}/services/`);
 
-// Booking APIs
-export const getAvailableSlots = (barberId, date) => {
-  return axios.get(`barber-shops/${barberId}/available-slots/`, {
-    params: { date }
-  });
-};
+// // Booking APIs
+// export const getAvailableSlots = (barberId, date) => {
+//   return axios.get(`barber-shops/${barberId}/available-slots/`, {
+//     params: { date }
+//   });
+// };
 
 // export const createBooking = (bookingData) => {
 //   return axios.post('bookings/', {
@@ -80,20 +80,20 @@ export const getAvailableSlots = (barberId, date) => {
 // };
 
 // Review APIs
-export const createReview = (reviewData) => {
-  return axios.post('reviews/', {
-    barber_shop_id: reviewData.barber_shop_id,
-    booking_id: reviewData.booking_id,
-    rating: reviewData.rating,
-    comment: reviewData.comment
-  });
-};
+// export const createReview = (reviewData) => {
+//   return axios.post('reviews/', {
+//     barber_shop_id: reviewData.barber_shop_id,
+//     booking_id: reviewData.booking_id,
+//     rating: reviewData.rating,
+//     comment: reviewData.comment
+//   });
+// };
 
-export const updateReview = (reviewId, reviewData) => {
-  return axios.patch(`reviews/${reviewId}/`, reviewData);
-};
+// export const updateReview = (reviewId, reviewData) => {
+//   return axios.patch(`reviews/${reviewId}/`, reviewData);
+// };
 
-export const deleteReview = (reviewId) => axios.delete(`reviews/${reviewId}/`);
+// export const deleteReview = (reviewId) => axios.delete(`reviews/${reviewId}/`);
 
 // User Profile APIs - Updated for new backend structure
 export const getUserProfile = () => axios.get('user/profile/');
@@ -344,3 +344,28 @@ export const deleteNotification = (notificationId) =>
 
 export const getUnreadNotificationsCount = () => 
   axios.get('notifications/?unread_only=true&per_page=1');
+
+
+// Reserve a slot
+export const reserveSlot = async (reservationData) => {
+  try {
+    const response = await axios.post('slots/reserve/', reservationData);
+    return response.data;
+  } catch (error) {
+    console.error("Reserve slot failed:", error);
+    throw error;
+  }
+};
+
+// Release a slot
+export const releaseSlot = async (releaseData) => {
+  try {
+    const response = await axios.delete('slots/reserve/', {
+      data: releaseData
+    });
+    return response.data;
+  } catch (error) {
+    console.error("Release slot failed:", error);
+    throw error;
+  }
+};

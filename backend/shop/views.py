@@ -18,6 +18,12 @@ from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 import logging
 
+from shop.tasks import (
+    send_shop_registration_otp_task,
+    send_shop_forgot_password_otp_task,
+    send_shop_resend_otp_task
+)
+
 logger = logging.getLogger(__name__)
 
 from rest_framework import status, permissions, generics
@@ -152,34 +158,18 @@ class ShopRegisterView(APIView):
                 # Generate OTP using the OTP model
                 otp_obj = OTP.create_for_shop(shop)
                 
-                # Send OTP email
-                subject = 'Shop Registration Verification'
-                message = f'''
-                Thank you for registering your shop!
+                send_shop_registration_otp_task.delay(
+                    email=shop.email,
+                    otp=otp_obj.otp_code,
+                    shop_name=shop.name,
+                    owner_name=shop.owner_name
+                )
                 
-                Your verification code is: {otp_obj.otp_code}
-                
-                This code will expire in 10 minutes.
-                
-                Please enter this code on the verification page to complete your registration.
-                '''
-                from_email = settings.DEFAULT_FROM_EMAIL
-                recipient_list = [shop.email]
-                
-                try:
-                    send_mail(subject, message, from_email, recipient_list)
-                except Exception as e:
-                    logger.error(f"Failed to send email: {str(e)}")
-                    # If email fails, delete the shop and return error
-                    shop.user.delete()  # This will cascade delete the shop
-                    return Response(
-                        {'detail': f'Failed to send verification email: {str(e)}'},
-                        status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                    )
+                logger.info(f"Shop registration OTP email task queued for {shop.email}")
                 
                 return Response({
                     'success': True,
-                    'detail': 'Registration successful. Please verify your email.',
+                    'detail': 'Registration successful. Please check your email for verification code.',
                     'email': shop.email
                 }, status=status.HTTP_201_CREATED)
                 
@@ -327,25 +317,14 @@ class ShopResendOTPView(APIView):
         # Generate new OTP
         otp_obj = OTP.create_for_shop(shop)
         
-        # Send OTP email
-        subject = 'Shop Registration Verification'
-        message = f'''
-        Your new verification code is: {otp_obj.otp_code}
+        send_shop_resend_otp_task.delay(
+            email=shop.email,
+            otp=otp_obj.otp_code,
+            shop_name=shop.name,
+            owner_name=shop.owner_name
+        )
         
-        This code will expire in 10 minutes.
-        
-        Please enter this code on the verification page to complete your registration.
-        '''
-        from_email = settings.DEFAULT_FROM_EMAIL
-        recipient_list = [shop.email]
-        
-        try:
-            send_mail(subject, message, from_email, recipient_list)
-        except Exception as e:
-            logger.error(f"Failed to send email: {str(e)}")
-            return Response({
-                'detail': 'Failed to send verification email.'
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.info(f"Shop resend OTP email task queued for {shop.email}")
         
         return Response({
             'success': True,
@@ -489,35 +468,72 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Use the serializer directly
-            serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
+            # Use the parent class's post method to handle token refresh properly
+            # This ensures proper token rotation and blacklisting
+            original_data = request.data
+            request._full_data = {"refresh": refresh_token}
             
-            if serializer.is_valid():
-                access_token = serializer.validated_data["access"]
+            try:
+                # Call parent's post method which handles token rotation
+                response = super().post(request, *args, **kwargs)
                 
-                # Create success response
-                res = Response(
-                    {"success": True, "message": "Access token refreshed"},
-                    status=status.HTTP_200_OK
-                )
+                if response.status_code == 200:
+                    token_data = response.data
+                    access_token = token_data.get("access")
+                    new_refresh_token = token_data.get("refresh")  # This might be None if rotation is disabled
+                    
+                    # Create success response
+                    res = Response(
+                        {"success": True, "message": "Access token refreshed"},
+                        status=status.HTTP_200_OK
+                    )
 
-                # Set the new access token cookie
-                res.set_cookie(
-                    key="access_token",
-                    value=access_token,
-                    httponly=True,
-                    secure=False,  # Set to True in production
-                    samesite="Lax",
-                    path='/',
-                    max_age=3600
-                )
+                    # Set the new access token cookie
+                    res.set_cookie(
+                        key="access_token",
+                        value=access_token,
+                        httponly=True,
+                        secure=False,  # Set to True in production
+                        samesite="Lax",
+                        path='/',
+                        max_age=3600
+                    )
+                    
+                    # Set new refresh token cookie if token rotation is enabled
+                    if new_refresh_token:
+                        res.set_cookie(
+                            key="refresh_token",
+                            value=new_refresh_token,
+                            httponly=True,
+                            secure=False,  # Set to True in production
+                            samesite="Lax",
+                            path='/',
+                            max_age=86400  # 24 hours
+                        )
 
-                return res
-            else:
-                return Response(
-                    {"success": False, "message": "Invalid or expired refresh token"},
-                    status=status.HTTP_401_UNAUTHORIZED
-                )
+                    return res
+                else:
+                    return Response(
+                        {"success": False, "message": "Invalid or expired refresh token"},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+                    
+            except Exception as token_error:
+                # Handle specific token errors
+                error_message = str(token_error)
+                if "blacklisted" in error_message.lower():
+                    return Response(
+                        {"success": False, "message": "Session expired. Please login again."},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+                else:
+                    return Response(
+                        {"success": False, "message": "Invalid or expired refresh token"},
+                        status=status.HTTP_401_UNAUTHORIZED
+                    )
+            finally:
+                # Restore original request data
+                request._full_data = original_data
             
         except Exception as e:
             return Response(
@@ -1130,24 +1146,36 @@ class SpecialClosingDayView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        """Get all special closing days."""
-        closing_days = SpecialClosingDay.objects.all()
-        serializer = SpecialClosingDaySerializer(closing_days, many=True)
-        return Response(serializer.data)
+        """Get all special closing days for the authenticated shop owner."""
+        try:
+            # Use 'user' instead of 'owner'
+            shop = Shop.objects.get(user=request.user)
+            closing_days = SpecialClosingDay.objects.filter(shop=shop).order_by('date')
+            serializer = SpecialClosingDaySerializer(closing_days, many=True)
+            return Response(serializer.data)
+        except Shop.DoesNotExist:
+            return Response({'error': 'Shop not found'}, status=status.HTTP_404_NOT_FOUND)
     
     def post(self, request):
         """Add a special closing day and cancel existing bookings."""
-        
         try:
+            # Use 'user' instead of 'owner'
+            shop = Shop.objects.get(user=request.user)
+            
             with transaction.atomic():
-                serializer = SpecialClosingDaySerializer(data=request.data)
+                # Add shop to the request data
+                data = request.data.copy()
+                data['shop'] = shop.id
+                
+                serializer = SpecialClosingDaySerializer(data=data)
                 if serializer.is_valid():
                     closing_day = serializer.save()
                     
-                    # Find all bookings on this date
+                    # Find all bookings on this date FOR THIS SHOP ONLY
                     affected_bookings = Booking.objects.filter(
+                        shop=shop,  # Filter by shop
                         appointment_date=closing_day.date,
-                        booking_status__in=['pending', 'confirmed']  # Only cancel active bookings
+                        booking_status__in=['pending', 'confirmed']
                     )
                     
                     cancelled_bookings = []
@@ -1162,14 +1190,10 @@ class SpecialClosingDayView(APIView):
                                 'amount_refunded': float(booking.total_amount)
                             })
                             refunded_amount += booking.total_amount
-                            
-                            # Send notification to affected user
-                            # DO THIS OUTSIDE THE TRANSACTION TO AVOID ROLLBACK
-                            pass
                     
-                    # After successful booking cancellations, send notifications
+                    # Send notifications (same logic as before)
                     for booking in affected_bookings:
-                        if booking.booking_status == 'cancelled':  # Only for successfully cancelled bookings
+                        if booking.booking_status == 'cancelled':
                             try:
                                 user = booking.user
                                 shop_owner = request.user
@@ -1247,6 +1271,8 @@ class SpecialClosingDayView(APIView):
                 
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
                 
+        except Shop.DoesNotExist:
+            return Response({'error': 'Shop not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Error adding special closing day: {str(e)}")
             return Response({
@@ -1254,16 +1280,18 @@ class SpecialClosingDayView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
 
-
-
 class SpecialClosingDayDetailView(APIView):
     """API view for managing a specific special closing day using DRF."""
     permission_classes = [IsAuthenticated]
     
-    def delete(self, request, id):  # Changed from closing_day_id to id
+    def delete(self, request, id):
         """Remove a special closing day."""
         try:
-            closing_day = get_object_or_404(SpecialClosingDay, id=id)
+            # Use 'user' instead of 'owner'
+            shop = Shop.objects.get(user=request.user)
+            
+            # Ensure the closing day belongs to this shop
+            closing_day = get_object_or_404(SpecialClosingDay, id=id, shop=shop)
             closing_day.delete()
             
             return Response({
@@ -1271,6 +1299,8 @@ class SpecialClosingDayDetailView(APIView):
                 'message': 'Special closing day removed successfully'
             }, status=status.HTTP_200_OK)
             
+        except Shop.DoesNotExist:
+            return Response({'error': 'Shop not found'}, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
         
@@ -1442,22 +1472,33 @@ class ShopForgotPasswordView(APIView):
         serializer = ShopForgotPasswordSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
+            
+            # Get shop information for personalized email
             try:
-                send_mail(
-                    subject="Your FocusBuddy Password Reset OTP",
-                    message=f"Hello {user.name}, your OTP for password reset is {user.otp}",
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False,
-                )
-                return Response({"message": "OTP has been sent to your email"}, status=status.HTTP_200_OK)
-            except Exception as e:
-                logger.error(f"Failed to send OTP email: {str(e)}")
-                return Response(
-                    {"error": "Failed to send OTP email. Please try again."},
-                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
-                )
+                shop = Shop.objects.get(user=user)
+                shop_name = shop.name
+                owner_name = shop.owner_name
+            except Shop.DoesNotExist:
+                shop_name = "Your Shop"  # Fallback
+                owner_name = user.get_full_name() or user.username
+            
+            # Send forgot password OTP email asynchronously
+            send_shop_forgot_password_otp_task.delay(
+                email=user.email,
+                otp=user.otp,
+                shop_name=shop_name,
+                owner_name=owner_name
+            )
+            
+            logger.info(f"Shop forgot password OTP email task queued for {user.email}")
+            
+            return Response({
+                "message": "Password reset code has been sent to your email"
+            }, status=status.HTTP_200_OK)
+            
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    
 
 class ShopVerifyForgotPasswordOTPView(APIView):
     permission_classes = [AllowAny]

@@ -164,25 +164,25 @@ export default function Header({ onSearch, searchQuery, onClearSearch }) {
   }
 
   // Get user location
-  const getUserLocation = () => {
-    if (!userProfile) return "Location not set"
+  // const getUserLocation = () => {
+  //   if (!userProfile) return "Location not set"
     
-    // Check if the API response has location fields
-    if (userProfile.city && userProfile.state) {
-      return `${userProfile.city}, ${userProfile.state}`
-    }
-    if (userProfile.city && userProfile.country) {
-      return `${userProfile.city}, ${userProfile.country}`
-    }
-    if (userProfile.location) {
-      return userProfile.location
-    }
-    if (userProfile.address) {
-      return userProfile.address
-    }
+  //   // Check if the API response has location fields
+  //   if (userProfile.city && userProfile.state) {
+  //     return `${userProfile.city}, ${userProfile.state}`
+  //   }
+  //   if (userProfile.city && userProfile.country) {
+  //     return `${userProfile.city}, ${userProfile.country}`
+  //   }
+  //   if (userProfile.location) {
+  //     return userProfile.location
+  //   }
+  //   if (userProfile.address) {
+  //     return userProfile.address
+  //   }
     
-    return 
-  }
+  //   return 
+  // }
 
   return (
     <header className="bg-white border-b border-gray-200 py-4 px-6 flex items-center justify-between">
@@ -263,7 +263,7 @@ export default function Header({ onSearch, searchQuery, onClearSearch }) {
           ) : (
             <div className="mr-4 text-right hidden sm:block">
               <p className="text-sm font-medium">Hi, {getUserDisplayName()}</p>
-              <p className="text-xs text-gray-500">{getUserLocation()}</p>
+              {/* <p className="text-xs text-gray-500">{getUserLocation()}</p> */}
             </div>
           )}
           

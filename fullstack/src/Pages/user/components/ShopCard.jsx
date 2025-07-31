@@ -52,7 +52,7 @@ useEffect(() => {
     // Navigate to shop detail page using the shop ID
     const shopId = shop.id || shop._id || shop.shop_id
     if (shopId) {
-      navigate(`/shop/${shopId}`)
+      navigate(`/shop-details/${shopId}`)
     } else {
       console.error('Shop ID not found:', shop)
     }

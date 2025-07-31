@@ -5,6 +5,8 @@ from .models import Booking, BookingFeedback, Shop, ShopImage
 from users.models import CustomUser
 from shop.models import Service, SpecialClosingDay, BusinessHours
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from django.utils import timezone
+
 logger = logging.getLogger(__name__)
 
 
@@ -310,72 +312,205 @@ class BusinessHoursSerializer(serializers.ModelSerializer):
 class SpecialClosingDaySerializer(serializers.ModelSerializer):
     class Meta:
         model = SpecialClosingDay
-        fields = ['id', 'date', 'reason']
+        fields = ['id', 'shop', 'date', 'reason']
+        read_only_fields = ['id']
     
     def to_representation(self, instance):
         data = super().to_representation(instance)
         data['date'] = instance.date.strftime('%Y-%m-%d')
         return data
+
+    def validate_date(self, value):
+        """Ensure the date is not in the past."""
+        if value < timezone.now().date():
+            raise serializers.ValidationError("Cannot add closing day for past dates.")
+        return value
     
 
 class ShopForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    
     def validate_email(self, value):
+        """Validate that shop with this email exists"""
         if not CustomUser.objects.filter(email=value, role='shop').exists():
             raise serializers.ValidationError("No shop found with this email address.")
-        return value
+        return value.lower().strip()
+
+    def validate(self, attrs):
+        """Additional validation if needed"""
+        email = attrs['email']
+        try:
+            user = CustomUser.objects.get(email=email, role='shop')
+            # Check if user is active
+            if not user.is_active:
+                raise serializers.ValidationError("This shop account is not activated.")
+        except CustomUser.DoesNotExist:
+            raise serializers.ValidationError("Shop account not found.")
+        
+        return attrs
+
+    def save(self):
+        """Generate OTP and return user for email processing"""
+        email = self.validated_data['email']
+        
+        try:
+            user = CustomUser.objects.get(email=email, role='shop')
+            
+            # Generate 6-digit OTP
+            otp = f"{random.randint(100000, 999999)}"
+            
+            # Add OTP creation timestamp for expiry checking
+            user.otp = otp
+            user.otp_created_at = timezone.now()
+            user.save(update_fields=['otp', 'otp_created_at'])
+            
+            logger.info(f"Shop forgot password OTP generated for {email}")
+            return user
+            
+        except CustomUser.DoesNotExist:
+            logger.error(f"Shop user not found for email: {email}")
+            raise serializers.ValidationError("Shop account not found.")
+        except Exception as e:
+            logger.error(f"Error generating OTP for shop {email}: {str(e)}")
+            raise serializers.ValidationError("An error occurred. Please try again.")
 
     def create(self, validated_data):
-        email = validated_data['email']
-        user = CustomUser.objects.get(email=email, role='shop')
-        otp = f"{random.randint(100000, 999999)}"
-        user.otp = otp
-        user.save()
-        print(f"Shop Password Reset OTP for {user.email}: {otp}")  # Print OTP in terminal
-        return user
+        """Override create to use save method"""
+        return self.save()
 
 class ShopVerifyForgotPasswordOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=6)
 
+    def validate_email(self, value):
+        """Validate email format and existence"""
+        return value.lower().strip()
+
+    def validate_otp(self, value):
+        """Validate OTP format"""
+        if not value.isdigit() or len(value) != 6:
+            raise serializers.ValidationError("OTP must be a 6-digit number.")
+        return value.strip()
+
     def validate(self, data):
+        """Validate OTP against user account"""
         email = data.get('email')
         otp = data.get('otp')
         
         try:
             user = CustomUser.objects.get(email=email, role='shop')
+            
+            # Check if OTP exists
+            if not user.otp or not user.otp_created_at:
+                raise serializers.ValidationError("No OTP found for this account. Please request a new one.")
+            
+            # Check if OTP has expired (10 minutes)
+            if timezone.now() > user.otp_created_at + timezone.timedelta(minutes=10):
+                user.otp = None
+                user.otp_created_at = None
+                user.save(update_fields=['otp', 'otp_created_at'])
+                raise serializers.ValidationError("OTP has expired. Please request a new one.")
+            
+            # Check if OTP matches
             if user.otp != otp:
-                raise serializers.ValidationError("Invalid OTP")
+                raise serializers.ValidationError("Invalid OTP. Please try again.")
+                
         except CustomUser.DoesNotExist:
-            raise serializers.ValidationError("Shop not found")
+            raise serializers.ValidationError("Shop account not found.")
         
         return data
 
 class ShopResetPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
     otp = serializers.CharField(max_length=6)
-    new_password = serializers.CharField(write_only=True)
+    new_password = serializers.CharField(write_only=True, min_length=8)
+    confirm_password = serializers.CharField(write_only=True)
+
+    def validate_email(self, value):
+        """Validate email format"""
+        return value.lower().strip()
+
+    def validate_otp(self, value):
+        """Validate OTP format"""
+        if not value.isdigit() or len(value) != 6:
+            raise serializers.ValidationError("OTP must be a 6-digit number.")
+        return value.strip()
+
+    def validate_new_password(self, value):
+        """Validate password strength"""
+        if len(value) < 8:
+            raise serializers.ValidationError("Password must be at least 8 characters long.")
+        
+        # Add more password validation rules as needed
+        import re
+        if not re.search(r'[A-Za-z]', value) or not re.search(r'\d', value):
+            raise serializers.ValidationError("Password must contain at least one letter and one number.")
+        
+        return value
 
     def validate(self, data):
+        """Validate OTP and password confirmation"""
         email = data.get('email')
         otp = data.get('otp')
         new_password = data.get('new_password')
+        confirm_password = data.get('confirm_password')
+        
+        # Check password confirmation
+        if new_password != confirm_password:
+            raise serializers.ValidationError("Password and confirm password do not match.")
         
         try:
             user = CustomUser.objects.get(email=email, role='shop')
+            
+            # Check if OTP exists
+            if not user.otp or not user.otp_created_at:
+                raise serializers.ValidationError("No OTP found for this account. Please request a new one.")
+            
+            # Check if OTP has expired (10 minutes)
+            if timezone.now() > user.otp_created_at + timezone.timedelta(minutes=10):
+                user.otp = None
+                user.otp_created_at = None
+                user.save(update_fields=['otp', 'otp_created_at'])
+                raise serializers.ValidationError("OTP has expired. Please request a new one.")
+            
+            # Check if OTP matches
             if user.otp != otp:
-                raise serializers.ValidationError("Invalid OTP")
+                raise serializers.ValidationError("Invalid OTP. Please try again.")
+                
         except CustomUser.DoesNotExist:
-            raise serializers.ValidationError("Shop not found")
+            raise serializers.ValidationError("Shop account not found.")
         
         return data
 
+    def save(self):
+        """Reset password and clear OTP"""
+        email = self.validated_data['email']
+        new_password = self.validated_data['new_password']
+        
+        try:
+            user = CustomUser.objects.get(email=email, role='shop')
+            
+            # Set new password
+            user.set_password(new_password)
+            
+            # Clear OTP after successful password reset
+            user.otp = None
+            user.otp_created_at = None
+            user.save()
+            
+            logger.info(f"Password reset successful for shop: {email}")
+            return user
+            
+        except CustomUser.DoesNotExist:
+            logger.error(f"Shop user not found during password reset: {email}")
+            raise serializers.ValidationError("Shop account not found.")
+        except Exception as e:
+            logger.error(f"Error resetting password for shop {email}: {str(e)}")
+            raise serializers.ValidationError("An error occurred while resetting password.")
+
     def update(self, instance, validated_data):
-        user = CustomUser.objects.get(email=validated_data['email'], role='shop')
-        user.set_password(validated_data['new_password'])
-        user.otp = None  # Clear the OTP after successful password reset
-        user.save()
-        return user 
+        """Override update to use save method"""
+        return self.save()
     
 
 class BookingSerializer(serializers.ModelSerializer):

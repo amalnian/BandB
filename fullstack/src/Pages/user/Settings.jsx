@@ -565,7 +565,7 @@ export default function Settings() {
                 </div>
 
                 {/* Two-Factor Authentication Section (Optional) */}
-                <div className="border-t pt-8">
+                {/* <div className="border-t pt-8">
                   <h3 className="text-lg font-medium text-gray-900 mb-4">Two-Factor Authentication</h3>
                   <div className="bg-gray-50 rounded-lg p-4">
                     <p className="text-sm text-gray-600 mb-4">
@@ -575,7 +575,7 @@ export default function Settings() {
                       Enable 2FA (Coming Soon)
                     </button>
                   </div>
-                </div>
+                </div> */}
               </div>
             )}
 

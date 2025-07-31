@@ -2,6 +2,7 @@ import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { getShopServices, getShopBusinessHours, createBooking, getAvailableTimeSlots } from "@/endpoints/APIs"
 import { useRazorpay } from '../user/Hooks/useRazorpay'
+import { useSlotReservation } from '../user/Hooks/useSlotReservation'
 import { toast } from 'react-hot-toast'
 
 const BookingAppointment = () => {
@@ -26,6 +27,17 @@ const BookingAppointment = () => {
   const navigate = useNavigate()
   
   const { initiatePayment, isLoading: razorpayLoading } = useRazorpay()
+  
+  // Add slot reservation hook
+  const {
+    currentReservation,
+    timeRemaining,
+    reserveTimeSlot,
+    releaseCurrentReservation,
+    extendReservation,
+    formatTimeRemaining,
+    isSlotReserved
+  } = useSlotReservation(shopId)
 
   // Fetch shop data on component mount
   useEffect(() => {
@@ -44,6 +56,37 @@ const BookingAppointment = () => {
     calculateDuration()
   }, [selectedServices, services])
 
+  // Handle time slot selection with reservation
+  const handleTimeSlotSelection = async (time) => {
+    if (!selectedServices.length) {
+      toast.error('Please select services first')
+      return
+    }
+    
+    setSelectedTime(time)
+    
+    // Reserve the slot
+    const formatLocalDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+    
+    await reserveTimeSlot(
+      formatLocalDate(selectedDate),
+      time,
+      slotsNeeded
+    )
+  }
+  
+  // Release reservation when services change significantly
+  useEffect(() => {
+    if (currentReservation && selectedServices.length === 0) {
+      releaseCurrentReservation()
+      setSelectedTime("")
+    }
+  }, [selectedServices, currentReservation, releaseCurrentReservation])
 
   const fetchShopData = async () => {
     try {
@@ -106,79 +149,64 @@ const BookingAppointment = () => {
     console.log('Duration calculation:', { total, slotsNeeded: Math.ceil(total / 30) })
   }
   
-// Fixed fetchTimeSlots function
-const fetchTimeSlots = async () => {
-  try {
-    // Fix: Use local date formatting to avoid timezone issues
-    const year = selectedDate.getFullYear();
-    const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
-    const day = String(selectedDate.getDate()).padStart(2, '0');
-    const dateStr = `${year}-${month}-${day}`;
-    
-    console.log('Fetching time slots for date:', dateStr, 'with services:', selectedServices);
-    
-    // Build parameters object - services should be sent as individual query params
-    const params = new URLSearchParams();
-    params.append('date', dateStr);
-    
-    // Add each service as a separate 'services' parameter
-    selectedServices.forEach(serviceId => {
-      params.append('services', serviceId);
-    });
-    
-    console.log('API params:', Object.fromEntries(params));
-    
-    // Use the params directly with axios
-    const response = await getAvailableTimeSlots(shopId, params);
-    console.log('Time slots response:', response);
-    
-    // Extract time slots from response
-    let timeSlotsData = [];
-    if (response?.data?.success && response?.data?.data?.time_slots) {
-      timeSlotsData = response.data.data.time_slots;
-    } else if (response?.data?.time_slots) {
-      timeSlotsData = response.data.time_slots;
-    }
-    
-    console.log('Processed time slots:', timeSlotsData);
-    
-    setTimeSlots(Array.isArray(timeSlotsData) ? timeSlotsData : []);
-    
-    // Reset selected time when date or services change
-    setSelectedTime("");
-    
-    // Auto-select first available time slot
-    const firstAvailable = timeSlotsData.find(slot => slot.available && !slot.is_past);
-    if (firstAvailable) {
-      setSelectedTime(firstAvailable.time);
-    }
-    
-  } catch (err) {
-    console.error('Error fetching time slots:', err);
-    console.error('Error response:', err.response?.data);
-    setTimeSlots([]);
-  }
-};
-
-
-  // Helper function to call API with services parameter
-  const getAvailableTimeSlotsWithServices = async (shopId, queryString) => {
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken')
-    const response = await fetch(`/api/shops/${shopId}/available-slots/?${queryString}`, {
-      headers: {
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json'
+  // Fixed fetchTimeSlots function
+  const fetchTimeSlots = async () => {
+    try {
+      // Fix: Use local date formatting to avoid timezone issues
+      const year = selectedDate.getFullYear();
+      const month = String(selectedDate.getMonth() + 1).padStart(2, '0');
+      const day = String(selectedDate.getDate()).padStart(2, '0');
+      const dateStr = `${year}-${month}-${day}`;
+      
+      console.log('Fetching time slots for date:', dateStr, 'with services:', selectedServices);
+      
+      // Build parameters object - services should be sent as individual query params
+      const params = new URLSearchParams();
+      params.append('date', dateStr);
+      
+      // Add each service as a separate 'services' parameter
+      selectedServices.forEach(serviceId => {
+        params.append('services', serviceId);
+      });
+      
+      console.log('API params:', Object.fromEntries(params));
+      
+      // Use the params directly with axios
+      const response = await getAvailableTimeSlots(shopId, params);
+      console.log('Time slots response:', response);
+      
+      // Extract time slots from response
+      let timeSlotsData = [];
+      if (response?.data?.success && response?.data?.data?.time_slots) {
+        timeSlotsData = response.data.data.time_slots;
+      } else if (response?.data?.time_slots) {
+        timeSlotsData = response.data.time_slots;
       }
-    })
-    
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+      
+      console.log('Processed time slots:', timeSlotsData);
+      
+      setTimeSlots(Array.isArray(timeSlotsData) ? timeSlotsData : []);
+      
+      // Reset selected time when date or services change
+      setSelectedTime("");
+      
+      // Release any existing reservation when slots change
+      if (currentReservation) {
+        releaseCurrentReservation();
+      }
+      
+    } catch (err) {
+      console.error('Error fetching time slots:', err);
+      console.error('Error response:', err.response?.data);
+      setTimeSlots([]);
     }
-    
-    return response.json()
-  }
+  };
 
   const handleBackClick = () => {
+    // Release reservation before navigating away
+    if (currentReservation) {
+      releaseCurrentReservation();
+    }
     navigate(`/shop/${shopId}`)
   }
 
@@ -251,20 +279,25 @@ const fetchTimeSlots = async () => {
     return !businessHour.is_closed
   }
 
-// Fixed selectDate function
-const selectDate = (day) => {
-  const isPast = isDatePast(day);
-  const isAvailable = isDateAvailable(day);
-  
-  console.log(`Selecting date ${day}: isPast=${isPast}, isAvailable=${isAvailable}`);
-  
-  if (!isPast && isAvailable) {
-    // Fix: Create date in local timezone to avoid shifts
-    const newSelectedDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
-    console.log('New selected date:', newSelectedDate);
-    setSelectedDate(newSelectedDate);
-  }
-};
+  // Fixed selectDate function
+  const selectDate = (day) => {
+    const isPast = isDatePast(day);
+    const isAvailable = isDateAvailable(day);
+    
+    console.log(`Selecting date ${day}: isPast=${isPast}, isAvailable=${isAvailable}`);
+    
+    if (!isPast && isAvailable) {
+      // Fix: Create date in local timezone to avoid shifts
+      const newSelectedDate = new Date(currentDate.getFullYear(), currentDate.getMonth(), day);
+      console.log('New selected date:', newSelectedDate);
+      setSelectedDate(newSelectedDate);
+      
+      // Release current reservation when date changes
+      if (currentReservation) {
+        releaseCurrentReservation();
+      }
+    }
+  };
 
   const renderCalendarDays = () => {
     const daysInMonth = getDaysInMonth(currentDate)
@@ -313,21 +346,26 @@ const selectDate = (day) => {
   }
 
   const toggleService = (serviceId) => {
-    setSelectedServices((prev) =>
-      prev.includes(serviceId) ? prev.filter((id) => id !== serviceId) : [...prev, serviceId]
-    )
+    setSelectedServices((prev) => {
+      const newServices = prev.includes(serviceId) 
+        ? prev.filter((id) => id !== serviceId) 
+        : [...prev, serviceId];
+      
+      // Release reservation when services change significantly
+      if (currentReservation && newServices.length !== prev.length) {
+        releaseCurrentReservation();
+        setSelectedTime("");
+      }
+      
+      return newServices;
+    });
   }
 
   const calculateTotal = () => {
-    // if (!Array.isArray(services) || services.length === 0) {
-    //   return 25
-    // }
-    
     const serviceTotal = selectedServices.reduce((total, serviceId) => {
       const service = services.find((s) => s.id === serviceId)
       return total + (service ? parseFloat(service.price) : 0)
     }, 0)
-    // const serviceFee = 25
     return serviceTotal 
   }
 
@@ -357,90 +395,116 @@ const selectDate = (day) => {
     return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
   }
 
-const handleBooking = async (paymentMethod) => {
-  if (!selectedServices.length || !selectedTime) {
-    toast.error('Please select services and time slot')
-    return
-  }
-
-  // Fix: Format date in local timezone instead of using toISOString()
-  const formatLocalDate = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
-  const bookingData = {
-    shop: parseInt(shopId),
-    services: selectedServices,
-    appointment_date: formatLocalDate(selectedDate), // Fixed: Use local date formatting
-    appointment_time: selectedTime,
-    total_amount: calculateTotal(),
-    payment_method: paymentMethod
-  }
-
-  // Rest of your booking logic remains the same...
-  if (paymentMethod === 'wallet') {
-    try {
-      setBookingLoading(true)
-      console.log('Booking data:', bookingData)
-      
-      const response = await createBooking(bookingData)
-      console.log('Booking response:', response)
-      
-      toast.success('Booking created successfully!')
-      
-      const bookingId = response?.data?.data?.id || response?.data?.id
-      if (bookingId) {
-        navigate(`/booking-confirmation/${bookingId}`)
-      } else {
-        navigate(`/shop/${shopId}`)
-      }
-      
-    } catch (err) {
-      console.error('Booking failed:', err)
-      const errorMessage = err?.response?.data?.error || err?.message || 'Booking failed. Please try again.'
-      toast.error(errorMessage)
-    } finally {
-      setBookingLoading(false)
+  const handleBooking = async (paymentMethod) => {
+    if (!selectedServices.length || !selectedTime) {
+      toast.error('Please select services and time slot')
+      return
     }
-  } else if (paymentMethod === 'razorpay') {
-    // Razorpay payment logic
-    const paymentData = {
-      amount: calculateTotal(),
-      businessName: 'B&B', // Replace with actual business name
-      description: `Booking for ${getSelectedServiceDetails().map(s => s.name).join(', ')}`,
-      bookingData: bookingData,
-      customerName: '', // Add customer details if available
-      customerEmail: '',
-      customerPhone: '',
-      themeColor: '#3399cc'
+    
+    // Check if we have a valid reservation
+    if (!currentReservation) {
+      toast.error('Please reserve a time slot first')
+      return
+    }
+    
+    if (timeRemaining <= 0) {
+      toast.error('Slot reservation expired. Please select again.')
+      return
+    }
+    
+    // Fix: Format date in local timezone instead of using toISOString()
+    const formatLocalDate = (date) => {
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    };
+
+    const bookingData = {
+      shop: parseInt(shopId),
+      services: selectedServices,
+      appointment_date: formatLocalDate(selectedDate),
+      appointment_time: selectedTime,
+      total_amount: calculateTotal(),
+      payment_method: paymentMethod
     }
 
-    initiatePayment(
-      paymentData,
-      // Success callback
-      (response) => {
-        console.log('Payment successful:', response)
-        toast.success('Payment successful! Booking confirmed.')
+    if (paymentMethod === 'wallet') {
+      try {
+        setBookingLoading(true)
+        console.log('Booking data:', bookingData)
         
-        // Navigate to confirmation page using booking ID from verification response
-        const bookingId = response.booking_data?.booking_id
+        const response = await createBooking(bookingData)
+        console.log('Booking response:', response)
+        
+        // Release reservation after successful booking
+        await releaseCurrentReservation()
+        
+        toast.success('Booking created successfully!')
+        
+        const bookingId = response?.data?.data?.id || response?.data?.id
         if (bookingId) {
           navigate(`/booking-confirmation/${bookingId}`)
         } else {
           navigate(`/shop/${shopId}`)
         }
-      },
-      // Failure callback
-      (error) => {
-        console.error('Payment failed:', error)
-        toast.error(`Payment failed: ${error.message}`)
+        
+      } catch (err) {
+        console.error('Booking failed:', err)
+        const errorMessage = err?.response?.data?.error || err?.message || 'Booking failed. Please try again.'
+        toast.error(errorMessage)
+      } finally {
+        setBookingLoading(false)
       }
-    )
+    } else if (paymentMethod === 'razorpay') {
+      // Razorpay payment logic
+      const paymentData = {
+        amount: calculateTotal(),
+        businessName: 'B&B', // Replace with actual business name
+        description: `Booking for ${getSelectedServiceDetails().map(s => s.name).join(', ')}`,
+        bookingData: bookingData,
+        customerName: '', // Add customer details if available
+        customerEmail: '',
+        customerPhone: '',
+        themeColor: '#3399cc'
+      }
+
+      initiatePayment(
+        paymentData,
+        // Success callback
+        async (response) => {
+          console.log('Payment successful:', response)
+          
+          // Release reservation after successful payment
+          await releaseCurrentReservation()
+          
+          toast.success('Payment successful! Booking confirmed.')
+          
+          // Navigate to confirmation page using booking ID from verification response
+          const bookingId = response.booking_data?.booking_id
+          if (bookingId) {
+            navigate(`/booking-confirmation/${bookingId}`)
+          } else {
+            navigate(`/shop/${shopId}`)
+          }
+        },
+        // Failure callback
+        (error) => {
+          console.error('Payment failed:', error)
+          toast.error(`Payment failed: ${error.message}`)
+        }
+      )
+    }
   }
-}
+
+  // Cleanup reservation on component unmount
+  useEffect(() => {
+    return () => {
+      if (currentReservation) {
+        releaseCurrentReservation();
+      }
+    };
+  }, [currentReservation, releaseCurrentReservation]);
 
   if (loading) {
     return (
@@ -489,6 +553,25 @@ const handleBooking = async (paymentMethod) => {
             </svg>
           </button>
           <h1 className="text-lg md:text-xl font-semibold text-gray-900">Book Appointment</h1>
+          
+          {/* Add reservation timer in header */}
+          {isSlotReserved && timeRemaining > 0 && (
+            <div className="ml-auto flex items-center gap-2 bg-orange-100 px-3 py-1 rounded-full">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" className="text-orange-600">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2"/>
+                <polyline points="12,6 12,12 16,14" stroke="currentColor" strokeWidth="2"/>
+              </svg>
+              <span className="text-sm font-medium text-orange-800">
+                Reserved: {formatTimeRemaining()}
+              </span>
+              <button
+                onClick={extendReservation}
+                className="text-xs text-orange-600 hover:text-orange-800 underline"
+              >
+                Extend
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="p-4 md:p-6 space-y-8">
@@ -639,23 +722,53 @@ const handleBooking = async (paymentMethod) => {
             )}
           </div>
 
-          {/* Available Time Section */}
+          {/* Available Time Section with reservation status */}
           <div>
             <h2 className="text-lg font-semibold text-gray-900 mb-4">Available time</h2>
+            
+            {/* Reservation status */}
+            {/* {isSlotReserved && (
+              <div className="mb-4 p-4 bg-green-50 rounded-lg border border-green-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-sm font-medium text-green-800">
+                      Slot Reserved: {selectedTime}
+                    </p>
+                    <p className="text-xs text-green-600">
+                      Time remaining: {formatTimeRemaining()}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={extendReservation}
+                      className="text-xs bg-green-600 text-white px-3 py-1 rounded hover:bg-green-700"
+                    >
+                      Extend
+                    </button>
+                    <button
+                      onClick={releaseCurrentReservation}
+                      className="text-xs bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
+                    >
+                      Release
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )} */}
             
             {/* Time slots info */}
             {selectedServices.length > 0 && (
               <div className="mb-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200">
                 <p className="text-sm text-yellow-800">
-                  <span className="font-medium">Note:</span> Time slots show when your appointment will start. 
-                  Your appointment will end at the displayed end time based on selected services.
+                  <span className="font-medium">Note:</span> Selecting a time slot will reserve it for 10 minutes. 
+                  Complete your booking within this time to secure the slot.
                 </p>
               </div>
             )}
 
             {timeSlots.length === 0 ? (
               <div className="text-center py-8">
-                <p className="text-gray-500 mb-2">Shop is close today </p>
+                <p className="text-gray-500 mb-2">Shop is closed today</p>
                 <p className="text-sm text-gray-400">Try selecting a different date or fewer services</p>
               </div>
             ) : (
@@ -663,7 +776,7 @@ const handleBooking = async (paymentMethod) => {
                 {timeSlots.map((slot) => (
                   <button
                     key={slot.time}
-                    onClick={() => slot.available && setSelectedTime(slot.time)}
+                    onClick={() => handleTimeSlotSelection(slot.time)}
                     disabled={!slot.available || slot.is_past}
                     className={`
                       py-3 px-4 rounded-xl text-sm font-medium transition-colors relative
@@ -679,17 +792,17 @@ const handleBooking = async (paymentMethod) => {
                       `${slot.time} - ${slot.end_time} (30 min slot)${slot.service_end_time ? ` | Service ends: ${slot.service_end_time}` : ''}` : 
                       'Not available'
                     }                  
-                    >
-                  <div className="text-center">
-                    <div className="font-semibold">{slot.time}</div>
-                    <div className="text-xs opacity-75">to {slot.end_time}</div>
-                    {slot.service_end_time && slot.service_end_time !== slot.end_time && (
-                      <div className="text-xs opacity-60">Service ends: {slot.service_end_time}</div>
-                    )}
-                    {slot.is_past && (
-                      <div className="text-xs text-red-400">Past</div>
-                    )}
-                  </div>
+                  >
+                    <div className="text-center">
+                      <div className="font-semibold">{slot.time}</div>
+                      <div className="text-xs opacity-75">to {slot.end_time}</div>
+                      {slot.service_end_time && slot.service_end_time !== slot.end_time && (
+                        <div className="text-xs opacity-60">Service ends: {slot.service_end_time}</div>
+                      )}
+                      {slot.is_past && (
+                        <div className="text-xs text-red-400">Past</div>
+                      )}
+                    </div>
                   </button>
                 ))}
               </div>
@@ -706,15 +819,9 @@ const handleBooking = async (paymentMethod) => {
                     <span className="text-gray-700">{service.name}</span>
                     <span className="text-xs text-gray-500 ml-2">({service.duration_minutes} min)</span>
                   </div>
-                  <span className="font-semibold text-gray-900">₹
-{service.price}</span>
+                  <span className="font-semibold text-gray-900">₹{service.price}</span>
                 </div>
               ))}
-
-              {/* <div className="flex justify-between items-center pt-4 border-t border-gray-200">
-                <span className="text-gray-700">Service fee</span>
-                <span className="font-semibold text-gray-900">$25</span>
-              </div> */}
 
               <div className="flex justify-between items-center pt-2 border-t border-gray-300 text-lg font-bold">
                 <span className="text-gray-900">Total</span>
@@ -736,11 +843,18 @@ const handleBooking = async (paymentMethod) => {
             </div>
           </div>
 
-          {/* Payment Buttons */}
+          {/* Updated Payment Buttons with reservation check */}
           <div className="flex flex-col sm:flex-row gap-4 pt-6">
             <button 
               onClick={() => handleBooking('wallet')}
-              disabled={bookingLoading || razorpayLoading || !selectedServices.length || !selectedTime}
+              disabled={
+                bookingLoading || 
+                razorpayLoading || 
+                !selectedServices.length || 
+                !selectedTime || 
+                !isSlotReserved ||
+                timeRemaining <= 0
+              }
               className="flex-1 bg-gray-900 text-white py-4 px-6 rounded-2xl font-semibold hover:bg-gray-800 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {bookingLoading ? (
@@ -759,7 +873,14 @@ const handleBooking = async (paymentMethod) => {
 
             <button 
               onClick={() => handleBooking('razorpay')}
-              disabled={bookingLoading || razorpayLoading || !selectedServices.length || !selectedTime}
+              disabled={
+                bookingLoading || 
+                razorpayLoading || 
+                !selectedServices.length || 
+                !selectedTime ||
+                !isSlotReserved ||
+                timeRemaining <= 0
+              }
               className="flex-1 bg-purple-600 text-white py-4 px-6 rounded-2xl font-semibold hover:bg-purple-700 transition-colors flex items-center justify-center disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {razorpayLoading ? (
@@ -776,6 +897,25 @@ const handleBooking = async (paymentMethod) => {
               )}
             </button>
           </div>
+
+          {/* Show reservation warning if no slot is reserved */}
+          {!isSlotReserved && selectedTime && (
+            <div className="text-center p-4 bg-red-50 rounded-lg border border-red-200">
+              <p className="text-sm text-red-800">
+                Please select a time slot to reserve it before proceeding with payment.
+              </p>
+            </div>
+          )}
+
+          {/* Show timer warning when time is running low */}
+          {isSlotReserved && timeRemaining > 0 && timeRemaining <= 120 && (
+            <div className="text-center p-4 bg-orange-50 rounded-lg border border-orange-200">
+              <p className="text-sm text-orange-800">
+                <span className="font-medium">⚠️ Hurry up!</span> Your slot reservation expires in {formatTimeRemaining()}. 
+                Complete your booking or extend the reservation.
+              </p>
+            </div>
+          )}
         </div>
       </div>
     </div>

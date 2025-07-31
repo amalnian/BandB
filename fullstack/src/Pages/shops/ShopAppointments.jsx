@@ -9,6 +9,8 @@ const AppointmentsContent = () => {
   const [updating, setUpdating] = useState({});
   const [cancellationReason, setCancellationReason] = useState('');
   const [cancelModal, setCancelModal] = useState({ show: false, bookingId: null });
+  const [completionNotes, setCompletionNotes] = useState('');
+  const [completeModal, setCompleteModal] = useState({ show: false, bookingId: null });
   const [filters, setFilters] = useState({
     status: 'all',
     date: '',
@@ -65,6 +67,11 @@ const handleCancelClick = (bookingId) => {
   setCancellationReason(''); // Reset reason when opening modal
 };
 
+const handleCompleteClick = (bookingId) => {
+  setCompleteModal({ show: true, bookingId });
+  setCompletionNotes(''); // Reset notes when opening modal
+};
+
 const confirmCancel = () => {
   if (!cancellationReason.trim()) {
     alert('Please provide a cancellation reason');
@@ -75,6 +82,13 @@ const confirmCancel = () => {
   handleStatusUpdate(cancelModal.bookingId, 'cancelled', cancellationReason.trim());
   setCancelModal({ show: false, bookingId: null });
   setCancellationReason('');
+};
+
+const confirmComplete = () => {
+  // Completion notes are optional, so we don't require them
+  handleStatusUpdate(completeModal.bookingId, 'completed', completionNotes.trim());
+  setCompleteModal({ show: false, bookingId: null });
+  setCompletionNotes('');
 };
 
 const fetchBookings = async (page = currentPage) => {
@@ -189,10 +203,10 @@ const fetchBookings = async (page = currentPage) => {
     }
   };
 
-  const handleStatusUpdate = async (bookingId, newStatus) => {
+  const handleStatusUpdate = async (bookingId, newStatus, notes = '') => {
     try {
       setUpdating(prev => ({ ...prev, [bookingId]: true }));
-      const response = await updateBookingStatus(bookingId, newStatus);
+      const response = await updateBookingStatus(bookingId, newStatus, notes);
       
       console.log('Update Response:', response.data);
       
@@ -207,7 +221,8 @@ const fetchBookings = async (page = currentPage) => {
                   booking_status: newStatus,
                   ...(newStatus === 'cancelled' && { cancelled_at: currentTimestamp }),
                   ...(newStatus === 'completed' && { completed_at: currentTimestamp }),
-                  ...(newStatus === 'confirmed' && { confirmed_at: currentTimestamp })
+                  ...(newStatus === 'confirmed' && { confirmed_at: currentTimestamp }),
+                  ...(notes && { completion_notes: notes })
                 }
               : booking
           );
@@ -478,6 +493,13 @@ const fetchBookings = async (page = currentPage) => {
                           <div className="mt-1 text-gray-700">{booking.notes}</div>
                         </div>
                       )}
+
+                      {booking.completion_notes && (
+                        <div className="mt-2 p-2 bg-green-50 rounded">
+                          <span className="font-medium">✅ Completion Notes:</span>
+                          <div className="mt-1 text-gray-700">{booking.completion_notes}</div>
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -507,7 +529,7 @@ const fetchBookings = async (page = currentPage) => {
                           {/* Only show Complete button if appointment time has passed */}
                           {isAppointmentTimePassed(booking.appointment_date, booking.appointment_time) ? (
                             <button
-                              onClick={() => handleStatusUpdate(booking.id, 'completed')}
+                              onClick={() => handleCompleteClick(booking.id)}
                               disabled={updating[booking.id]}
                               className="px-3 py-1 bg-green-500 text-white text-sm rounded hover:bg-green-600 disabled:opacity-50 transition-colors"
                             >
@@ -600,48 +622,92 @@ const fetchBookings = async (page = currentPage) => {
             </div>
           )}
 
-{cancelModal.show && (
-  <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-      <h3 className="text-lg font-semibold mb-4">Confirm Cancellation</h3>
-      <p className="text-gray-600 mb-4">
-        Are you sure you want to cancel this appointment? This action cannot be undone.
-      </p>
-      
-      <div className="mb-6">
-        <label className="block text-sm font-medium text-gray-700 mb-2">
-          Reason for cancellation <span className="text-red-500">*</span>
-        </label>
-        <textarea
-          value={cancellationReason}
-          onChange={(e) => setCancellationReason(e.target.value)}
-          placeholder="Please provide a reason for cancellation..."
-          className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-          rows="4"
-        />
-      </div>
-      
-      <div className="flex justify-end space-x-3">
-        <button
-          onClick={() => {
-            setCancelModal({ show: false, bookingId: null });
-            setCancellationReason('');
-          }}
-          className="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300"
-        >
-          No, Keep It
-        </button>
-        <button
-          onClick={confirmCancel}
-          disabled={!cancellationReason.trim()}
-          className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          Yes, Cancel
-        </button>
-      </div>
-    </div>
-  </div>
-)}
+          {/* Cancellation Modal */}
+          {cancelModal.show && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 className="text-lg font-semibold mb-4">Confirm Cancellation</h3>
+                <p className="text-gray-600 mb-4">
+                  Are you sure you want to cancel this appointment? This action cannot be undone.
+                </p>
+                
+                <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Reason for cancellation <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    value={cancellationReason}
+                    onChange={(e) => setCancellationReason(e.target.value)}
+                    placeholder="Please provide a reason for cancellation..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
+                    rows="4"
+                  />
+                </div>
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => {
+                      setCancelModal({ show: false, bookingId: null });
+                      setCancellationReason('');
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300"
+                  >
+                    No, Keep It
+                  </button>
+                  <button
+                    onClick={confirmCancel}
+                    disabled={!cancellationReason.trim()}
+                    className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Yes, Cancel
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Completion Modal */}
+          {completeModal.show && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                <h3 className="text-lg font-semibold mb-4">Complete Appointment</h3>
+                <p className="text-gray-600 mb-4">
+                  Are you sure you want to mark this appointment as completed?
+                </p>
+                
+                {/* <div className="mb-6">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Completion Notes <span className="text-gray-500">(Optional)</span>
+                  </label>
+                  <textarea
+                    value={completionNotes}
+                    onChange={(e) => setCompletionNotes(e.target.value)}
+                    placeholder="Add any notes about the completed service..."
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500 resize-none"
+                    rows="4"
+                  />
+                </div> */}
+                
+                <div className="flex justify-end space-x-3">
+                  <button
+                    onClick={() => {
+                      setCompleteModal({ show: false, bookingId: null });
+                      setCompletionNotes('');
+                    }}
+                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={confirmComplete}
+                    className="px-4 py-2 bg-green-500 text-white rounded hover:bg-green-600"
+                  >
+                    Complete Appointment
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </>
 
 

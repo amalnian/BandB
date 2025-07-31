@@ -84,6 +84,7 @@ from shop.models import (
     BusinessHours,
     SpecialClosingDay,
     Booking,
+    TemporarySlotReservation,
 )
 
 from shop.serializers import (
@@ -105,62 +106,71 @@ class CoustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
     
-    
-    def post(self, request,*args, **kwargs):
-
+    def post(self, request, *args, **kwargs):
         try:
-            email=request.data.get("email")
-            password=request.data.get("password")
+            email = request.data.get("email")
+            password = request.data.get("password")
 
             if not CustomUser.objects.filter(email=email).exists():
                 return Response(
-                    {"success":False,"message":"User with this account does not exist"},
+                    {"success": False, "message": "User with this account does not exist"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            response = super().post(request,*args, **kwargs)
+            response = super().post(request, *args, **kwargs)
             token = response.data
 
             access_token = token["access"]
             refresh_token = token["refresh"]
 
-            res = Response(status=status.HTTP_200_OK)
-
             user = CustomUser.objects.get(email=email)
-            res.data = {"success":True,"message":"user login successfully","userDetails":{"id":user.id,"username":user.username,"email":user.email}}
+            
+            # Consistent cookie settings
+            cookie_settings = {
+                'httponly': True,
+                'secure': not settings.DEBUG,
+                'samesite': 'Lax' if settings.DEBUG else 'None',
+                'path': '/',
+            }
+
+            res = Response({
+                "success": True,
+                "message": "User login successfully",
+                "userDetails": {
+                    "id": user.id,
+                    "username": user.username,
+                    "email": user.email
+                }
+            }, status=status.HTTP_200_OK)
 
             res.set_cookie(
-                key = "access_token",
+                key="access_token",
                 value=access_token,
-                httponly=True,
-                secure=True,
-                samesite="None",
-                path='/',
-                max_age=3600
+                max_age=int(settings.SIMPLE_JWT.get('ACCESS_TOKEN_LIFETIME').total_seconds()),
+                **cookie_settings
             )
 
             res.set_cookie(
-                key = "refresh_token",
+                key="refresh_token",
                 value=refresh_token,
-                httponly=True,
-                secure=True,
-                samesite="None",
-                path='/',
-                max_age=3600
+                max_age=int(settings.SIMPLE_JWT.get('REFRESH_TOKEN_LIFETIME').total_seconds()),
+                **cookie_settings
             )
+            
             return res
 
         except AuthenticationFailed:
             return Response(
-                {"success":False,"message":"Invalid Credentials"},
+                {"success": False, "message": "Invalid Credentials"},
                 status=status.HTTP_400_BAD_REQUEST
             )
 
         except Exception as e:
             return Response(
-                {"success":False,"message":f"An error occured: {str(e)}"},
+                {"success": False, "message": f"An error occurred: {str(e)}"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
 
 class CustomTokenRefreshView(TokenRefreshView):
     permission_classes = [permissions.AllowAny]
@@ -203,9 +213,24 @@ class CustomTokenRefreshView(TokenRefreshView):
                     **cookie_settings
                 )
 
-                # If rotation is enabled, set new refresh token
+                # If rotation is enabled, create new refresh token manually
                 if settings.SIMPLE_JWT.get('ROTATE_REFRESH_TOKENS', False):
-                    new_refresh_token = str(refresh)
+                    # Get user from the refresh token
+                    user_id = refresh.payload.get('user_id')
+                    user = CustomUser.objects.get(id=user_id)
+                    
+                    # Create new refresh token
+                    new_refresh = RefreshToken.for_user(user)
+                    new_refresh_token = str(new_refresh)
+                    
+                    # Blacklist old token if blacklisting is enabled
+                    if settings.SIMPLE_JWT.get('BLACKLIST_AFTER_ROTATION', False):
+                        try:
+                            refresh.blacklist()
+                        except AttributeError:
+                            # Blacklisting not available in this version
+                            pass
+                    
                     res.set_cookie(
                         key="refresh_token",
                         value=new_refresh_token,
@@ -308,6 +333,8 @@ class EmailOTPVerifyView(generics.GenericAPIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
+from .tasks import send_otp_email_task
+
 class ResendOTPView(APIView):
     permission_classes = [AllowAny]
     
@@ -319,7 +346,6 @@ class ResendOTPView(APIView):
         try:
             user = CustomUser.objects.get(email=email)
             
-            # Only allow resending OTP for inactive users
             if user.is_active:
                 return Response({'error': 'Account is already active.'}, status=status.HTTP_400_BAD_REQUEST)
                 
@@ -329,19 +355,9 @@ class ResendOTPView(APIView):
             user.otp_created_at = timezone.now()
             user.save() 
 
-            # Send OTP via email
-            try:
-                send_mail(
-                    subject='Your OTP Code',
-                    message=f'Your OTP is: {otp}. This code will expire in 10 minutes.',
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[email],
-                    fail_silently=False
-                )
-                logger.info(f"OTP email resent to {email}")
-            except Exception as e:
-                logger.error(f"Failed to send OTP email to {email}: {str(e)}")
-                return Response({'error': 'Failed to send OTP email.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # Send OTP via Celery task
+            send_otp_email_task.delay(user.email, otp, "Resend OTP Code")
+            logger.info(f"Resend OTP email task queued for {email}")
 
             return Response({'message': 'OTP has been resent successfully.'}, status=status.HTTP_200_OK)
             
@@ -1488,8 +1504,12 @@ class AvailableTimeSlotsView(APIView):
                     'error': 'Cannot book appointments for past dates'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Check for special closing days
-            special_closing = SpecialClosingDay.objects.filter(date=selected_date).first()
+            # Check for special closing days - UPDATED TO BE SHOP-SPECIFIC
+            special_closing = SpecialClosingDay.objects.filter(
+                shop=shop,
+                date=selected_date
+            ).first()
+            
             if special_closing:
                 return Response({
                     'success': True,
@@ -1652,8 +1672,14 @@ class AvailableTimeSlotsView(APIView):
     def _are_consecutive_slots_available(self, shop_id, date, start_time, slots_needed):
         """
         Check if consecutive time slots are available for booking
+        Updated to consider temporary reservations
         """
         try:
+            # Clean up expired reservations first
+            TemporarySlotReservation.objects.filter(
+                expires_at__lt=timezone.now()
+            ).delete()
+            
             for i in range(slots_needed):
                 slot_time = self._add_minutes_to_time(start_time, i * 30)
                 
@@ -1668,6 +1694,17 @@ class AvailableTimeSlotsView(APIView):
                 ).exists()
                 
                 if existing_booking:
+                    return False
+                
+                # Check if this slot is temporarily reserved
+                temp_reservation = TemporarySlotReservation.objects.filter(
+                    shop_id=shop_id,
+                    appointment_date=date,
+                    appointment_time=slot_time,
+                    expires_at__gt=timezone.now()
+                ).exists()
+                
+                if temp_reservation:
                     return False
                     
                 # Also check if any existing booking overlaps with this slot
@@ -3046,20 +3083,35 @@ class CreateBookingView(APIView):
                     'error': 'Invalid date or time format'
                 }, status=status.HTTP_400_BAD_REQUEST)
            
-            # Check if consecutive slots are still available
-            time_slots_view = AvailableTimeSlotsView()
-            are_slots_available = time_slots_view._are_consecutive_slots_available(
-                shop_id, 
-                appointment_date, 
-                appointment_time,
-                slots_needed
-            )
-            
-            if not are_slots_available:
-                return Response({
-                    'success': False,
-                    'error': f'Selected time slot is no longer available. Need {slots_needed} consecutive slots for {total_duration} minutes.'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Clean up expired reservations
+            TemporarySlotReservation.objects.filter(
+                expires_at__lt=timezone.now()
+            ).delete()
+
+            # Check if user has a valid reservation for this slot
+            user_reservation = TemporarySlotReservation.objects.filter(
+                user=request.user,
+                shop=shop,
+                appointment_date=appointment_date,
+                appointment_time=appointment_time,
+                expires_at__gt=timezone.now()
+            ).first()
+
+            # If no reservation exists, check if slot is still available
+            if not user_reservation:
+                time_slots_view = AvailableTimeSlotsView()
+                are_slots_available = time_slots_view._are_consecutive_slots_available(
+                    shop_id, 
+                    appointment_date, 
+                    appointment_time,
+                    slots_needed
+                )
+                
+                if not are_slots_available:
+                    return Response({
+                        'success': False,
+                        'error': f'Selected time slot is no longer available. Please select a different time.'
+                    }, status=status.HTTP_400_BAD_REQUEST)
             
             # Calculate total amount
             total_amount = sum(float(service.price) for service in services)
@@ -3103,6 +3155,19 @@ class CreateBookingView(APIView):
                 
                 # Add services to booking
                 booking.services.set(services)
+                
+                # Remove the temporary reservation after successful booking
+                if user_reservation:
+                    user_reservation.delete()
+                    logger.info(f"Removed user's temporary reservation for booking {booking.id}")
+                else:
+                    # Remove any reservations for this specific slot
+                    deleted_count = TemporarySlotReservation.objects.filter(
+                        shop=shop,
+                        appointment_date=appointment_date,
+                        appointment_time=appointment_time
+                    ).delete()[0]
+                    logger.info(f"Removed {deleted_count} temporary reservations for slot")
                 
                 # Process wallet payment
                 if payment_method == 'wallet':
@@ -3192,6 +3257,7 @@ class CreateBookingView(APIView):
                     logger.warning("Notification failed, but booking will continue")
 
                 # Calculate end time for response
+                time_slots_view = AvailableTimeSlotsView()
                 end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
 
                 # DEBUG: Create or get conversation between user and shop owner
@@ -4010,3 +4076,168 @@ class NotificationDeleteView(APIView):
                 'success': False,
                 'message': 'Error deleting notification'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+
+
+
+
+
+
+
+
+
+
+from django.utils import timezone
+from datetime import timedelta
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework import status
+import uuid
+
+class SlotReservationView(APIView):
+    """
+    Handle temporary slot reservations
+    """
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Reserve a slot temporarily"""
+        try:
+            data = request.data
+            shop_id = data.get('shop')
+            appointment_date = data.get('appointment_date')
+            appointment_time = data.get('appointment_time')
+            slots_needed = data.get('slots_needed', 1)
+            
+            # Validate required fields
+            if not all([shop_id, appointment_date, appointment_time]):
+                return Response({
+                    'success': False,
+                    'error': 'Missing required fields'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Parse date and time
+            try:
+                appointment_date = datetime.strptime(appointment_date, '%Y-%m-%d').date()
+                appointment_time = datetime.strptime(appointment_time, '%H:%M').time()
+            except ValueError:
+                return Response({
+                    'success': False,
+                    'error': 'Invalid date or time format'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Check if shop exists
+            shop = get_object_or_404(Shop, id=shop_id)
+            
+            # Clean up expired reservations first
+            self._cleanup_expired_reservations()
+            
+            # Check if slot is already reserved or booked
+            if self._is_slot_unavailable(shop_id, appointment_date, appointment_time, slots_needed):
+                return Response({
+                    'success': False,
+                    'error': 'Selected time slot is no longer available'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Remove any existing reservation by this user for this shop on this date
+            TemporarySlotReservation.objects.filter(
+                user=request.user,
+                shop=shop,
+                appointment_date=appointment_date
+            ).delete()
+            
+            # Create new reservation
+            reservation = TemporarySlotReservation.objects.create(
+                user=request.user,
+                shop=shop,
+                appointment_date=appointment_date,
+                appointment_time=appointment_time,
+                slots_needed=slots_needed,
+                expires_at=timezone.now() + timedelta(minutes=10)
+            )
+            
+            return Response({
+                'success': True,
+                'data': {
+                    'reservation_id': reservation.id,
+                    'expires_at': reservation.expires_at.isoformat(),
+                    'message': 'Slot reserved temporarily for 10 minutes'
+                }
+            }, status=status.HTTP_201_CREATED)
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'An error occurred: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def delete(self, request):
+        """Release a slot reservation"""
+        try:
+            reservation_id = request.data.get('reservation_id')
+            shop_id = request.data.get('shop')
+            appointment_date = request.data.get('appointment_date')
+            
+            if reservation_id:
+                # Release specific reservation
+                TemporarySlotReservation.objects.filter(
+                    id=reservation_id,
+                    user=request.user
+                ).delete()
+            elif shop_id and appointment_date:
+                # Release all reservations by this user for this shop on this date
+                appointment_date = datetime.strptime(appointment_date, '%Y-%m-%d').date()
+                TemporarySlotReservation.objects.filter(
+                    user=request.user,
+                    shop_id=shop_id,
+                    appointment_date=appointment_date
+                ).delete()
+            else:
+                return Response({
+                    'success': False,
+                    'error': 'reservation_id or (shop + appointment_date) required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'success': True,
+                'message': 'Slot reservation released'
+            }, status=status.HTTP_200_OK)
+            
+        except Exception as e:
+            return Response({
+                'success': False,
+                'error': f'An error occurred: {str(e)}'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def _cleanup_expired_reservations(self):
+        """Remove expired reservations"""
+        TemporarySlotReservation.objects.filter(
+            expires_at__lt=timezone.now()
+        ).delete()
+    
+    def _is_slot_unavailable(self, shop_id, date, start_time, slots_needed):
+        """Check if slot is unavailable due to bookings or reservations"""
+        # Check actual bookings
+        time_slots_view = AvailableTimeSlotsView()
+        if not time_slots_view._are_consecutive_slots_available(shop_id, date, start_time, slots_needed):
+            return True
+        
+        # Check temporary reservations
+        for i in range(slots_needed):
+            slot_time = time_slots_view._add_minutes_to_time(start_time, i * 30)
+            
+            # Check if this slot time is reserved
+            existing_reservation = TemporarySlotReservation.objects.filter(
+                shop_id=shop_id,
+                appointment_date=date,
+                appointment_time=slot_time,
+                expires_at__gt=timezone.now()
+            ).exists()
+            
+            if existing_reservation:
+                return True
+        
+        return False

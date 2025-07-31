@@ -216,7 +216,7 @@ SIMPLE_JWT = {
     'JTI_CLAIM': 'jti',
     
     'SLIDING_TOKEN_REFRESH_EXP_CLAIM': 'refresh_exp',
-    'SLIDING_TOKEN_LIFETIME': timedelta(minutes=5),
+    'SLIDING_TOKEN_LIFETIME': timedelta(hours=1),
     'SLIDING_TOKEN_REFRESH_LIFETIME': timedelta(days=1),
 }
 
@@ -292,7 +292,6 @@ cloudinary.config(
 )
 
 
-# settings.py
 RAZORPAY_KEY_ID = os.getenv('RAZORPAY_KEY')
 RAZORPAY_KEY_SECRET = os.getenv('RAZORPAY_SECRET')
 
@@ -318,3 +317,22 @@ CACHES = {
         }
     }
 }
+
+
+
+
+CELERY_BEAT_SCHEDULE = {
+    'cleanup-expired-reservations': {
+        'task': 'your_app.tasks.cleanup_expired_reservations',
+        'schedule': 300.0,  # Run every 5 minutes
+    },
+}
+
+
+# Celery Configuration
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  # or your Redis URL
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'UTC'

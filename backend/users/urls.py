@@ -1,6 +1,6 @@
 from django.urls import path
 from . import views
-from .views import AllShopsView, BookingFeedbackView,BookingStatsAPIView, BookingStatusUpdateAPIView, ShopBookingsAPIView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, UpdateUserLocationView, UpdateUserProfileView, UserBookingFeedbackListView, UserBookingListView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
+from users.views import AllShopsView, BookingFeedbackView,BookingStatsAPIView, BookingStatusUpdateAPIView, ShopBookingsAPIView, AvailableTimeSlotsView, ChangePasswordView, CoustomTokenObtainPairView, CreateBookingView, CreateRazorpayOrderView, CustomTokenRefreshView, EmailOTPVerifyView, ForgotPasswordView, GoogleAuthView, HandlePaymentFailureView, Logout, NearbyShopsView, ProfilePictureView, RegisterUserView, ResendOTPView, ResetPasswordView, SearchNearbyShopsView, ServiceDurationView, ShopBusinessHoursView, ShopDetailView, ShopServicesView, SlotReservationView, UpdateUserLocationView, UpdateUserProfileView, UserBookingFeedbackListView, UserBookingListView, UserProfileView, UserStatsView, VerifyForgotPasswordOTPView, VerifyRazorpayPaymentView
 
 from rest_framework_simplejwt.views import TokenRefreshView
 
@@ -79,6 +79,11 @@ urlpatterns = [
     path('notifications/mark-read/', views.NotificationMarkReadView.as_view(), name='notification-mark-read'),
     path('notifications/mark-all-read/', views.NotificationMarkAllReadView.as_view(), name='notification-mark-all-read'),
     path('notifications/delete/<int:notification_id>/', views.NotificationDeleteView.as_view(), name='notification-delete'),
+
+
+
+    path('slots/reserve/', SlotReservationView.as_view(), name='reserve-slot'),
+    path('slots/release/', SlotReservationView.as_view(), name='release-slot'),
 ]
 
 

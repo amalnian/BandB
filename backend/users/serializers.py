@@ -1,5 +1,7 @@
 # serializers.py
 import re
+
+from users.tasks import send_forgot_password_otp_task, send_registration_otp_task
 from .models import CustomUser
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework import serializers
@@ -9,6 +11,7 @@ import string
 from django.core.mail import send_mail
 from django.conf import settings
 import logging
+from django.core.exceptions import ObjectDoesNotExist
 
 # Set up logger
 logger = logging.getLogger(__name__)
@@ -98,19 +101,9 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
             user.save()
 
             # Send OTP email
-            try:
-                send_mail(
-                    subject='Your Verification Code',
-                    message=f'Your verification code is: {otp}. This code will expire in 10 minutes.',
-                    from_email=settings.DEFAULT_FROM_EMAIL,
-                    recipient_list=[user.email],
-                    fail_silently=False,
-                )
-                logger.info(f"OTP email sent to {user.email}")
-            except Exception as e:
-                logger.error(f"Failed to send OTP email to {user.email}: {str(e)}")
-                # We still return the user even if email fails
-                # The user can request a new OTP later
+        # Send OTP email asynchronously using Celery
+            send_registration_otp_task.delay(user.email, otp)
+            logger.info(f"OTP email task queued for {user.email}")
             
             return user
         except Exception as e:
@@ -251,56 +244,28 @@ class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
 
     def validate_email(self, value):
-        User = CustomUser
-        if not User.objects.filter(email=value).exists():
+        if not CustomUser.objects.filter(email=value).exists():
             raise serializers.ValidationError("No user found with this email address.")
         return value
 
     def create(self, validated_data):
-        User = CustomUser
         email = validated_data['email']
-        user = User.objects.get(email=email)
-        otp = f"{random.randint(100000, 999999)}"
+        try:
+            user = CustomUser.objects.get(email=email)
+        except ObjectDoesNotExist:
+            raise serializers.ValidationError("No user found with this email address.")
+
+        # Generate a 6-digit OTP
+        otp = ''.join(random.choices(string.digits, k=6))
+
         user.otp = otp
         user.otp_created_at = timezone.now()
         user.save()
-        
-        # Send OTP via email
-        self.send_otp_email(email, otp, user)
-        
+
+        # Use Celery to send the email in the background
+        send_forgot_password_otp_task.delay(email, otp, user.first_name or "User")
+
         return user
-    
-    def send_otp_email(self, email, otp, user):
-        """Send OTP to user's email"""
-        subject = 'Password Reset OTP'
-        
-        # Option 1: Simple text email
-        message = f"""
-        Hi {user.first_name or 'User'},
-        
-        Your OTP for password reset is: {otp}
-        
-        This OTP will expire in 1 minute.
-        
-        If you didn't request this, please ignore this email.
-        
-        Best regards,
-        Your App Team
-        """
-        
-        try:
-            send_mail(
-                subject=subject,
-                message=message,
-                from_email=settings.DEFAULT_FROM_EMAIL,
-                recipient_list=[email],
-                fail_silently=False,
-            )
-            print(f"OTP sent to {email}: {otp}")  # Keep for debugging
-        except Exception as e:
-            print(f"Failed to send email: {e}")
-            # You might want to raise an exception here or handle it differently
-            raise serializers.ValidationError("Failed to send OTP email. Please try again.")
 
 class VerifyForgotPasswordOTPSerializer(serializers.Serializer):
     email = serializers.EmailField()
