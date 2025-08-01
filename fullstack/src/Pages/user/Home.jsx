@@ -5,8 +5,8 @@ import ShopsGrid from "./components/ShopsGrid"
 import LoadingSpinner from "./components/LoadingSpinner"
 import ErrorMessage from "./components/ErrorMessage"
 import { useEffect, useState, useCallback } from "react"
-import { useGeolocation } from "./Hooks/UseGeolocation"
-import { useShops } from "./Hooks/UseShops"
+import { useGeolocation } from "./Hooks/UseGeolocatio"
+import { useShops } from "./Hooks/UseShop"
 import { transformShopData } from "./utils/ShopUtils"
 
 export default function Home() {

@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { getShopServices, getShopBusinessHours, createBooking, getAvailableTimeSlots } from "@/endpoints/APIs"
-import { useRazorpay } from './Hooks/UseRazorpay'
-import { useSlotReservation } from './Hooks/UseSlotReservation'
+import { useRazorpay } from './Hooks/UseRazorpa'
+import { useSlotReservation } from './Hooks/UseSlotReservatio'
 import { toast } from 'react-hot-toast'
 
 const BookingAppointment = () => {

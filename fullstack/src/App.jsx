@@ -93,8 +93,8 @@ const Settings = LazyComponent(() => import("./Pages/user/Settings"))
 const BookingAppointment = LazyComponent(() => import("./Pages/user/BookingAppointments"))
 const Bookings = LazyComponent(() => import("./Pages/user/Bookings"))
 const Chat = LazyComponent(() => import("./Pages/chat/ChatPage"))
-const Wallet = LazyComponent(() => import("./Pages/user/Walle"))
-const BookingConfirmation = LazyComponent(() => import("./Pages/user/BookingConfirmatio"))
+const Wallet = LazyComponent(() => import("./Pages/user/Wallet"))
+const BookingConfirmation = LazyComponent(() => import("./Pages/user/BookingConfirmation"))
 
 // Admin components
 const AdminLoginPage = LazyComponent(() => import("./Pages/admin/LoginAdmin"))
