@@ -19,7 +19,6 @@ export default function ShopsGrid({
     const searchTerms = query.split(' ').filter(term => term.length > 0)
     
     return shops.filter(shop => {
-      // Check if any search term matches any field
       return searchTerms.some(term => {
         // Search in shop name (highest priority)
         if (shop.name && shop.name.toLowerCase().includes(term)) {
