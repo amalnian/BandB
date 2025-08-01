@@ -9,7 +9,7 @@ export default function ShopsGrid({
   onExpandSearch, 
   onShowAll 
 }) {
-  // Enhanced filter shops based on search query
+
   const filteredShops = useMemo(() => {
     if (!searchQuery || !searchQuery.trim()) {
       return shops
