@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { InboxListItem } from "./InboxListItem";
 import { useSelector } from "react-redux";
 import { getchatconversation } from "@/endpoints/ChatAPI";
-import Conversation from "../../../pages/chat/Conversation";
+import Conversation from "../../../Pages/chat/Conversatio";
 import { useLocation, useParams } from "react-router-dom";
 
 export const InboxList = () => {
