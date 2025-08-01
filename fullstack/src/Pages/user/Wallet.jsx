@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { getWalletBalance, getWalletTransactions, addMoneyToWallet } from '@/endpoints/APIs'
-import { useRazorpay } from '@/Pages/user/Hooks/UseRazorpa'
+import { useRazorpay } from '@/Pages/user/Hooks/UseRazorpay'
 import { toast } from 'react-hot-toast'
 import { Wallet, Plus, ArrowUpRight, ArrowDownLeft, RefreshCw, Calendar, Filter, X } from 'lucide-react'
 
