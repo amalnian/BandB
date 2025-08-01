@@ -5,9 +5,9 @@ import ShopsGrid from "./components/ShopsGrid"
 import LoadingSpinner from "./components/LoadingSpinner"
 import ErrorMessage from "./components/ErrorMessage"
 import { useEffect, useState, useCallback } from "react"
-import { useGeolocation } from "./hooks/useGeolocation"
-import { useShops } from "./hooks/useShops"
-import { transformShopData } from "./utils/shopUtils"
+import { useGeolocation } from "./Hooks/UseGeolocation"
+import { useShops } from "./Hooks/UseShops"
+import { transformShopData } from "./utils/ShopUtils"
 
 export default function Home() {
   const [searchRadius, setSearchRadius] = useState(10)
