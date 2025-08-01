@@ -1,10 +1,14 @@
 import { useNavigate, useLocation } from "react-router-dom"
+import { useDispatch } from "react-redux"
 import { Home, Users, Calendar, MessageSquare, Wallet, Settings, LogOut } from "lucide-react"
 import { logout } from '@/endpoints/APIs'
+import { deleteUser } from '@/store/slices/UserSlice' // Adjust path as needed
+import { persistor } from '@/store/store' // Adjust path as needed
 
 export default function Sidebar() {
   const navigate = useNavigate()
   const location = useLocation()
+  const dispatch = useDispatch()
   
   // Get active item from current URL path
   const getActiveItemFromPath = () => {
@@ -21,32 +25,57 @@ export default function Sidebar() {
     { id: "settings", label: "Settings", icon: Settings, path: "/settings" },
   ]
 
-  // Function to handle logout with API call
-    const handleLogout = async () => {
+  // Updated function to handle logout with proper cleanup
+  const handleLogout = async () => {
+    try {
+      // Call the logout API endpoint first
+      console.log("Calling logout API...")
+      await logout() // This calls your axios.post('logout/', {})
+      console.log("Logout API call successful")
+      
+      // Clear Redux state
+      console.log("Clearing Redux state...")
+      dispatch(deleteUser())
+      
+      // Clear legacy localStorage data
+      console.log("Clearing localStorage...")
+      localStorage.removeItem('user_data')
+      localStorage.removeItem('shop_data') // Clear shop data too if exists
+      localStorage.removeItem('isAuthenticated')
+      
+      // Purge Redux Persist storage - This is the key part you were missing!
+      console.log("Purging Redux Persist storage...")
+      await persistor.purge()
+      
+      console.log("All cleanup completed successfully")
+      
+      // Navigate to login page
+      navigate("/login", { replace: true })
+      
+    } catch (error) {
+      console.error("Logout error:", error)
+      
+      // Even if API fails, we should still clean up local data for security
+      // You can choose to comment this out if you want API call to be mandatory
       try {
-        // Call the logout API endpoint
-        console.log("Calling logout API...")
-        await logout() // This calls your axios.post('logout/', {})
-        console.log("Logout API call successful")
-        
-        // Only clear localStorage and redirect if API call was successful
-        try {
-          localStorage.removeItem('user_data')
-          localStorage.removeItem('isAuthenticated')
-          console.log("Local storage cleared")
-        } catch (storageError) {
-          console.error("Error clearing localStorage:", storageError)
-        }
-        
-        // Navigate to login page using React Router
-        navigate("/login")
-        
-      } catch (error) {
-        console.error("Logout API error:", error)
-        // Handle the error - maybe show a toast/notification to user
-        // Don't clear localStorage or navigate if API fails
+        console.log("API failed, but cleaning up local data for security...")
+        dispatch(deleteUser())
+        localStorage.removeItem('user_data')
+        localStorage.removeItem('shop_data')
+        localStorage.removeType('isAuthenticated')
+        await persistor.purge()
+        navigate("/login", { replace: true })
+      } catch (cleanupError) {
+        console.error("Error during cleanup:", cleanupError)
+        // Force navigation even if cleanup fails
+        window.location.href = "/login"
       }
+      
+      // Optional: Show error message to user
+      // You can add a toast notification here
+      // toast.error("Logout failed, but you've been signed out locally")
     }
+  }
 
   // Handle menu item click with React Router navigation
   const handleMenuClick = (item) => {
