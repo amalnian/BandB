@@ -7,7 +7,7 @@ import ErrorMessage from "./components/ErrorMessage"
 import { useEffect, useState, useCallback } from "react"
 import { useGeolocation } from "./Hooks/UseGeolocation"
 import { useShops } from "./Hooks/UseShops"
-import { transformShopData } from "./utils/ShopUtils"
+import { transformShopData } from "./utils/ShopUtil"
 
 export default function Home() {
   const [searchRadius, setSearchRadius] = useState(10)
