@@ -1,10 +1,10 @@
 import React from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { getUserData } from '@/protected_routes/ProtectedRoute'; // Adjust path as needed
+import { useUserData } from '@/protected_routes/ProtectedRoute'; // Fixed import
 
 const NotFoundPage = () => {
   const navigate = useNavigate();
-  const { type, isAuthenticated } = getUserData();
+  const { type, isAuthenticated } = useUserData(); // Fixed: using hook correctly
 
   // Determine appropriate redirect based on user type
   const getHomeLink = () => {
