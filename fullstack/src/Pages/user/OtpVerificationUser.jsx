@@ -81,7 +81,7 @@ const OtpVerification = () => {
       });
       
       // Make actual API call to verify OTP
-      const response = await fetch('http://localhost:8000/api/verify-otp/', {
+      const response = await fetch(`${import.meta.env.VITE_USER}resend-otp/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -137,7 +137,7 @@ const OtpVerification = () => {
     try {
       console.log('Resending OTP to:', userEmail);
       
-      const response = await fetch('http://localhost:8000/api/resend-otp/', {
+      const response = await fetch(`${import.meta.env.VITE_USER}resend-otp/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

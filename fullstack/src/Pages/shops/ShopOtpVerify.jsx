@@ -55,10 +55,14 @@ const ShopOtpVerification = () => {
       const otpString = String(otp).trim();
       
       // Call the API to verify OTP
-      const response = await axios.post('http://localhost:8000/api/auth/verify-otp/', {
+    const response = await axios.post(
+      `${import.meta.env.VITE_SHOP}verify-otp/`,
+      {
         email: shopEmail,
         otp: otpString
-      });
+      }
+    );
+
       
       console.log('OTP verification response:', response.data);
       
@@ -105,9 +109,13 @@ const ShopOtpVerification = () => {
     try {
       console.log("Attempting to resend OTP for email:", shopEmail);
       
-      const response = await axios.post('http://localhost:8000/api/auth/resend-otp/', {
-        email: shopEmail
-      });
+      const response = await axios.post(
+        `${import.meta.env.VITE_SHOP}resend-otp/`,
+        {
+          email: shopEmail
+        }
+      );
+
   
       console.log('Resend OTP response:', response.data);
       setSuccess('OTP has been resent successfully.');

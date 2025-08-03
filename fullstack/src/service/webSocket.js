@@ -1,4 +1,4 @@
-const user_url = "ws://localhost:8000/ws/user/";
+const user_url = import.meta.env.VITE_WS_USER_URL;
 let socketInstance = null;
 let reconnectAttempts = 0;
 const maxReconnectAttempts = 5;

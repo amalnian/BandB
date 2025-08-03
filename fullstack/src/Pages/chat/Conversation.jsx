@@ -35,7 +35,7 @@ const Conversation = ({ conversationId, currentUserId, onBack }) => {
   };
 
   const actualUserId = getUserId();
-  const websocket_url = "ws://localhost:8000/ws/chat/";
+const websocket_url = import.meta.env.VITE_WS_CHAT_URL;
 
   // Clean up function
   const cleanupWebSocket = () => {
