@@ -263,13 +263,13 @@ export default function ShopRegisterPage() {
       console.log("Submitting shop registration data:", registrationData);
 
       // Register the shop
-      const response = await fetch("http://127.0.0.1:8000/api/auth/register/", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(registrationData),
-      });
+const response = await fetch(`${import.meta.env.VITE_SHOP}/register/`, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+  },
+  body: JSON.stringify(registrationData),
+});
 
       const data = await response.json();
       console.log("Registration response:", response.status, data);
