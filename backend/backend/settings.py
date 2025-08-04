@@ -224,12 +224,12 @@ SIMPLE_JWT = {
 # CORS settings for development
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
+    'https://bandbs.amalnian.xyz',
     "http://localhost:3000",  # Your React dev server
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     'http://16.170.208.174:3000',
-    'https://bandbs.amalnian.xyz',
     "https://band-b-cdru.vercel.app",
 ]
 
