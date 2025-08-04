@@ -229,7 +229,7 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     'http://16.170.208.174:3000',
-    'https://bandb.amalnian.xyz',
+    'https://bandbs.amalnian.xyz',
     "https://band-b-cdru.vercel.app",
 ]
 
