@@ -233,8 +233,14 @@ CORS_ALLOWED_ORIGINS = [
     "https://band-b-cdru.vercel.app",
 ]
 
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
+CSRF_TRUSTED_ORIGINS = [
+    "https://bandbs.amalnian.xyz",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# if DEBUG:
+#     CORS_ALLOW_ALL_ORIGINS = True
 
 # For development only - remove in production
 # CORS_ALLOW_ALL_ORIGINS = True
