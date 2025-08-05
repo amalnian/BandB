@@ -1,49 +1,93 @@
-// Enhanced Protected Route Components with Redux Integration
+// Enhanced Protected Route Components without Redux
 import { Navigate, useLocation } from "react-router-dom"
-import { useEffect } from "react"
-import { useSelector, useDispatch } from "react-redux"
-import { deleteUser } from "../store/slices/UserSlice" // Adjust path as needed
-import { persistor } from "../store/store" // Adjust path as needed
+import { useEffect, useState, useCallback } from "react"
 
-// Utility function to get user data from Redux store
-const useUserData = () => {
-  const user = useSelector((state) => state.user.user);
+// Utility function to read user data from localStorage synchronously
+const getUserDataFromStorage = () => {
+  try {
+    const storedUser = localStorage.getItem("user_data");
+    const storedShop = localStorage.getItem("shop_data");
+    
+    if (storedUser) {
+      const user = JSON.parse(storedUser);
+      
+      // Check if user is admin based on superuser property
+      if (user.superuser === true) {
+        return {
+          type: 'admin',
+          data: user,
+          isAuthenticated: true
+        };
+      } else {
+        // Regular user
+        return {
+          type: 'user',
+          data: user,
+          isAuthenticated: true
+        };
+      }
+    } else if (storedShop) {
+      const shop = JSON.parse(storedShop);
+      return {
+        type: 'shop',
+        data: shop,
+        isAuthenticated: true
+      };
+    }
+  } catch (error) {
+    console.error("Error parsing stored data:", error);
+    localStorage.removeItem("user_data");
+    localStorage.removeItem("shop_data");
+  }
   
-  if (!user) {
-    return {
-      type: null,
-      data: null,
-      isAuthenticated: false
-    };
-  }
+  return {
+    type: null,
+    data: null,
+    isAuthenticated: false
+  };
+};
 
-  // Determine user type based on Redux store data
-  if (user.superuser || user.role === 'admin') {
-    return {
-      type: 'admin',
-      data: user,
-      isAuthenticated: true
+// Enhanced hook with better state management
+const useUserData = () => {
+  // Initialize with synchronous read
+  const [userData, setUserData] = useState(() => getUserDataFromStorage());
+  const [isLoading, setIsLoading] = useState(false);
+  
+  // Function to refresh user data
+  const refreshUserData = useCallback(() => {
+    const newUserData = getUserDataFromStorage();
+    setUserData(newUserData);
+    return newUserData;
+  }, []);
+  
+  useEffect(() => {
+    // Listen for storage changes (in case of logout from another tab)
+    const handleStorageChange = (e) => {
+      if (e.key === 'user_data' || e.key === 'shop_data' || e.key === null) {
+        refreshUserData();
+      }
     };
-  } else if (user.role === 'shop') {
-    return {
-      type: 'shop',
-      data: user,
-      isAuthenticated: true
+    
+    window.addEventListener('storage', handleStorageChange);
+    
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
     };
-  } else {
-    return {
-      type: 'user',
-      data: user,
-      isAuthenticated: true
-    };
-  }
+  }, [refreshUserData]);
+
+  return { ...userData, isLoading, refreshUserData };
 };
 
 // Enhanced User Route Protection
 const ProtectedUserRoute = ({ children }) => {
-  const { type, isAuthenticated } = useUserData();
+  const { type, isAuthenticated, isLoading } = useUserData();
   
-  console.log("ProtectedUserRoute - User type:", type, "Authenticated:", isAuthenticated);
+  console.log("ProtectedUserRoute - User type:", type, "Authenticated:", isAuthenticated, "Loading:", isLoading);
+  
+  // Show loading if still checking authentication
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
   
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
@@ -70,9 +114,14 @@ const ProtectedUserRoute = ({ children }) => {
 
 // Enhanced Admin Route Protection
 const ProtectedAdminRoute = ({ children }) => {
-  const { type, data, isAuthenticated } = useUserData();
+  const { type, data, isAuthenticated, isLoading } = useUserData();
   
-  console.log("ProtectedAdminRoute - User type:", type, "Authenticated:", isAuthenticated);
+  console.log("ProtectedAdminRoute - User type:", type, "Authenticated:", isAuthenticated, "Loading:", isLoading);
+  
+  // Show loading if still checking authentication
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
   
   if (!isAuthenticated) {
     return <Navigate to="/admin/login" replace />;
@@ -90,7 +139,7 @@ const ProtectedAdminRoute = ({ children }) => {
   }
   
   // Only allow admin users
-  if (type !== 'admin' || !data?.superuser) {
+  if (type !== 'admin') {
     return <Navigate to="/admin/login" replace />;
   }
   
@@ -99,9 +148,14 @@ const ProtectedAdminRoute = ({ children }) => {
 
 // Enhanced Shop Route Protection
 const ProtectedShopRoute = ({ children }) => {
-  const { type, isAuthenticated } = useUserData();
+  const { type, isAuthenticated, isLoading } = useUserData();
   
-  console.log("ProtectedShopRoute - User type:", type, "Authenticated:", isAuthenticated);
+  console.log("ProtectedShopRoute - User type:", type, "Authenticated:", isAuthenticated, "Loading:", isLoading);
+  
+  // Show loading if still checking authentication
+  if (isLoading) {
+    return <div>Loading...</div>;
+  }
   
   if (!isAuthenticated) {
     return <Navigate to="/shop/login" replace />;
@@ -166,18 +220,12 @@ const RouteGuard = () => {
   return null;
 };
 
-// Updated logout utility function that properly clears Redux Persist
-const handleLogout = async (dispatch) => {
+// Updated logout utility function that clears localStorage
+const handleLogout = () => {
   try {
-    // Clear Redux state
-    dispatch(deleteUser());
-    
-    // Clear localStorage (legacy data)
+    // Clear all user-related localStorage data
     localStorage.removeItem("user_data");
     localStorage.removeItem("shop_data");
-    
-    // Purge Redux Persist storage
-    await persistor.purge();
     
     // Optional: Clear all localStorage if needed
     // localStorage.clear();
@@ -193,9 +241,7 @@ const handleLogout = async (dispatch) => {
 
 // Hook for logout functionality
 const useLogout = () => {
-  const dispatch = useDispatch();
-  
-  return () => handleLogout(dispatch);
+  return () => handleLogout();
 };
 
 // Export the components and hooks
