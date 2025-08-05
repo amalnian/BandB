@@ -263,7 +263,7 @@ export default function ShopRegisterPage() {
       console.log("Submitting shop registration data:", registrationData);
 
       // Register the shop
-const response = await fetch(`${import.meta.env.VITE_SHOP}/register/`, {
+const response = await fetch(`${import.meta.env.VITE_SHOP}register/`, {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
