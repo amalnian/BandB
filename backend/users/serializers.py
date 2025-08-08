@@ -102,8 +102,14 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
 
             # Send OTP email
         # Send OTP email asynchronously using Celery
-            send_registration_otp_task.delay(user.email, otp)
-            logger.info(f"OTP email task queued for {user.email}")
+            # Import the actual function and call it directly (synchronously)
+            from users.tasks import send_otp_email_task
+            try:
+                send_otp_email_task.delay(user.email, otp, "Your Registration Verification Code")
+                logger.info(f"OTP email sent successfully to {user.email}")
+            except Exception as email_error:
+                logger.warning(f"Failed to send OTP email to {user.email}: {str(email_error)}")
+                # Continue registration even if email fails
             
             return user
         except Exception as e:
@@ -263,7 +269,7 @@ class ForgotPasswordSerializer(serializers.Serializer):
         user.save()
 
         # Use Celery to send the email in the background
-        send_forgot_password_otp_task.delay(email, otp, user.first_name or "User")
+        send_forgot_password_otp_task(email, otp)
 
         return user
 

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import toast, { Toaster } from "react-hot-toast"; // Add this import
 import { getShopBookings, updateBookingStatus, getBookingStats } from '@/endpoints/APIs';
 
 const AppointmentsContent = () => {
@@ -53,125 +54,134 @@ const AppointmentsContent = () => {
     });
   };
 
-const isAppointmentTimePassed = (appointmentDate, appointmentTime) => {
-  if (!appointmentDate || !appointmentTime) return false;
-  
-  const now = new Date();
-  const appointmentDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
-  
-  return now > appointmentDateTime;
-};  
-
-const handleCancelClick = (bookingId) => {
-  setCancelModal({ show: true, bookingId });
-  setCancellationReason(''); // Reset reason when opening modal
-};
-
-const handleCompleteClick = (bookingId) => {
-  setCompleteModal({ show: true, bookingId });
-  setCompletionNotes(''); // Reset notes when opening modal
-};
-
-const confirmCancel = () => {
-  if (!cancellationReason.trim()) {
-    alert('Please provide a cancellation reason');
-    return;
-  }
-  
-  // You can pass the reason to handleStatusUpdate if your API supports it
-  handleStatusUpdate(cancelModal.bookingId, 'cancelled', cancellationReason.trim());
-  setCancelModal({ show: false, bookingId: null });
-  setCancellationReason('');
-};
-
-const confirmComplete = () => {
-  // Completion notes are optional, so we don't require them
-  handleStatusUpdate(completeModal.bookingId, 'completed', completionNotes.trim());
-  setCompleteModal({ show: false, bookingId: null });
-  setCompletionNotes('');
-};
-
-const fetchBookings = async (page = currentPage) => {
-  try {
-    setLoading(true);
-    const response = await getShopBookings({
-      ...filters,
-      page,
-      limit: itemsPerPage
-    });
+  const isAppointmentTimePassed = (appointmentDate, appointmentTime) => {
+    if (!appointmentDate || !appointmentTime) return false;
     
-    console.log('Full API Response:', response);
-    console.log('Response Data:', response.data);
+    const now = new Date();
+    const appointmentDateTime = new Date(`${appointmentDate}T${appointmentTime}`);
     
-    // Handle the response structure based on your API
-    if (response.data) {
-      // Check if the response has the direct structure (your actual API response)
-      if (response.data.bookings && Array.isArray(response.data.bookings)) {
-        // Direct structure with bookings array
-        const bookingsArray = response.data.bookings;
-        
-        console.log('Bookings Array:', bookingsArray);
-        console.log('Is Array:', Array.isArray(bookingsArray));
-        
-        // Sort the bookings array
-        const sortedBookings = sortBookings(bookingsArray);
-        setBookings(sortedBookings);
-        
-        // Set pagination info from the direct response
-        setTotalPages(response.data.totalPages || 1);
-        setTotalCount(response.data.totalCount || 0);
-        setCurrentPage(response.data.currentPage || page);
-      } else if (response.data.results && response.data.results.bookings) {
-        // Nested structure (fallback)
-        const resultData = response.data.results;
-        const bookingsArray = resultData.bookings;
-        
-        console.log('Bookings Array:', bookingsArray);
-        console.log('Is Array:', Array.isArray(bookingsArray));
-        
-        // Sort the bookings array
-        const sortedBookings = sortBookings(bookingsArray);
-        setBookings(sortedBookings);
-        
-        // Set pagination info
-        setTotalPages(resultData.totalPages || 1);
-        setTotalCount(resultData.totalCount || 0);
-        setCurrentPage(resultData.currentPage || page);
-      } else if (response.data.count !== undefined) {
-        // Django REST Framework pagination structure
-        const bookingsArray = response.data.results || [];
-        const sortedBookings = sortBookings(bookingsArray);
-        setBookings(sortedBookings);
-        
-        // Calculate pagination info
-        const totalCount = response.data.count || 0;
-        const totalPages = Math.ceil(totalCount / itemsPerPage);
-        
-        setTotalPages(totalPages);
-        setTotalCount(totalCount);
-        setCurrentPage(page);
-      } else {
-        // Direct array response
-        const bookingsArray = Array.isArray(response.data) ? response.data : [];
-        const sortedBookings = sortBookings(bookingsArray);
-        setBookings(sortedBookings);
-        
-        // Set pagination info
-        setTotalPages(1);
-        setTotalCount(bookingsArray.length);
-        setCurrentPage(1);
-      }
+    return now > appointmentDateTime;
+  };  
+
+  const handleCancelClick = (bookingId) => {
+    setCancelModal({ show: true, bookingId });
+    setCancellationReason(''); // Reset reason when opening modal
+  };
+
+  const handleCompleteClick = (bookingId) => {
+    setCompleteModal({ show: true, bookingId });
+    setCompletionNotes(''); // Reset notes when opening modal
+  };
+
+  const confirmCancel = () => {
+    if (!cancellationReason.trim()) {
+      toast.error('Please provide a cancellation reason'); // Replace alert with toast
+      return;
     }
-  } catch (error) {
-    console.error('Error fetching bookings:', error);
-    // Handle error state
-    setBookings([]);
-    setTotalPages(1);
-    setTotalCount(0);
-  } finally {
-    setLoading(false);
-  }
-};
+    
+    // You can pass the reason to handleStatusUpdate if your API supports it
+    handleStatusUpdate(cancelModal.bookingId, 'cancelled', cancellationReason.trim());
+    setCancelModal({ show: false, bookingId: null });
+    setCancellationReason('');
+  };
+
+  const confirmComplete = () => {
+    // Completion notes are optional, so we don't require them
+    handleStatusUpdate(completeModal.bookingId, 'completed', completionNotes.trim());
+    setCompleteModal({ show: false, bookingId: null });
+    setCompletionNotes('');
+  };
+
+  const fetchBookings = async (page = currentPage) => {
+    const loadingToast = toast.loading("Loading appointments...");
+    
+    try {
+      setLoading(true);
+      const response = await getShopBookings({
+        ...filters,
+        page,
+        limit: itemsPerPage
+      });
+      
+      console.log('Full API Response:', response);
+      console.log('Response Data:', response.data);
+      
+      // Handle the response structure based on your API
+      if (response.data) {
+        // Check if the response has the direct structure (your actual API response)
+        if (response.data.bookings && Array.isArray(response.data.bookings)) {
+          // Direct structure with bookings array
+          const bookingsArray = response.data.bookings;
+          
+          console.log('Bookings Array:', bookingsArray);
+          console.log('Is Array:', Array.isArray(bookingsArray));
+          
+          // Sort the bookings array
+          const sortedBookings = sortBookings(bookingsArray);
+          setBookings(sortedBookings);
+          
+          // Set pagination info from the direct response
+          setTotalPages(response.data.totalPages || 1);
+          setTotalCount(response.data.totalCount || 0);
+          setCurrentPage(response.data.currentPage || page);
+        } else if (response.data.results && response.data.results.bookings) {
+          // Nested structure (fallback)
+          const resultData = response.data.results;
+          const bookingsArray = resultData.bookings;
+          
+          console.log('Bookings Array:', bookingsArray);
+          console.log('Is Array:', Array.isArray(bookingsArray));
+          
+          // Sort the bookings array
+          const sortedBookings = sortBookings(bookingsArray);
+          setBookings(sortedBookings);
+          
+          // Set pagination info
+          setTotalPages(resultData.totalPages || 1);
+          setTotalCount(resultData.totalCount || 0);
+          setCurrentPage(resultData.currentPage || page);
+        } else if (response.data.count !== undefined) {
+          // Django REST Framework pagination structure
+          const bookingsArray = response.data.results || [];
+          const sortedBookings = sortBookings(bookingsArray);
+          setBookings(sortedBookings);
+          
+          // Calculate pagination info
+          const totalCount = response.data.count || 0;
+          const totalPages = Math.ceil(totalCount / itemsPerPage);
+          
+          setTotalPages(totalPages);
+          setTotalCount(totalCount);
+          setCurrentPage(page);
+        } else {
+          // Direct array response
+          const bookingsArray = Array.isArray(response.data) ? response.data : [];
+          const sortedBookings = sortBookings(bookingsArray);
+          setBookings(sortedBookings);
+          
+          // Set pagination info
+          setTotalPages(1);
+          setTotalCount(bookingsArray.length);
+          setCurrentPage(1);
+        }
+      }
+      
+      toast.dismiss(loadingToast);
+      toast.success(`Loaded ${bookings.length} appointments successfully!`);
+      
+    } catch (error) {
+      console.error('Error fetching bookings:', error);
+      // Handle error state
+      setBookings([]);
+      setTotalPages(1);
+      setTotalCount(0);
+      
+      toast.dismiss(loadingToast);
+      toast.error('Failed to load appointments');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const fetchStats = async () => {
     try {
@@ -189,6 +199,10 @@ const fetchBookings = async (page = currentPage) => {
           setStats(response.data);
         }
       }
+      
+      // Optional: Show success toast for stats loading
+      // toast.success('Statistics loaded successfully!');
+      
     } catch (error) {
       console.error('Error fetching stats:', error);
       // Set default stats on error
@@ -200,46 +214,60 @@ const fetchBookings = async (page = currentPage) => {
         cancelled: 0,
         today: 0
       });
+      
+      toast.error('Failed to load appointment statistics');
     }
   };
 
   const handleStatusUpdate = async (bookingId, newStatus, notes = '') => {
     try {
       setUpdating(prev => ({ ...prev, [bookingId]: true }));
-      const response = await updateBookingStatus(bookingId, newStatus, notes);
       
-      console.log('Update Response:', response.data);
+      // Use toast.promise for better UX
+      await toast.promise(
+        updateBookingStatus(bookingId, newStatus, notes),
+        {
+          loading: `Updating appointment to ${newStatus}...`,
+          success: (response) => {
+            console.log('Update Response:', response.data);
+            
+            // Check if update was successful
+            if (response.data && (response.data.success || response.status === 200)) {
+              const currentTimestamp = new Date().toISOString();
+              setBookings(prev => {
+                const updatedBookings = prev.map(booking => 
+                  booking.id === bookingId 
+                    ? { 
+                        ...booking, 
+                        booking_status: newStatus,
+                        ...(newStatus === 'cancelled' && { cancelled_at: currentTimestamp }),
+                        ...(newStatus === 'completed' && { completed_at: currentTimestamp }),
+                        ...(newStatus === 'confirmed' && { confirmed_at: currentTimestamp }),
+                        ...(notes && { completion_notes: notes })
+                      }
+                    : booking
+                );
+                return sortBookings(updatedBookings);
+              });
+              
+              // Refresh stats after status update
+              fetchStats();
+              
+              return `Appointment ${newStatus} successfully!`;
+            } else {
+              throw new Error('Update failed');
+            }
+          },
+          error: (error) => {
+            console.error('Error updating booking status:', error);
+            return `Failed to update appointment status`;
+          }
+        }
+      );
       
-      // Check if update was successful
-      if (response.data && (response.data.success || response.status === 200)) {
-        const currentTimestamp = new Date().toISOString();
-        setBookings(prev => {
-          const updatedBookings = prev.map(booking => 
-            booking.id === bookingId 
-              ? { 
-                  ...booking, 
-                  booking_status: newStatus,
-                  ...(newStatus === 'cancelled' && { cancelled_at: currentTimestamp }),
-                  ...(newStatus === 'completed' && { completed_at: currentTimestamp }),
-                  ...(newStatus === 'confirmed' && { confirmed_at: currentTimestamp }),
-                  ...(notes && { completion_notes: notes })
-                }
-              : booking
-          );
-          return sortBookings(updatedBookings);
-        });
-        
-        // Refresh stats after status update
-        fetchStats();
-        
-        // Show success message (optional)
-        console.log(`Booking ${bookingId} status updated to ${newStatus}`);
-      } else {
-        throw new Error('Update failed');
-      }
     } catch (error) {
-      console.error('Error updating booking status:', error);
-      alert('Failed to update booking status. Please try again.');
+      // Error is already handled by toast.promise
+      console.error('Status update error:', error);
     } finally {
       setUpdating(prev => ({ ...prev, [bookingId]: false }));
     }
@@ -253,6 +281,7 @@ const fetchBookings = async (page = currentPage) => {
   const resetFilters = () => {
     setFilters({ status: 'all', date: '', search: '' });
     setCurrentPage(1);
+    toast.success('Filters reset successfully!');
   };
 
   const handlePageChange = (page) => {
@@ -335,6 +364,30 @@ const fetchBookings = async (page = currentPage) => {
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
+      {/* Add Toaster component */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
+      
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-xl font-semibold text-gray-800">Appointments Management</h3>
         <div className="text-sm text-gray-500">
@@ -628,50 +681,6 @@ const fetchBookings = async (page = currentPage) => {
               <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
                 <h3 className="text-lg font-semibold mb-4">Confirm Cancellation</h3>
                 <p className="text-gray-600 mb-4">
-                  Are you sure you want to cancel this appointment? This action cannot be undone.
-                </p>
-                
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    Reason for cancellation <span className="text-red-500">*</span>
-                  </label>
-                  <textarea
-                    value={cancellationReason}
-                    onChange={(e) => setCancellationReason(e.target.value)}
-                    placeholder="Please provide a reason for cancellation..."
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 resize-none"
-                    rows="4"
-                  />
-                </div>
-                
-                <div className="flex justify-end space-x-3">
-                  <button
-                    onClick={() => {
-                      setCancelModal({ show: false, bookingId: null });
-                      setCancellationReason('');
-                    }}
-                    className="px-4 py-2 text-gray-700 bg-gray-200 rounded hover:bg-gray-300"
-                  >
-                    No, Keep It
-                  </button>
-                  <button
-                    onClick={confirmCancel}
-                    disabled={!cancellationReason.trim()}
-                    className="px-4 py-2 bg-red-500 text-white rounded hover:bg-red-600 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    Yes, Cancel
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Completion Modal */}
-          {completeModal.show && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                <h3 className="text-lg font-semibold mb-4">Complete Appointment</h3>
-                <p className="text-gray-600 mb-4">
                   Are you sure you want to mark this appointment as completed?
                 </p>
                 
@@ -709,9 +718,6 @@ const fetchBookings = async (page = currentPage) => {
             </div>
           )}
         </>
-
-
-
       )}
     </div>
   );

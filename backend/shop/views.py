@@ -158,12 +158,21 @@ class ShopRegisterView(APIView):
                 # Generate OTP using the OTP model
                 otp_obj = OTP.create_for_shop(shop)
                 
-                send_shop_registration_otp_task.delay(
-                    email=shop.email,
-                    otp=otp_obj.otp_code,
-                    shop_name=shop.name,
-                    owner_name=shop.owner_name
-                )
+                # Import and call synchronously
+                from shop.tasks import send_shop_otp_email_task
+                try:
+                    send_shop_otp_email_task(
+                        email=shop.email,
+                        otp=otp_obj.otp_code,
+                        subject="🏪 Welcome! Verify Your Business Registration",
+                        email_type="shop_registration",
+                        shop_name=shop.name,
+                        owner_name=shop.owner_name
+                    )
+                    logger.info(f"Shop registration OTP email sent to {shop.email}")
+                except Exception as email_error:
+                    logger.warning(f"Failed to send shop OTP email to {shop.email}: {str(email_error)}")
+                    # Continue registration even if email fails
                 
                 logger.info(f"Shop registration OTP email task queued for {shop.email}")
                 
@@ -317,7 +326,7 @@ class ShopResendOTPView(APIView):
         # Generate new OTP
         otp_obj = OTP.create_for_shop(shop)
         
-        send_shop_resend_otp_task.delay(
+        send_shop_resend_otp_task(
             email=shop.email,
             otp=otp_obj.otp_code,
             shop_name=shop.name,
@@ -1483,7 +1492,7 @@ class ShopForgotPasswordView(APIView):
                 owner_name = user.get_full_name() or user.username
             
             # Send forgot password OTP email asynchronously
-            send_shop_forgot_password_otp_task.delay(
+            send_shop_forgot_password_otp_task(
                 email=user.email,
                 otp=user.otp,
                 shop_name=shop_name,

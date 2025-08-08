@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, Lock, Save, Eye, EyeOff, Loader, CheckCircle, AlertCircle } from 'lucide-react';
+import toast, { Toaster } from "react-hot-toast"; // Add this import
 import { getAdminProfile, updateAdminProfile, changeAdminPassword } from '@/endpoints/AdminAPI';// adjust path as needed
-
-
 
 const AdminSettings = () => {
   // Profile state
@@ -13,7 +12,6 @@ const AdminSettings = () => {
   });
   const [profileErrors, setProfileErrors] = useState({});
   const [isProfileLoading, setIsProfileLoading] = useState(false);
-  const [profileSuccess, setProfileSuccess] = useState('');
 
   // Password state
   const [passwordData, setPasswordData] = useState({
@@ -22,7 +20,6 @@ const AdminSettings = () => {
   });
   const [passwordErrors, setPasswordErrors] = useState({});
   const [isPasswordLoading, setIsPasswordLoading] = useState(false);
-  const [passwordSuccess, setPasswordSuccess] = useState('');
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
 
@@ -34,20 +31,31 @@ const AdminSettings = () => {
     fetchProfile();
   }, []);
 
-const fetchProfile = async () => {
-  try {
-    setIsInitialLoading(true);
-    const response = await getAdminProfile();
-    setProfileData(response.data);
-  } catch (error) {
-    console.error('Failed to fetch profile:', error);
-    if (error.response?.status === 403) {
-      alert('Access denied. Admin privileges required.');
+  const fetchProfile = async () => {
+    const loadingToast = toast.loading("Loading profile settings...");
+    
+    try {
+      setIsInitialLoading(true);
+      const response = await getAdminProfile();
+      setProfileData(response.data);
+      
+      toast.dismiss(loadingToast);
+      toast.success("Profile loaded successfully!");
+      
+    } catch (error) {
+      console.error('Failed to fetch profile:', error);
+      
+      toast.dismiss(loadingToast);
+      
+      if (error.response?.status === 403) {
+        toast.error('Access denied. Admin privileges required.');
+      } else {
+        toast.error('Failed to load profile settings');
+      }
+    } finally {
+      setIsInitialLoading(false);
     }
-  } finally {
-    setIsInitialLoading(false);
-  }
-};
+  };
 
   // Handle profile form changes
   const handleProfileChange = (e) => {
@@ -63,11 +71,6 @@ const fetchProfile = async () => {
         ...prev,
         [name]: ''
       }));
-    }
-    
-    // Clear success message when editing
-    if (profileSuccess) {
-      setProfileSuccess('');
     }
   };
 
@@ -86,73 +89,76 @@ const fetchProfile = async () => {
         [name]: ''
       }));
     }
-    
-    // Clear success message when editing
-    if (passwordSuccess) {
-      setPasswordSuccess('');
-    }
   };
 
   // Submit profile update
-const handleProfileSubmit = async () => {
-  setIsProfileLoading(true);
-  setProfileErrors({});
-  setProfileSuccess('');
+  const handleProfileSubmit = async () => {
+    setIsProfileLoading(true);
+    setProfileErrors({});
 
-  try {
-    const response = await updateAdminProfile(profileData);
-    setProfileData(response.data);
-    setProfileSuccess('Profile updated successfully!');
-    
-    // Clear success message after 3 seconds
-    setTimeout(() => {
-      setProfileSuccess('');
-    }, 3000);
-  } catch (error) {
-    console.error('Profile update error:', error);
-    if (error.response?.data?.errors) {
-      setProfileErrors(error.response.data.errors);
-    } else if (error.response?.data?.error) {
-      setProfileErrors({ general: error.response.data.error });
-    } else {
-      setProfileErrors({ general: 'Failed to update profile. Please try again.' });
-    }
-  } finally {
-    setIsProfileLoading(false);
-  }
-};
+    // Use toast.promise for better UX
+    toast.promise(
+      updateAdminProfile(profileData),
+      {
+        loading: 'Updating profile...',
+        success: (response) => {
+          setProfileData(response.data);
+          return 'Profile updated successfully!';
+        },
+        error: (error) => {
+          console.error('Profile update error:', error);
+          
+          if (error.response?.data?.errors) {
+            setProfileErrors(error.response.data.errors);
+          } else if (error.response?.data?.error) {
+            setProfileErrors({ general: error.response.data.error });
+          } else {
+            setProfileErrors({ general: 'Failed to update profile. Please try again.' });
+          }
+          
+          return 'Failed to update profile';
+        }
+      }
+    ).finally(() => {
+      setIsProfileLoading(false);
+    });
+  };
 
   // Submit password change
-const handlePasswordSubmit = async () => {
-  setIsPasswordLoading(true);
-  setPasswordErrors({});
-  setPasswordSuccess('');
+  const handlePasswordSubmit = async () => {
+    setIsPasswordLoading(true);
+    setPasswordErrors({});
 
-  try {
-    await changeAdminPassword(passwordData);
-    setPasswordSuccess('Password changed successfully!');
-    setPasswordData({
-      current_password: '',
-      new_password: ''
+    // Use toast.promise for better UX
+    toast.promise(
+      changeAdminPassword(passwordData),
+      {
+        loading: 'Changing password...',
+        success: () => {
+          setPasswordData({
+            current_password: '',
+            new_password: ''
+          });
+          return 'Password changed successfully!';
+        },
+        error: (error) => {
+          console.error('Password change error:', error);
+          
+          if (error.response?.data?.errors) {
+            setPasswordErrors(error.response.data.errors);
+          } else if (error.response?.data?.error) {
+            setPasswordErrors({ general: error.response.data.error });
+          } else {
+            setPasswordErrors({ general: 'Failed to change password. Please try again.' });
+          }
+          
+          return 'Failed to change password';
+        }
+      }
+    ).finally(() => {
+      setIsPasswordLoading(false);
     });
-    
-    // Clear success message after 3 seconds
-    setTimeout(() => {
-      setPasswordSuccess('');
-    }, 3000);
-  } catch (error) {
-    console.error('Password change error:', error);
-    if (error.response?.data?.errors) {
-      setPasswordErrors(error.response.data.errors);
-    } else if (error.response?.data?.error) {
-      setPasswordErrors({ general: error.response.data.error });
-    } else {
-      setPasswordErrors({ general: 'Failed to change password. Please try again.' });
-    }
-  } finally {
-    setIsPasswordLoading(false);
-  }
-};
+  };
 
   if (isInitialLoading) {
     return (
@@ -167,6 +173,30 @@ const handlePasswordSubmit = async () => {
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
+      {/* Add Toaster component */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
+      
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="mb-8">
           <h1 className="text-3xl font-bold text-gray-900">Admin Settings</h1>
@@ -184,17 +214,11 @@ const handlePasswordSubmit = async () => {
             </div>
             
             <div className="p-6">
+              {/* Keep existing error display for form validation errors */}
               {profileErrors.general && (
                 <div className="mb-4 flex items-center space-x-2 p-3 bg-red-50 border border-red-200 rounded-md">
                   <AlertCircle className="w-5 h-5 text-red-600" />
                   <span className="text-red-600 text-sm">{profileErrors.general}</span>
-                </div>
-              )}
-              
-              {profileSuccess && (
-                <div className="mb-4 flex items-center space-x-2 p-3 bg-green-50 border border-green-200 rounded-md">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                  <span className="text-green-600 text-sm">{profileSuccess}</span>
                 </div>
               )}
 
@@ -291,17 +315,11 @@ const handlePasswordSubmit = async () => {
             </div>
             
             <div className="p-6">
+              {/* Keep existing error display for form validation errors */}
               {passwordErrors.general && (
                 <div className="mb-4 flex items-center space-x-2 p-3 bg-red-50 border border-red-200 rounded-md">
                   <AlertCircle className="w-5 h-5 text-red-600" />
                   <span className="text-red-600 text-sm">{passwordErrors.general}</span>
-                </div>
-              )}
-              
-              {passwordSuccess && (
-                <div className="mb-4 flex items-center space-x-2 p-3 bg-green-50 border border-green-200 rounded-md">
-                  <CheckCircle className="w-5 h-5 text-green-600" />
-                  <span className="text-green-600 text-sm">{passwordSuccess}</span>
                 </div>
               )}
 

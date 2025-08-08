@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
+import toast, { Toaster } from "react-hot-toast"
 
 const SignupPage = () => {
   const [formData, setFormData] = useState({
@@ -31,60 +32,157 @@ const SignupPage = () => {
 
     // Validate form
     if (formData.password !== formData.confirmPassword) {
-      alert("Passwords don't match")
+      toast.error("Passwords don't match", {
+        duration: 4000,
+      })
       return
     }
 
     if (!formData.agreeTerms) {
-      alert("Please agree to the terms and conditions")
+      toast.error("Please agree to the terms and conditions", {
+        duration: 4000,
+      })
+      return
+    }
+
+    // Additional validation
+    if (formData.password.length < 6) {
+      toast.error("Password must be at least 6 characters long", {
+        duration: 4000,
+      })
+      return
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(formData.email)) {
+      toast.error("Please enter a valid email address", {
+        duration: 4000,
+      })
       return
     }
 
     setIsLoading(true)
 
-    // Here you would typically send the data to your Django backend
+    // Show loading toast
+    const loadingToast = toast.loading("Creating your account...")
+
     try {
-      // Example fetch request to your Django API
-const response = await fetch(`${import.meta.env.VITE_USER}users/`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    first_name: formData.firstName,
-    last_name: formData.lastName,
-    username: formData.username,
-    email: formData.email,
-    password: formData.password,
-    re_password: formData.password,
-    role: "user", // or "shop" based on context
-  }),
-});
-      
+      const response = await fetch(`${import.meta.env.VITE_USER}users/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          first_name: formData.firstName,
+          last_name: formData.lastName,
+          username: formData.username,
+          email: formData.email,
+          password: formData.password,
+          re_password: formData.password,
+          role: "user", // or "shop" based on context
+        }),
+      });
 
       const data = await response.json()
 
       if (response.ok) {
+        // Dismiss loading toast and show success
+        toast.dismiss(loadingToast)
+        toast.success("Account created successfully! Please check your email for verification.", {
+          duration: 4000,
+        })
+        
         // Store email in memory for OTP verification
         console.log('Registration successful, email:', formData.email);
         
-        // Add a small delay to show the loading state
+        // Add a small delay to show the success message
         setTimeout(() => {
           // Redirect to OTP verification page with email as URL parameter
           window.location.href = `/otp?email=${encodeURIComponent(formData.email)}`
-        }, 1000) // 1 second delay to show loading
+        }, 2000) // 2 second delay to show success message
       } else {
-        // Handle errors from backend
-        alert(data.message || "Registration failed")
-        setIsLoading(false)
+        // Dismiss loading toast
+        toast.dismiss(loadingToast)
+        
+        // Handle different types of errors from backend
+        let errorMessage = "Registration failed"
+        
+        if (data.message) {
+          errorMessage = data.message
+        } else if (data.email && Array.isArray(data.email)) {
+          errorMessage = data.email[0]
+        } else if (data.username && Array.isArray(data.username)) {
+          errorMessage = data.username[0]
+        } else if (data.password && Array.isArray(data.password)) {
+          errorMessage = data.password[0]
+        } else if (data.non_field_errors && Array.isArray(data.non_field_errors)) {
+          errorMessage = data.non_field_errors[0]
+        } else if (data.detail) {
+          errorMessage = data.detail
+        } else if (typeof data === 'string') {
+          errorMessage = data
+        }
+        
+        // Show error toast
+        toast.error(errorMessage, {
+          duration: 5000,
+        })
       }
     } catch (error) {
       console.error("Error:", error)
-      alert("An error occurred during registration")
+      
+      // Dismiss loading toast
+      toast.dismiss(loadingToast)
+      
+      // Handle network errors
+      let errorMessage = "An error occurred during registration"
+      
+      if (error.name === 'TypeError' && error.message.includes('fetch')) {
+        errorMessage = "Network error. Please check your connection and try again."
+      } else if (error.message) {
+        errorMessage = error.message
+      }
+      
+      // Show error toast
+      toast.error(errorMessage, {
+        duration: 5000,
+      })
+    } finally {
       setIsLoading(false)
     }
   }
 
   return (
     <div className="flex h-screen w-full">
+      {/* Toast container */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+          loading: {
+            iconTheme: {
+              primary: '#f59e0b',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
+
       {/* Left Panel */}
       <div className="relative flex flex-1 flex-col items-center justify-center overflow-hidden bg-amber-400">
         <div className="absolute left-10 top-10 z-10 text-2xl font-bold text-gray-600 md:text-3xl">
@@ -105,7 +203,7 @@ const response = await fetch(`${import.meta.env.VITE_USER}users/`, {
         <div className="w-full max-w-lg">
           <h1 className="mb-10 text-3xl font-bold text-gray-800">Create your account</h1>
 
-          <div onSubmit={handleSubmit}>
+          <form onSubmit={handleSubmit}>
             {/* First Name & Last Name */}
             <div className="mb-6 flex flex-col gap-6 md:flex-row">
               <div className="flex-1">
@@ -259,7 +357,6 @@ const response = await fetch(`${import.meta.env.VITE_USER}users/`, {
             {/* Submit Button */}
             <button
               type="submit"
-              onClick={handleSubmit}
               disabled={isLoading}
               className="mt-2 w-full rounded-md bg-amber-400 py-3.5 text-base font-semibold text-white transition-colors hover:bg-amber-500 focus:outline-none disabled:bg-amber-300 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
@@ -281,7 +378,7 @@ const response = await fetch(`${import.meta.env.VITE_USER}users/`, {
                 </div>
               </div>
             </div>
-          </div>
+          </form>
         </div>
       </div>
     </div>

@@ -450,22 +450,27 @@ class ShopCommissionPayment(models.Model):
 class TemporarySlotReservation(models.Model):
     """
     Temporary reservation of time slots to prevent double booking
-    during the booking process
+    during the booking process - updated to handle service-based timing
     """
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
-    shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
+    shop = models.ForeignKey('Shop', on_delete=models.CASCADE)
     appointment_date = models.DateField()
-    appointment_time = models.TimeField()
-    slots_needed = models.IntegerField(default=1)
+    appointment_time = models.TimeField()  # This is the start time of this specific slot
+    slots_needed = models.IntegerField(default=1)  # Total slots needed for entire service
+    total_service_duration = models.IntegerField(default=30)  # Total duration of all services in minutes
+    service_end_time = models.TimeField(null=True, blank=True)  # When the actual service ends
+    service_ids = models.JSONField(default=list, blank=True)  # Store selected service IDs
     reserved_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     session_id = models.CharField(max_length=100, blank=True, null=True)  # For anonymous users
     
     class Meta:
-        unique_together = ['shop', 'appointment_date', 'appointment_time']
+        # Allow multiple reservations for the same slot if they're part of the same booking
+        # unique_together = ['shop', 'appointment_date', 'appointment_time']
         indexes = [
             models.Index(fields=['expires_at']),
             models.Index(fields=['shop', 'appointment_date']),
+            models.Index(fields=['user', 'shop', 'appointment_date']),
         ]
     
     def is_expired(self):
@@ -476,3 +481,26 @@ class TemporarySlotReservation(models.Model):
             # Default reservation time is 10 minutes
             self.expires_at = timezone.now() + timedelta(minutes=10)
         super().save(*args, **kwargs)
+    
+    def __str__(self):
+        return f"Reservation: {self.user.username} - {self.shop.name} - {self.appointment_date} {self.appointment_time}"
+    
+    @property
+    def is_primary_reservation(self):
+        """Check if this is the primary reservation (first slot)"""
+        return not TemporarySlotReservation.objects.filter(
+            user=self.user,
+            shop=self.shop,
+            appointment_date=self.appointment_date,
+            appointment_time__lt=self.appointment_time,
+            expires_at__gt=timezone.now()
+        ).exists()
+    
+    def get_all_related_reservations(self):
+        """Get all reservations for the same booking"""
+        return TemporarySlotReservation.objects.filter(
+            user=self.user,
+            shop=self.shop,
+            appointment_date=self.appointment_date,
+            expires_at__gt=timezone.now()
+        ).order_by('appointment_time')

@@ -1,7 +1,8 @@
-// Updated Sidebar.js to handle payments link correctly
+// Updated Sidebar.js to handle payments link correctly with toast notifications
 
 import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import toast, { Toaster } from "react-hot-toast";
 import { 
   FaStore, FaShoppingBag, FaCalendarAlt, FaUsers, 
   FaChartLine, FaCog, FaSignOutAlt, FaTimes, FaExclamationTriangle 
@@ -13,14 +14,30 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
   const navigate = useNavigate();
 
   const handleLogout = async () => {
+    const loadingToast = toast.loading("Signing out...");
+    
     try {
       await logoutAPI();
+      
+      // Show success toast
+      toast.dismiss(loadingToast);
+      toast.success("Logged out successfully");
+      
     } catch (error) {
       console.error("Logout API error:", error);
+      
+      // Show error toast but still proceed with logout
+      toast.dismiss(loadingToast);
+      toast.error("Logout request failed, but you've been signed out locally");
+      
     } finally {
       localStorage.removeItem("shop_data");
       localStorage.removeItem("user_data");
-      navigate("/shop/login");
+      
+      // Navigate after a short delay to show the toast
+      setTimeout(() => {
+        navigate("/shop/login");
+      }, 1000);
     }
   };
 
@@ -48,20 +65,46 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
   const handleNavClick = (item, e) => {
     if (!isApproved && item.requiresApproval) {
       e.preventDefault();
-      alert('Please complete your shop profile and wait for approval to access other features.');
+      toast.error('Please complete your shop profile and wait for approval to access other features.');
       return;
     }
     
     // If payments link and no shopId, prevent navigation
     if (item.path.includes('payments') && !shopId) {
       e.preventDefault();
-      alert('Shop ID not available. Please try logging out and back in.');
+      toast.error('Shop ID not available. Please try logging out and back in.');
       return;
     }
   };
 
   return (
     <div className={`${sidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:translate-x-0 fixed lg:static inset-y-0 left-0 z-10 w-64 bg-blue-800 text-white transition-transform duration-300 ease-in-out transform`}>
+      {/* Toast container - only show when sidebar is open on mobile or always on desktop */}
+      <div className={`${sidebarOpen ? 'block' : 'hidden'} lg:block`}>
+        <Toaster
+          position="top-right"
+          toastOptions={{
+            duration: 3000,
+            style: {
+              background: '#363636',
+              color: '#fff',
+            },
+            success: {
+              iconTheme: {
+                primary: '#10b981',
+                secondary: '#fff',
+              },
+            },
+            error: {
+              iconTheme: {
+                primary: '#ef4444',
+                secondary: '#fff',
+              },
+            },
+          }}
+        />
+      </div>
+
       <div className="p-6 border-b border-blue-700">
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">

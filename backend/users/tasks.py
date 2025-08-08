@@ -42,11 +42,11 @@ def send_registration_otp_task(email, otp):
     """
     Specific task for registration OTP
     """
-    return send_otp_email_task.delay(email, otp, "Your Registration Verification Code")
+    return send_otp_email_task(email, otp, "Your Registration Verification Code")
 
 @shared_task
 def send_forgot_password_otp_task(email, otp):
     """
     Specific task for forgot password OTP
     """
-    return send_otp_email_task.delay(email, otp, "Your Password Reset Code")
+    return send_otp_email_task(email, otp, "Your Password Reset Code")

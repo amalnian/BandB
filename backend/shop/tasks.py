@@ -36,7 +36,7 @@ def send_shop_otp_email_task(self, email, otp, subject, email_type, shop_name=No
             <html>
             <body style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
                 <div style="max-width: 600px; margin: 0 auto; padding: 20px;">
-                    <h2 style="color: #2980b9;">🏪 Shop Verification</h2>
+                    <h2 style="color: #2980b9;">Shop Verification</h2>
                     <p>Hello {owner_name or 'Business Owner'},</p>
                     <p>Your shop verification code is:</p>
                     <div style="background-color: #f4f4f4; padding: 20px; text-align: center; border-radius: 5px; margin: 20px 0;">
@@ -84,10 +84,10 @@ def send_shop_registration_otp_task(email, otp, shop_name=None, owner_name=None)
     """
     Task for shop registration OTP with business-focused template
     """
-    return send_shop_otp_email_task.delay(
+    return send_shop_otp_email_task(
         email=email,
         otp=otp,
-        subject="🏪 Welcome! Verify Your Business Registration",
+        subject="Welcome! Verify Your Business Registration",
         email_type="shop_registration",
         shop_name=shop_name,
         owner_name=owner_name
@@ -98,10 +98,10 @@ def send_shop_forgot_password_otp_task(email, otp, shop_name=None, owner_name=No
     """
     Task for shop forgot password OTP with security-focused template
     """
-    return send_shop_otp_email_task.delay(
+    return send_shop_otp_email_task(
         email=email,
         otp=otp,
-        subject="🔐 Shop Account Password Reset",
+        subject="Shop Account Password Reset",
         email_type="shop_forgot_password",
         shop_name=shop_name,
         owner_name=owner_name
@@ -112,10 +112,10 @@ def send_shop_resend_otp_task(email, otp, shop_name=None, owner_name=None):
     """
     Task for shop resend OTP with clean template
     """
-    return send_shop_otp_email_task.delay(
+    return send_shop_otp_email_task(
         email=email,
         otp=otp,
-        subject="🔄 New Business Verification Code",
+        subject="New Business Verification Code",
         email_type="shop_resend",
         shop_name=shop_name,
         owner_name=owner_name

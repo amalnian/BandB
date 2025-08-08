@@ -122,7 +122,7 @@ def get_shop_registration_template(otp, shop_name, owner_name):
     <body>
         <div class="container">
             <div class="header">
-                <div class="shop-icon">🏪</div>
+                <div class="shop-icon"></div>
                 <h1>Welcome to Our Platform!</h1>
             </div>
             <div class="content">
@@ -132,7 +132,7 @@ def get_shop_registration_template(otp, shop_name, owner_name):
                 </p>
                 
                 <div class="shop-info">
-                    <h3>🏪 Business Information</h3>
+                    <h3>Business Information</h3>
                     <p><strong>Shop Name:</strong> {shop_name}</p>
                     <p><strong>Owner:</strong> {owner_name}</p>
                 </div>
@@ -140,23 +140,18 @@ def get_shop_registration_template(otp, shop_name, owner_name):
                 <div class="otp-container">
                     <div class="otp-label">Business Verification Code</div>
                     <div class="otp-code">{otp}</div>
-                    <div class="expiry-text">⏰ This code expires in 10 minutes</div>
+                    <div class="expiry-text">This code expires in 10 minutes</div>
                 </div>
                 
                 <div class="business-benefits">
-                    <strong>🚀 What's Next?</strong>
+                    <strong>What's Next?</strong>
                     <ul>
                         <li>Complete your business verification</li>
-                        <li>Set up your shop profile</li>
-                        <li>Start reaching more customers</li>
-                        <li>Access powerful business tools</li>
+            
                     </ul>
                 </div>
             </div>
-            <div class="footer">
-                <p>Ready to grow your business? We're here to help!</p>
-                <p>&copy; 2025 Your Platform Name. All rights reserved.</p>
-            </div>
+
         </div>
     </body>
     </html>
@@ -282,7 +277,7 @@ def get_shop_forgot_password_template(otp, shop_name, owner_name):
     <body>
         <div class="container">
             <div class="header">
-                <div class="security-icon">🔐</div>
+                <div class="security-icon"></div>
                 <h1>Password Reset Request</h1>
             </div>
             <div class="content">
@@ -292,7 +287,7 @@ def get_shop_forgot_password_template(otp, shop_name, owner_name):
                 </p>
                 
                 <div class="business-info">
-                    <strong>🏪 Account Details:</strong><br>
+                    <strong>Account Details:</strong><br>
                     Business: {shop_name}<br>
                     Owner: {owner_name}
                 </div>
@@ -308,14 +303,11 @@ def get_shop_forgot_password_template(otp, shop_name, owner_name):
                     <ul>
                         <li>If you didn't request this password reset, please ignore this email</li>
                         <li>Never share this code with anyone - our team will never ask for it</li>
-                        <li>This code can only be used once</li>
-                        <li>For security concerns, contact support immediately</li>
                     </ul>
                 </div>
             </div>
             <div class="footer">
                 <p>Keep your business account secure. Contact support if you have concerns.</p>
-                <p>&copy; 2025 Your Platform Name. All rights reserved.</p>
             </div>
         </div>
     </body>
@@ -434,7 +426,7 @@ def get_shop_resend_otp_template(otp, shop_name, owner_name):
     <body>
         <div class="container">
             <div class="header">
-                <div class="refresh-icon">🔄</div>
+                <div class="refresh-icon"></div>
                 <h1>New Verification Code</h1>
             </div>
             <div class="content">
@@ -444,7 +436,7 @@ def get_shop_resend_otp_template(otp, shop_name, owner_name):
                 </p>
                 
                 <div class="business-info">
-                    <strong>🏪 Business Account:</strong><br>
+                    <strong>Business Account:</strong><br>
                     Shop: {shop_name}<br>
                     Owner: {owner_name}
                 </div>
@@ -452,12 +444,12 @@ def get_shop_resend_otp_template(otp, shop_name, owner_name):
                 <div class="otp-container">
                     <div class="otp-label">New Verification Code</div>
                     <div class="otp-code">{otp}</div>
-                    <div class="expiry-text">⏰ This code expires in 10 minutes</div>
+                    <div class="expiry-text">This code expires in 10 minutes</div>
                 </div>
             </div>
             <div class="footer">
                 <p>Previous verification codes are now invalid. Use only the code above.</p>
-                <p>&copy; 2025 Your Platform Name. All rights reserved.</p>
+                <p>&copy; 2025 BandB. All rights reserved.</p>
             </div>
         </div>
     </body>

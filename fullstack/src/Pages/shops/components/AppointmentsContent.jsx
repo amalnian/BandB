@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast, { Toaster } from "react-hot-toast"
 import { getShopBookings, updateBookingStatus, getBookingStats } from '@/endpoints/APIs';
 
 const AppointmentsContent = () => {
@@ -46,6 +47,7 @@ const AppointmentsContent = () => {
       }
     } catch (error) {
       console.error('Error fetching bookings:', error);
+      toast.error('Failed to load bookings');
     } finally {
       setLoading(false);
     }
@@ -59,12 +61,17 @@ const AppointmentsContent = () => {
       }
     } catch (error) {
       console.error('Error fetching stats:', error);
+      toast.error('Failed to load statistics');
     }
   };
 
   const handleStatusUpdate = async (bookingId, newStatus) => {
     try {
       setUpdating(prev => ({ ...prev, [bookingId]: true }));
+      
+      // Show loading toast
+      const loadingToast = toast.loading(`Updating booking status...`);
+      
       const response = await updateBookingStatus(bookingId, newStatus);
       
       if (response.data.success) {
@@ -85,12 +92,17 @@ const AppointmentsContent = () => {
           );
           return sortBookings(updatedBookings);
         });
+        
+        // Dismiss loading toast and show success
+        toast.dismiss(loadingToast);
+        toast.success(`Booking ${newStatus} successfully`);
+        
         // Refresh stats
         fetchStats();
       }
     } catch (error) {
       console.error('Error updating booking status:', error);
-      alert('Failed to update booking status');
+      toast.error('Failed to update booking status');
     } finally {
       setUpdating(prev => ({ ...prev, [bookingId]: false }));
     }
@@ -156,6 +168,30 @@ const AppointmentsContent = () => {
 
   return (
     <div className="bg-white rounded-lg shadow p-6">
+      {/* Toast container */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 3000,
+          style: {
+            background: '#363636',
+            color: '#fff',
+          },
+          success: {
+            iconTheme: {
+              primary: '#10b981',
+              secondary: '#fff',
+            },
+          },
+          error: {
+            iconTheme: {
+              primary: '#ef4444',
+              secondary: '#fff',
+            },
+          },
+        }}
+      />
+
       <div className="flex justify-between items-center mb-6">
         <h3 className="text-xl font-semibold text-gray-800">Appointments Management</h3>
         <div className="text-sm text-gray-500">

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
+import toast, { Toaster } from "react-hot-toast";
 // Fix the import path - adjust according to your actual file structure
 import { getSpecificShopPayments } from '../../../endpoints/ShopAPI';
 // Alternative if you have the @ alias configured:
@@ -42,10 +43,14 @@ const ShopPaymentsList = () => {
 
     const fetchPayments = async () => {
         if (!shopId) {
-            setError('Shop ID not available. Please ensure you are logged in properly.');
+            const errorMessage = 'Shop ID not available. Please ensure you are logged in properly.';
+            setError(errorMessage);
+            toast.error(errorMessage);
             setLoading(false);
             return;
         }
+
+        const loadingToast = toast.loading("Loading payments...");
 
         try {
             setLoading(true);
@@ -79,9 +84,20 @@ const ShopPaymentsList = () => {
             }
             
             setError(null);
+            
+            // Show success toast
+            toast.dismiss(loadingToast);
+            const paymentsCount = response.data.payments ? response.data.payments.length : 0;
+            toast.success(`Loaded ${paymentsCount} payments successfully!`);
+            
         } catch (err) {
             console.error('Error fetching payments:', err);
-            setError(`Failed to load payments: ${err.message || 'Please try again.'}`);
+            const errorMessage = `Failed to load payments: ${err.message || 'Please try again.'}`;
+            setError(errorMessage);
+            
+            // Show error toast
+            toast.dismiss(loadingToast);
+            toast.error(errorMessage);
         } finally {
             setLoading(false);
         }
@@ -101,7 +117,14 @@ const ShopPaymentsList = () => {
     };
 
     const handleFilterSubmit = () => {
-        fetchPayments();
+        toast.promise(
+            fetchPayments(),
+            {
+                loading: 'Applying filters...',
+                success: 'Filters applied successfully!',
+                error: 'Failed to apply filters'
+            }
+        );
     };
 
     const handleClearFilters = () => {
@@ -110,10 +133,36 @@ const ShopPaymentsList = () => {
             start_date: '',
             end_date: ''
         });
-        // Use setTimeout to ensure state is updated before fetching
-        setTimeout(() => {
-            fetchPayments();
-        }, 100);
+        
+        // Show toast for clearing filters
+        toast.promise(
+            new Promise((resolve, reject) => {
+                setTimeout(async () => {
+                    try {
+                        await fetchPayments();
+                        resolve();
+                    } catch (err) {
+                        reject(err);
+                    }
+                }, 100);
+            }),
+            {
+                loading: 'Clearing filters...',
+                success: 'Filters cleared successfully!',
+                error: 'Failed to clear filters'
+            }
+        );
+    };
+
+    const handleRetry = () => {
+        toast.promise(
+            fetchPayments(),
+            {
+                loading: 'Retrying...',
+                success: 'Successfully loaded payments!',
+                error: 'Retry failed. Please try again.'
+            }
+        );
     };
 
     const formatCurrency = (amount) => {
@@ -151,56 +200,88 @@ const ShopPaymentsList = () => {
 
     const downloadCSV = async () => {
         if (payments.length === 0) {
-            alert('No payments data to download');
+            toast.error('No payments data to download');
             return;
         }
 
-        try {
-            setDownloading(true);
-            
-            // Create CSV content
-            const csvContent = convertToCSV(payments);
-            
-            // Create and download file
-            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement('a');
-            
-            if (link.download !== undefined) {
-                const url = URL.createObjectURL(blob);
-                link.setAttribute('href', url);
+        // Show toast promise for download process
+        toast.promise(
+            (async () => {
+                setDownloading(true);
                 
-                // Generate filename with shop name and current date
-                const currentDate = new Date().toISOString().split('T')[0];
-                const filename = `${shopName || `Shop_${shopId}`}_Payments_${currentDate}.csv`;
-                link.setAttribute('download', filename);
+                // Create CSV content
+                const csvContent = convertToCSV(payments);
                 
-                link.style.visibility = 'hidden';
-                document.body.appendChild(link);
-                link.click();
-                document.body.removeChild(link);
+                // Create and download file
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
                 
-                // Clean up the URL object
-                URL.revokeObjectURL(url);
+                if (link.download !== undefined) {
+                    const url = URL.createObjectURL(blob);
+                    link.setAttribute('href', url);
+                    
+                    // Generate filename with shop name and current date
+                    const currentDate = new Date().toISOString().split('T')[0];
+                    const filename = `${shopName || `Shop_${shopId}`}_Payments_${currentDate}.csv`;
+                    link.setAttribute('download', filename);
+                    
+                    link.style.visibility = 'hidden';
+                    document.body.appendChild(link);
+                    link.click();
+                    document.body.removeChild(link);
+                    
+                    // Clean up the URL object
+                    URL.revokeObjectURL(url);
+                }
+            })(),
+            {
+                loading: 'Preparing download...',
+                success: 'CSV file downloaded successfully!',
+                error: 'Failed to download CSV file'
             }
-        } catch (error) {
-            console.error('Error downloading CSV:', error);
-            alert('Failed to download CSV. Please try again.');
-        } finally {
+        ).finally(() => {
             setDownloading(false);
-        }
+        });
     };
 
     // Check if shopId is valid
     if (!shopId) {
         return (
             <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+                {/* Toast container */}
+                <Toaster
+                    position="top-right"
+                    toastOptions={{
+                        duration: 3000,
+                        style: {
+                            background: '#363636',
+                            color: '#fff',
+                        },
+                        success: {
+                            iconTheme: {
+                                primary: '#10b981',
+                                secondary: '#fff',
+                            },
+                        },
+                        error: {
+                            iconTheme: {
+                                primary: '#ef4444',
+                                secondary: '#fff',
+                            },
+                        },
+                    }}
+                />
+                
                 <div className="text-center">
                     <div className="text-gray-500 mb-4">Shop ID not available</div>
                     <div className="text-sm text-gray-400">
                         Please ensure you are logged in properly
                     </div>
                     <button 
-                        onClick={() => window.location.reload()}
+                        onClick={() => {
+                            toast.loading('Refreshing page...');
+                            setTimeout(() => window.location.reload(), 500);
+                        }}
                         className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
                     >
                         Refresh Page
@@ -223,6 +304,30 @@ const ShopPaymentsList = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 py-8">
+            {/* Toast container */}
+            <Toaster
+                position="top-right"
+                toastOptions={{
+                    duration: 3000,
+                    style: {
+                        background: '#363636',
+                        color: '#fff',
+                    },
+                    success: {
+                        iconTheme: {
+                            primary: '#10b981',
+                            secondary: '#fff',
+                        },
+                    },
+                    error: {
+                        iconTheme: {
+                            primary: '#ef4444',
+                            secondary: '#fff',
+                        },
+                    },
+                }}
+            />
+            
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="bg-white shadow-xl rounded-lg">
                     <div className="px-6 py-4 border-b border-gray-200">
@@ -327,7 +432,7 @@ const ShopPaymentsList = () => {
                         <div className="px-6 py-4 border-l-4 border-red-500 bg-red-50">
                             <p className="text-red-800">{error}</p>
                             <button 
-                                onClick={fetchPayments}
+                                onClick={handleRetry}
                                 className="mt-2 text-sm bg-red-600 text-white px-3 py-1 rounded hover:bg-red-700"
                             >
                                 Retry

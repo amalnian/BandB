@@ -1444,7 +1444,6 @@ class ShopBusinessHoursView(APIView):
 
 
 
-# Alternative approach using Django's built-in timezone support
 from django.utils import timezone
 from django.conf import settings
 from datetime import datetime, timedelta
@@ -1734,6 +1733,8 @@ class AvailableTimeSlotsView(APIView):
         for service in booking.services.all():
             total_duration += service.duration_minutes
         return total_duration if total_duration > 0 else 30
+
+    
 
 # class CreateBookingView(APIView):
 #     """
@@ -4089,34 +4090,46 @@ class NotificationDeleteView(APIView):
 
 
 
+import math
+from datetime import datetime, timedelta, time
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
-from datetime import timedelta
-from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
-import uuid
+from rest_framework.permissions import IsAuthenticated
+
 
 class SlotReservationView(APIView):
     """
-    Handle temporary slot reservations
+    Handle temporary slot reservations based on actual service durations
     """
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        """Reserve a slot temporarily"""
+        """Reserve slots temporarily based on selected services"""
         try:
             data = request.data
+            print(f"DEBUG: Received data: {data}")  # Debug log
+            
             shop_id = data.get('shop')
             appointment_date = data.get('appointment_date')
             appointment_time = data.get('appointment_time')
-            slots_needed = data.get('slots_needed', 1)
+            service_ids = data.get('services', [])  # List of service IDs
+            
+            print(f"DEBUG: service_ids before conversion: {service_ids}, type: {type(service_ids)}")  # Debug log
+            
+            # Ensure service_ids is always a list
+            if not isinstance(service_ids, list):
+                service_ids = [service_ids] if service_ids else []
+                
+            print(f"DEBUG: service_ids after conversion: {service_ids}, type: {type(service_ids)}")  # Debug log
             
             # Validate required fields
-            if not all([shop_id, appointment_date, appointment_time]):
+            if not all([shop_id, appointment_date, appointment_time, service_ids]):
                 return Response({
                     'success': False,
-                    'error': 'Missing required fields'
+                    'error': 'Missing required fields: shop, appointment_date, appointment_time, services'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Parse date and time
@@ -4132,15 +4145,50 @@ class SlotReservationView(APIView):
             # Check if shop exists
             shop = get_object_or_404(Shop, id=shop_id)
             
+            # Get selected services and calculate total duration
+            try:
+                print(f"DEBUG: Querying services with IDs: {service_ids}")  # Debug log
+                services = Service.objects.filter(id__in=service_ids, shop=shop, is_active=True)
+                print(f"DEBUG: Found {services.count()} services")  # Debug log
+                
+                # ADDED: Better error handling with debugging information
+                if not services.exists():
+                    available_service_ids = list(Service.objects.filter(shop=shop, is_active=True).values_list('id', flat=True))
+                    return Response({
+                        'success': False,
+                        'error': f'Invalid services selected. Received IDs: {service_ids}, Available IDs for shop {shop_id}: {available_service_ids}'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Calculate total duration and service end time
+                print("DEBUG: Calculating total duration...")  # Debug log
+                total_duration = sum(service.duration_minutes for service in services)
+                print(f"DEBUG: Total duration: {total_duration}")  # Debug log
+                
+            except Exception as e:
+                print(f"DEBUG: Error in services section: {str(e)}")  # Debug log
+                raise
+            service_end_time = self._add_minutes_to_time(appointment_time, total_duration)
+            
+            # Calculate how many 30-minute slots we need to cover the entire service duration
+            slots_needed = math.ceil(total_duration / 30)
+            
             # Clean up expired reservations first
             self._cleanup_expired_reservations()
             
-            # Check if slot is already reserved or booked
-            if self._is_slot_unavailable(shop_id, appointment_date, appointment_time, slots_needed):
-                return Response({
-                    'success': False,
-                    'error': 'Selected time slot is no longer available'
-                }, status=status.HTTP_400_BAD_REQUEST)
+            # Check if all required slots are available
+            try:
+                print("DEBUG: Checking if service slots are available...")  # Debug log
+                slots_available = self._are_service_slots_available(shop_id, appointment_date, appointment_time, total_duration, request.user)
+                print(f"DEBUG: Slots available: {slots_available}")  # Debug log
+                
+                if not slots_available:
+                    return Response({
+                        'success': False,
+                        'error': 'Selected time slot is no longer available for the chosen services'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+            except Exception as e:
+                print(f"DEBUG: Error checking slot availability: {str(e)}")  # Debug log
+                raise
             
             # Remove any existing reservation by this user for this shop on this date
             TemporarySlotReservation.objects.filter(
@@ -4149,44 +4197,71 @@ class SlotReservationView(APIView):
                 appointment_date=appointment_date
             ).delete()
             
-            # Create new reservation
-            reservation = TemporarySlotReservation.objects.create(
-                user=request.user,
-                shop=shop,
-                appointment_date=appointment_date,
-                appointment_time=appointment_time,
-                slots_needed=slots_needed,
-                expires_at=timezone.now() + timedelta(minutes=10)
-            )
+            # Create reservations for all affected slots
+            reservations_created = []
+            
+            for i in range(slots_needed):
+                slot_start_time = self._add_minutes_to_time(appointment_time, i * 30)
+                
+                reservation = TemporarySlotReservation.objects.create(
+                    user=request.user,
+                    shop=shop,
+                    appointment_date=appointment_date,
+                    appointment_time=slot_start_time,
+                    slots_needed=slots_needed,
+                    total_service_duration=total_duration,
+                    service_end_time=service_end_time,
+                    expires_at=timezone.now() + timedelta(minutes=10),
+                    service_ids=service_ids  # Store selected services
+                )
+                reservations_created.append(reservation)
             
             return Response({
                 'success': True,
                 'data': {
-                    'reservation_id': reservation.id,
-                    'expires_at': reservation.expires_at.isoformat(),
-                    'message': 'Slot reserved temporarily for 10 minutes'
+                    'reservation_id': reservations_created[0].id,  # Primary reservation ID
+                    'expires_at': reservations_created[0].expires_at.isoformat(),
+                    'service_start_time': appointment_time.strftime('%H:%M'),
+                    'service_end_time': service_end_time.strftime('%H:%M'),
+                    'total_duration_minutes': total_duration,
+                    'slots_reserved': slots_needed,
+                    'services': [{'id': s.id, 'name': s.name, 'duration': s.duration_minutes} for s in services],
+                    'message': f'Slots reserved for {total_duration} minutes (until {service_end_time.strftime("%H:%M")})'
                 }
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
+            print(f"DEBUG: Exception in post method: {str(e)}")  # Debug log
+            print(f"DEBUG: Exception type: {type(e)}")  # Debug log
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")  # Debug log
             return Response({
                 'success': False,
                 'error': f'An error occurred: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def delete(self, request):
-        """Release a slot reservation"""
+        """Release slot reservations"""
         try:
             reservation_id = request.data.get('reservation_id')
             shop_id = request.data.get('shop')
             appointment_date = request.data.get('appointment_date')
             
             if reservation_id:
-                # Release specific reservation
-                TemporarySlotReservation.objects.filter(
+                # Get the primary reservation to find related reservations
+                primary_reservation = TemporarySlotReservation.objects.filter(
                     id=reservation_id,
                     user=request.user
-                ).delete()
+                ).first()
+                
+                if primary_reservation:
+                    # Release all related reservations (same shop, date, user)
+                    TemporarySlotReservation.objects.filter(
+                        user=request.user,
+                        shop=primary_reservation.shop,
+                        appointment_date=primary_reservation.appointment_date
+                    ).delete()
+                    
             elif shop_id and appointment_date:
                 # Release all reservations by this user for this shop on this date
                 appointment_date = datetime.strptime(appointment_date, '%Y-%m-%d').date()
@@ -4203,7 +4278,7 @@ class SlotReservationView(APIView):
             
             return Response({
                 'success': True,
-                'message': 'Slot reservation released'
+                'message': 'Slot reservations released'
             }, status=status.HTTP_200_OK)
             
         except Exception as e:
@@ -4218,26 +4293,117 @@ class SlotReservationView(APIView):
             expires_at__lt=timezone.now()
         ).delete()
     
-    def _is_slot_unavailable(self, shop_id, date, start_time, slots_needed):
-        """Check if slot is unavailable due to bookings or reservations"""
-        # Check actual bookings
-        time_slots_view = AvailableTimeSlotsView()
-        if not time_slots_view._are_consecutive_slots_available(shop_id, date, start_time, slots_needed):
+    def _are_service_slots_available(self, shop_id, date, start_time, total_duration_minutes, current_user):
+        """
+        Check if all slots needed for the service duration are available
+        """
+        try:
+            print(f"DEBUG: _are_service_slots_available called with duration: {total_duration_minutes}")  # Debug log
+            
+            slots_needed = math.ceil(total_duration_minutes / 30)
+            service_end_time = self._add_minutes_to_time(start_time, total_duration_minutes)
+            
+            print(f"DEBUG: slots_needed: {slots_needed}, service_end_time: {service_end_time}")  # Debug log
+            
+            # Check each 30-minute slot that the service will occupy
+            for i in range(slots_needed):
+                print(f"DEBUG: Checking slot {i + 1} of {slots_needed}")  # Debug log
+                
+                slot_start_time = self._add_minutes_to_time(start_time, i * 30)
+                slot_end_time = self._add_minutes_to_time(slot_start_time, 30)
+                
+                # For the last slot, only check until the actual service end time
+                if i == slots_needed - 1:
+                    slot_end_time = service_end_time
+                
+                print(f"DEBUG: Slot time range: {slot_start_time} - {slot_end_time}")  # Debug log
+                
+                # Check for existing bookings that overlap with this slot
+                print("DEBUG: Checking for overlapping bookings...")  # Debug log
+                overlapping_bookings = Booking.objects.filter(
+                    shop_id=shop_id,
+                    appointment_date=date,
+                    booking_status__in=['confirmed', 'pending']
+                )
+                
+                print(f"DEBUG: Found {overlapping_bookings.count()} bookings to check")  # Debug log
+                
+                for booking in overlapping_bookings:
+                    print(f"DEBUG: Checking booking {booking.id}")  # Debug log
+                    # Calculate booking end time based on services - FIXED THIS LINE
+                    booking_services = booking.services.all()  # Fixed: was Booking.services.all()
+                    print(f"DEBUG: Booking has {booking_services.count()} services")  # Debug log
+                    
+                    booking_duration = sum(s.duration_minutes for s in booking_services)
+                    if booking_duration == 0:
+                        booking_duration = 30  # Default duration
+                        
+                    print(f"DEBUG: Booking duration: {booking_duration}")  # Debug log
+                        
+                    booking_end_time = self._add_minutes_to_time(
+                        booking.appointment_time, 
+                        booking_duration
+                    )
+                    
+                    print(f"DEBUG: Booking time range: {booking.appointment_time} - {booking_end_time}")  # Debug log
+                    
+                    # Check for time overlap
+                    if self._times_overlap(
+                        slot_start_time, slot_end_time,
+                        booking.appointment_time, booking_end_time
+                    ):
+                        print("DEBUG: Found overlap, slot not available")  # Debug log
+                        return False
+                
+                print("DEBUG: Checking for overlapping reservations...")  # Debug log
+                # Check for existing reservations (excluding current user's reservations)
+                overlapping_reservations = TemporarySlotReservation.objects.filter(
+                    shop_id=shop_id,
+                    appointment_date=date,
+                    expires_at__gt=timezone.now()
+                ).exclude(user=current_user)
+                
+                print(f"DEBUG: Found {overlapping_reservations.count()} reservations to check")  # Debug log
+                
+                for reservation in overlapping_reservations:
+                    reservation_end_time = self._add_minutes_to_time(
+                        reservation.appointment_time,
+                        getattr(reservation, 'total_service_duration', 30)
+                    )
+                    
+                    if self._times_overlap(
+                        slot_start_time, slot_end_time,
+                        reservation.appointment_time, reservation_end_time
+                    ):
+                        print("DEBUG: Found reservation overlap, slot not available")  # Debug log
+                        return False
+            
+            print("DEBUG: All slots are available")  # Debug log
             return True
-        
-        # Check temporary reservations
-        for i in range(slots_needed):
-            slot_time = time_slots_view._add_minutes_to_time(start_time, i * 30)
             
-            # Check if this slot time is reserved
-            existing_reservation = TemporarySlotReservation.objects.filter(
-                shop_id=shop_id,
-                appointment_date=date,
-                appointment_time=slot_time,
-                expires_at__gt=timezone.now()
-            ).exists()
-            
-            if existing_reservation:
-                return True
+        except Exception as e:
+            print(f"DEBUG: Exception in _are_service_slots_available: {str(e)}")  # Debug log
+            import traceback
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")  # Debug log
+            raise
+    
+    def _times_overlap(self, start1, end1, start2, end2):
+        """Check if two time ranges overlap"""
+        return start1 < end2 and end1 > start2
+    
+    def _add_minutes_to_time(self, time_obj, minutes):
+        """Add minutes to a time object"""
+        if isinstance(time_obj, str):
+            time_obj = datetime.strptime(time_obj, '%H:%M').time()
         
-        return False
+        # Convert time to datetime, add minutes, then back to time
+        today = datetime.today()
+        dt = datetime.combine(today, time_obj)
+        new_dt = dt + timedelta(minutes=minutes)
+        
+        # Handle day overflow
+        if new_dt.date() != today.date():
+            # If we overflow to the next day, cap at 23:59
+            return time(23, 59)
+        
+        return new_dt.time()

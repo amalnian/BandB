@@ -333,7 +333,7 @@ CACHES = {
 
 CELERY_BEAT_SCHEDULE = {
     'cleanup-expired-reservations': {
-        'task': 'your_app.tasks.cleanup_expired_reservations',
+        'task': 'users.tasks.cleanup_expired_reservations',
         'schedule': 300.0,  # Run every 5 minutes
     },
 }
@@ -346,3 +346,13 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
+
+
+# CRITICAL: These settings ensure tasks run asynchronously
+CELERY_TASK_ALWAYS_EAGER = False  # This is the key setting!
+CELERY_TASK_EAGER_PROPAGATES = False
+CELERY_TASK_STORE_EAGER_RESULT = True
+
+# Additional settings for better performance
+CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
+CELERY_BROKER_TRANSPORT = 'redis'
