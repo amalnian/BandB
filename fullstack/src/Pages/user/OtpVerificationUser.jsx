@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import toast, { Toaster } from "react-hot-toast";
 
 const OtpVerification = () => {
   const [otp, setOtp] = useState('');
@@ -7,6 +6,7 @@ const OtpVerification = () => {
   const [isVerifying, setIsVerifying] = useState(false);
   const [isResending, setIsResending] = useState(false);
   const [error, setError] = useState('');
+  const [showToast, setShowToast] = useState(false);
 
   // Extract email from URL params with improved debugging
   useEffect(() => {
@@ -25,7 +25,42 @@ const OtpVerification = () => {
     }
   }, []);
 
-  // FIXED: Use verify-otp endpoint instead of resend-otp
+  // Toast component
+  const Toast = ({ show, message, onClose }) => {
+    useEffect(() => {
+      if (show) {
+        const timer = setTimeout(() => {
+          onClose();
+        }, 3000);
+        return () => clearTimeout(timer);
+      }
+    }, [show, onClose]);
+
+    if (!show) return null;
+
+    return (
+      <div className="fixed top-4 right-4 z-50 animate-slide-in">
+        <div className="bg-green-500 text-white px-6 py-4 rounded-lg shadow-lg flex items-center gap-3">
+          <div className="flex-shrink-0">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+          <span className="font-medium">{message}</span>
+          <button 
+            onClick={onClose}
+            className="ml-2 text-white hover:text-gray-200 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Add validation before form submission
   const handleVerify = async (e) => {
     e.preventDefault();
     
@@ -38,9 +73,6 @@ const OtpVerification = () => {
     setIsVerifying(true);
     setError('');
     
-    // Show loading toast
-    const loadingToast = toast.loading("Verifying OTP...");
-    
     try {
       // Log the data being sent for debugging
       console.log('Sending verification request with:', { 
@@ -48,8 +80,8 @@ const OtpVerification = () => {
         otp: otp
       });
       
-      // FIXED: Use the correct verify-otp endpoint
-      const response = await fetch(`${import.meta.env.VITE_USER}verify-otp/`, {
+      // Make actual API call to verify OTP
+      const response = await fetch(`${import.meta.env.VITE_USER}resend-otp/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -65,11 +97,8 @@ const OtpVerification = () => {
       if (response.ok) {
         console.log('OTP verification successful:', data);
         
-        // Dismiss loading toast and show success
-        toast.dismiss(loadingToast);
-        toast.success("Account verified successfully! Redirecting to login...", {
-          duration: 3000,
-        });
+        // Show success toast
+        setShowToast(true);
         
         // Add a delay to show the success toast before redirecting
         setTimeout(() => {
@@ -77,42 +106,20 @@ const OtpVerification = () => {
           window.location.href = '/login';
         }, 2000);
       } else {
-        // Dismiss loading toast
-        toast.dismiss(loadingToast);
-        
         // Handle errors from backend
-        let errorMessage;
         if (data.email) {
-          errorMessage = `Email error: ${data.email}`;
+          setError(`Email error: ${data.email}`);
         } else if (data.error) {
-          errorMessage = data.error;
+          setError(data.error);
         } else if (data.detail) {
-          errorMessage = data.detail;
+          setError(data.detail);
         } else {
-          errorMessage = 'Failed to verify OTP. Please try again.';
+          setError('Failed to verify OTP. Please try again.');
         }
-        
-        // Show error toast
-        toast.error(errorMessage, {
-          duration: 4000,
-        });
-        
-        setError(errorMessage);
       }
     } catch (error) {
       console.error('Error verifying OTP:', error);
-      
-      // Dismiss loading toast
-      toast.dismiss(loadingToast);
-      
-      const errorMessage = 'Network error. Please check your connection.';
-      
-      // Show error toast
-      toast.error(errorMessage, {
-        duration: 4000,
-      });
-      
-      setError(errorMessage);
+      setError('Network error. Please check your connection.');
     } finally {
       setIsVerifying(false);
     }
@@ -126,9 +133,6 @@ const OtpVerification = () => {
     
     setIsResending(true);
     setError('');
-
-    // Show loading toast
-    const loadingToast = toast.loading("Sending new OTP...");
 
     try {
       console.log('Resending OTP to:', userEmail);
@@ -147,47 +151,18 @@ const OtpVerification = () => {
 
       if (response.ok) {
         console.log('OTP resend response:', data);
-        
-        // Dismiss loading toast and show success
-        toast.dismiss(loadingToast);
-        toast.success('A new verification code has been sent to your email!', {
-          duration: 4000,
-        });
-        
-        // Clear any previous errors
-        setError('');
+        // Show success message
+        alert('A new verification code has been sent to your email.');
       } else {
-        // Dismiss loading toast
-        toast.dismiss(loadingToast);
-        
-        let errorMessage;
         if (data.error) {
-          errorMessage = data.error;
+          setError(data.error);
         } else {
-          errorMessage = 'Failed to resend OTP. Please try again.';
+          setError('Failed to resend OTP. Please try again.');
         }
-        
-        // Show error toast
-        toast.error(errorMessage, {
-          duration: 4000,
-        });
-        
-        setError(errorMessage);
       }
     } catch (error) {
       console.error('Error resending OTP:', error);
-      
-      // Dismiss loading toast
-      toast.dismiss(loadingToast);
-      
-      const errorMessage = 'Network error. Please check your connection.';
-      
-      // Show error toast
-      toast.error(errorMessage, {
-        duration: 4000,
-      });
-      
-      setError(errorMessage);
+      setError('Network error. Please check your connection.');
     } finally {
       setIsResending(false);
     }
@@ -200,34 +175,27 @@ const OtpVerification = () => {
 
   return (
     <>
-      {/* Toast container */}
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 3000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-          },
-          success: {
-            iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
-            },
-          },
-          error: {
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
-            },
-          },
-          loading: {
-            iconTheme: {
-              primary: '#f59e0b',
-              secondary: '#fff',
-            },
-          },
-        }}
+      <style jsx>{`
+        @keyframes slide-in {
+          from {
+            transform: translateX(100%);
+            opacity: 0;
+          }
+          to {
+            transform: translateX(0);
+            opacity: 1;
+          }
+        }
+        .animate-slide-in {
+          animation: slide-in 0.3s ease-out;
+        }
+      `}</style>
+      
+      {/* Toast Notification */}
+      <Toast 
+        show={showToast} 
+        message="Account created successfully!" 
+        onClose={() => setShowToast(false)}
       />
 
       <div className="flex flex-col md:flex-row w-full min-h-screen">

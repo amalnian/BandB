@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import toast, { Toaster } from "react-hot-toast"; // Add this import
 import { getShopPayments } from '@/endpoints/AdminAPI'; // Update path as needed
 
 const ShopPaymentsList = () => {
@@ -17,8 +16,6 @@ const ShopPaymentsList = () => {
     const [downloading, setDownloading] = useState(false);
 
     const fetchPayments = async () => {
-        const loadingToast = toast.loading("Loading payments..."); // Add loading toast
-        
         try {
             setLoading(true);
             const response = await getShopPayments(filters);
@@ -30,19 +27,9 @@ const ShopPaymentsList = () => {
             setTotalAmount(total);
             
             setError(null);
-            
-            // Show success toast
-            toast.dismiss(loadingToast);
-            toast.success(`Loaded ${response.data.payments.length} payments successfully!`);
-            
         } catch (err) {
             console.error('Error fetching payments:', err);
-            const errorMessage = 'Failed to load payments. Please try again.';
-            setError(errorMessage);
-            
-            // Show error toast
-            toast.dismiss(loadingToast);
-            toast.error(errorMessage);
+            setError('Failed to load payments. Please try again.');
         } finally {
             setLoading(false);
         }
@@ -61,14 +48,7 @@ const ShopPaymentsList = () => {
     };
 
     const handleFilterSubmit = () => {
-        toast.promise(
-            fetchPayments(),
-            {
-                loading: 'Applying filters...',
-                success: 'Filters applied successfully!',
-                error: 'Failed to apply filters'
-            }
-        );
+        fetchPayments();
     };
 
     const handleClearFilters = () => {
@@ -78,32 +58,24 @@ const ShopPaymentsList = () => {
             start_date: '',
             end_date: ''
         });
-        
-        // Show toast for clearing filters
-        toast.promise(
-            (async () => {
-                try {
-                    setLoading(true);
-                    const response = await getShopPayments({});
-                    setPayments(response.data.payments);
-                    setTotalCount(response.data.total_count);
-                    
-                    // Calculate total amount
-                    const total = response.data.payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
-                    setTotalAmount(total);
-                } catch (err) {
-                    setError('Failed to load payments. Please try again.');
-                    throw err;
-                } finally {
-                    setLoading(false);
-                }
-            })(),
-            {
-                loading: 'Clearing filters...',
-                success: 'Filters cleared successfully!',
-                error: 'Failed to clear filters'
+        // Fetch all payments
+        const clearFilters = async () => {
+            try {
+                setLoading(true);
+                const response = await getShopPayments({});
+                setPayments(response.data.payments);
+                setTotalCount(response.data.total_count);
+                
+                // Calculate total amount
+                const total = response.data.payments.reduce((sum, payment) => sum + (payment.amount || 0), 0);
+                setTotalAmount(total);
+            } catch (err) {
+                setError('Failed to load payments. Please try again.');
+            } finally {
+                setLoading(false);
             }
-        );
+        };
+        clearFilters();
     };
 
     const formatCurrency = (amount) => {
@@ -145,56 +117,51 @@ const ShopPaymentsList = () => {
 
     const downloadCSV = async () => {
         if (payments.length === 0) {
-            toast.error('No payments data to download'); // Replace alert with toast
+            alert('No payments data to download');
             return;
         }
 
-        // Show toast promise for download process
-        toast.promise(
-            (async () => {
-                setDownloading(true);
+        try {
+            setDownloading(true);
+            
+            // Create CSV content
+            const csvContent = convertToCSV(payments);
+            
+            // Create and download file
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement('a');
+            
+            if (link.download !== undefined) {
+                const url = URL.createObjectURL(blob);
+                link.setAttribute('href', url);
                 
-                // Create CSV content
-                const csvContent = convertToCSV(payments);
+                // Generate filename with current date and filter info
+                const currentDate = new Date().toISOString().split('T')[0];
+                let filename = `Shop_Payments_${currentDate}`;
                 
-                // Create and download file
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const link = document.createElement('a');
+                // Add filter info to filename if filters are applied
+                if (filters.shop_id) filename += `_Shop${filters.shop_id}`;
+                if (filters.payment_method) filename += `_${filters.payment_method}`;
+                if (filters.start_date) filename += `_from${filters.start_date}`;
+                if (filters.end_date) filename += `_to${filters.end_date}`;
                 
-                if (link.download !== undefined) {
-                    const url = URL.createObjectURL(blob);
-                    link.setAttribute('href', url);
-                    
-                    // Generate filename with current date and filter info
-                    const currentDate = new Date().toISOString().split('T')[0];
-                    let filename = `Shop_Payments_${currentDate}`;
-                    
-                    // Add filter info to filename if filters are applied
-                    if (filters.shop_id) filename += `_Shop${filters.shop_id}`;
-                    if (filters.payment_method) filename += `_${filters.payment_method}`;
-                    if (filters.start_date) filename += `_from${filters.start_date}`;
-                    if (filters.end_date) filename += `_to${filters.end_date}`;
-                    
-                    filename += '.csv';
-                    link.setAttribute('download', filename);
-                    
-                    link.style.visibility = 'hidden';
-                    document.body.appendChild(link);
-                    link.click();
-                    document.body.removeChild(link);
-                    
-                    // Clean up the URL object
-                    URL.revokeObjectURL(url);
-                }
-            })(),
-            {
-                loading: 'Preparing download...',
-                success: 'CSV file downloaded successfully!',
-                error: 'Failed to download CSV file'
+                filename += '.csv';
+                link.setAttribute('download', filename);
+                
+                link.style.visibility = 'hidden';
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                // Clean up the URL object
+                URL.revokeObjectURL(url);
             }
-        ).finally(() => {
+        } catch (error) {
+            console.error('Error downloading CSV:', error);
+            alert('Failed to download CSV. Please try again.');
+        } finally {
             setDownloading(false);
-        });
+        }
     };
 
     if (loading) {
@@ -210,30 +177,6 @@ const ShopPaymentsList = () => {
 
     return (
         <div className="min-h-screen bg-gray-50 py-8">
-            {/* Add Toaster component */}
-            <Toaster
-                position="top-right"
-                toastOptions={{
-                    duration: 3000,
-                    style: {
-                        background: '#363636',
-                        color: '#fff',
-                    },
-                    success: {
-                        iconTheme: {
-                            primary: '#10b981',
-                            secondary: '#fff',
-                        },
-                    },
-                    error: {
-                        iconTheme: {
-                            primary: '#ef4444',
-                            secondary: '#fff',
-                        },
-                    },
-                }}
-            />
-            
             <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                 <div className="bg-white shadow-xl rounded-lg">
                     <div className="px-6 py-4 border-b border-gray-200">

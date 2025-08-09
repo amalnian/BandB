@@ -73,12 +73,11 @@ const BookingAppointment = () => {
       return `${year}-${month}-${day}`;
     };
     
-// CORRECT (fix):
-await reserveTimeSlot(
-  formatLocalDate(selectedDate),
-  time,
-  selectedServices  // ✅ This is the array of service IDs ([17])
-)
+    await reserveTimeSlot(
+      formatLocalDate(selectedDate),
+      time,
+      slotsNeeded
+    )
   }
   
   // Release reservation when services change significantly
@@ -565,12 +564,12 @@ await reserveTimeSlot(
               <span className="text-sm font-medium text-orange-800">
                 Reserved: {formatTimeRemaining()}
               </span>
-              {/* <button
+              <button
                 onClick={extendReservation}
                 className="text-xs text-orange-600 hover:text-orange-800 underline"
               >
                 Extend
-              </button> */}
+              </button>
             </div>
           )}
         </div>

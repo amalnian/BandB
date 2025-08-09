@@ -9,7 +9,6 @@ import {
     Calendar, Filter, Download, Eye, Star, AlertCircle,
     RefreshCw, X, CreditCard, FileText, Check
 } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
 import { 
     getDashboardStats, 
     getRevenueChart, 
@@ -55,9 +54,6 @@ const DashboardContent = () => {
             setLoading(true);
             setError(null);
             
-            // Show loading toast for data refresh
-            const loadingToast = toast.loading("Refreshing dashboard data...");
-            
             const [statsRes, chartRes, shopsRes, bookingsRes, commissionRes] = await Promise.all([
                 getDashboardStats(dateRange),
                 getRevenueChart(chartType),
@@ -65,29 +61,15 @@ const DashboardContent = () => {
                 getRecentBookings(10),
                 getCommissionReport(dateRange)
             ]);
-            
-            console.log(statsRes);
+            console.log(statsRes)
             setDashboardData(statsRes.data);
             setRevenueChart(chartRes.data.data || []);
             setShopsPerformance(shopsRes.data.shops || []);
             setRecentBookings(bookingsRes.data.recent_bookings || []);
             setCommissionReport(commissionRes.data);
-            
-            // Dismiss loading toast and show success
-            toast.dismiss(loadingToast);
-            toast.success("Dashboard data updated successfully!", {
-                duration: 2000,
-            });
-            
         } catch (error) {
             console.error('Error fetching dashboard data:', error);
-            const errorMessage = error.response?.data?.message || error.message || 'Failed to fetch dashboard data';
-            setError(errorMessage);
-            
-            // Show error toast
-            toast.error(errorMessage, {
-                duration: 4000,
-            });
+            setError(error.message || 'Failed to fetch dashboard data');
         } finally {
             setLoading(false);
         }
@@ -125,9 +107,6 @@ const DashboardContent = () => {
         e.preventDefault();
         setPaymentLoading(true);
 
-        // Show loading toast
-        const loadingToast = toast.loading("Recording payment...");
-
         try {
             const paymentData = {
                 shop_id: paymentModal.shop.id,
@@ -136,38 +115,18 @@ const DashboardContent = () => {
             };
 
             await recordShopPayment(paymentData);
-            
-            // Dismiss loading toast and show success
-            toast.dismiss(loadingToast);
-            toast.success(`Payment of ${formatCurrency(paymentModal.amount)} recorded successfully for ${paymentModal.shop.name}!`, {
-                duration: 4000,
-            });
-            
+            alert('Payment recorded successfully!');
             closePaymentModal();
             fetchDashboardData(); // Refresh data
         } catch (error) {
             console.error('Payment recording failed:', error);
-            
-            // Dismiss loading toast and show error
-            toast.dismiss(loadingToast);
-            
-            const errorMessage = error.response?.data?.error || 
-                               error.response?.data?.message || 
-                               error.message || 
-                               'Payment recording failed';
-            
-            toast.error(`Payment recording failed: ${errorMessage}`, {
-                duration: 5000,
-            });
+            alert(`Payment recording failed: ${error.response?.data?.error || error.message}`);
         } finally {
             setPaymentLoading(false);
         }
     };
 
     const handleExport = async (exportType) => {
-        // Show loading toast
-        const loadingToast = toast.loading(`Exporting ${exportType} data...`);
-        
         try {
             const response = await exportData(exportType);
             
@@ -180,26 +139,9 @@ const DashboardContent = () => {
             link.click();
             link.remove();
             window.URL.revokeObjectURL(url);
-            
-            // Dismiss loading toast and show success
-            toast.dismiss(loadingToast);
-            toast.success(`${exportType} data exported successfully!`, {
-                duration: 3000,
-            });
-            
         } catch (error) {
             console.error('Export failed:', error);
-            
-            // Dismiss loading toast and show error
-            toast.dismiss(loadingToast);
-            
-            const errorMessage = error.response?.data?.message || 
-                               error.message || 
-                               'Export failed';
-            
-            toast.error(`Export failed: ${errorMessage}`, {
-                duration: 4000,
-            });
+            alert(`Export failed: ${error.message || 'Unknown error'}`);
         }
     };
 
@@ -363,36 +305,6 @@ const DashboardContent = () => {
 
     return (
         <div className="p-6 bg-gray-50 min-h-screen">
-            {/* Toast container */}
-            <Toaster
-                position="top-right"
-                toastOptions={{
-                    duration: 3000,
-                    style: {
-                        background: '#363636',
-                        color: '#fff',
-                    },
-                    success: {
-                        iconTheme: {
-                            primary: '#10b981',
-                            secondary: '#fff',
-                        },
-                    },
-                    error: {
-                        iconTheme: {
-                            primary: '#ef4444',
-                            secondary: '#fff',
-                        },
-                    },
-                    loading: {
-                        iconTheme: {
-                            primary: '#3b82f6',
-                            secondary: '#fff',
-                        },
-                    },
-                }}
-            />
-
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
                 <div className="mb-8">
@@ -401,14 +313,14 @@ const DashboardContent = () => {
                             <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
                             <p className="text-gray-600">Manage your barbershop business analytics and revenue</p>
                         </div>
-                        <button 
+                        {/* <button 
                             onClick={fetchDashboardData}
-                            className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
                             disabled={loading}
                         >
                             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                             <span>Refresh</span>
-                        </button>
+                        </button> */}
                     </div>
                 </div>
 
@@ -574,6 +486,79 @@ const DashboardContent = () => {
                                 <table className="min-w-full divide-y divide-gray-200">
                                     <thead className="bg-gray-50">
                                         <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Customer</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shop</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Amount</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="bg-white divide-y divide-gray-200">
+                                        {recentBookings.length > 0 ? recentBookings.map((booking) => (
+                                            <tr key={booking.id} className="hover:bg-gray-50">
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <div>
+                                                        <div className="text-sm font-medium text-gray-900">{booking.user_name}</div>
+                                                        <div className="text-sm text-gray-500">{booking.user_email}</div>
+                                                    </div>
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                    {booking.shop_name}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                                    {formatDate(booking.appointment_date)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                                                    {formatCurrency(booking.total_amount)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-blue-600">
+                                                    {formatCurrency(booking.admin_commission)}
+                                                </td>
+                                                <td className="px-6 py-4 whitespace-nowrap">
+                                                    <span className={`px-2 py-1 text-xs font-medium rounded-full ${
+                                                        booking.booking_status === 'completed' 
+                                                            ? 'bg-green-100 text-green-800' 
+                                                            : booking.booking_status === 'confirmed'
+                                                            ? 'bg-blue-100 text-blue-800'
+                                                            : booking.booking_status === 'cancelled'
+                                                            ? 'bg-red-100 text-red-800'
+                                                            : 'bg-yellow-100 text-yellow-800'
+                                                    }`}>
+                                                        {booking.booking_status}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                        )) : (
+                                            <tr>
+                                                <td colSpan="6" className="px-6 py-4 text-center text-gray-500">
+                                                    No recent bookings found
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Shops Performance Table */}
+                        <div className="bg-white rounded-lg shadow-md p-6">
+                            <div className="flex justify-between items-center mb-4">
+                                <h2 className="text-xl font-semibold text-gray-900">Shops Performance</h2>
+                                {/* <button 
+                                    onClick={() => handleExport('shops')}
+                                    className="flex items-center space-x-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                                >
+                                    <Download className="w-4 h-4" />
+                                    <span>Export</span>
+                                </button> */}
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="min-w-full divide-y divide-gray-200">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shop</th>
+                                            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Owner</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Revenue</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Commission</th>
                                             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Shop Earnings</th>
@@ -641,7 +626,7 @@ const DashboardContent = () => {
                                             </tr>
                                         )) : (
                                             <tr>
-                                                <td colSpan="9" className="px-6 py-4 text-center text-gray-500">
+                                                <td colSpan="8" className="px-6 py-4 text-center text-gray-500">
                                                     No shops data available
                                                 </td>
                                             </tr>
@@ -652,7 +637,7 @@ const DashboardContent = () => {
                         </div>
 
                         {/* Commission Report */}
-                        {commissionReport && (
+                        {/* {commissionReport && (
                             <div className="bg-white rounded-lg shadow-md p-6 mt-8">
                                 <div className="flex justify-between items-center mb-4">
                                     <h2 className="text-xl font-semibold text-gray-900">Commission Report</h2>
@@ -685,7 +670,7 @@ const DashboardContent = () => {
                                     </div>
                                 </div>
                             </div>
-                        )}
+                        )} */}
                     </>
                 )}
 

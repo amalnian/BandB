@@ -16,7 +16,6 @@ import {
   Check,
   X
 } from "lucide-react"
-import toast, { Toaster } from "react-hot-toast"
 import { 
   getUserProfile, 
   updateUserProfile, 
@@ -76,9 +75,6 @@ export default function Settings() {
       }
     } catch (error) {
       console.error("Failed to fetch profile:", error)
-      toast.error("Failed to load profile data", {
-        duration: 4000,
-      })
       setErrors({ general: "Failed to load profile data" })
     } finally {
       setLoading(false)
@@ -92,35 +88,16 @@ export default function Settings() {
       setErrors({})
       setSuccess("")
 
-      // Show loading toast
-      const loadingToast = toast.loading("Updating profile...")
-
       const response = await updateUserProfile(profileData)
       if (response.data.success) {
-        // Dismiss loading toast and show success
-        toast.dismiss(loadingToast)
-        toast.success("Profile updated successfully!", {
-          duration: 3000,
-        })
-        
         setSuccess("Profile updated successfully!")
         setProfileData(response.data.data)
       }
     } catch (error) {
-      // Dismiss loading toast
-      toast.dismiss(loadingToast)
-      
       if (error.response?.data?.field_errors) {
         setErrors(error.response.data.field_errors)
-        toast.error("Please check the form fields for errors", {
-          duration: 4000,
-        })
       } else {
-        const errorMessage = error.response?.data?.message || "Failed to update profile"
-        setErrors({ general: errorMessage })
-        toast.error(errorMessage, {
-          duration: 4000,
-        })
+        setErrors({ general: error.response?.data?.message || "Failed to update profile" })
       }
     } finally {
       setLoading(false)
@@ -134,35 +111,16 @@ export default function Settings() {
       setErrors({})
       setSuccess("")
 
-      // Show loading toast
-      const loadingToast = toast.loading("Changing password...")
-
       const response = await changePassword(passwordData)
       if (response.data.success) {
-        // Dismiss loading toast and show success
-        toast.dismiss(loadingToast)
-        toast.success("Password changed successfully!", {
-          duration: 3000,
-        })
-        
         setSuccess("Password changed successfully!")
         setPasswordData({ old_password: "", new_password: "", confirm_password: "" })
       }
     } catch (error) {
-      // Dismiss loading toast
-      toast.dismiss(loadingToast)
-      
       if (error.response?.data?.field_errors) {
         setErrors(error.response.data.field_errors)
-        toast.error("Please check the form fields for errors", {
-          duration: 4000,
-        })
       } else {
-        const errorMessage = error.response?.data?.message || "Failed to change password"
-        setErrors({ general: errorMessage })
-        toast.error(errorMessage, {
-          duration: 4000,
-        })
+        setErrors({ general: error.response?.data?.message || "Failed to change password" })
       }
     } finally {
       setLoading(false)
@@ -172,32 +130,12 @@ export default function Settings() {
   const handleProfilePictureSelect = (e) => {
     const file = e.target.files[0]
     if (file) {
-      // Validate file size (5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        toast.error("File size must be less than 5MB", {
-          duration: 4000,
-        })
-        return
-      }
-      
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        toast.error("Please select a valid image file", {
-          duration: 4000,
-        })
-        return
-      }
-      
       setProfilePictureFile(file)
       const reader = new FileReader()
       reader.onloadend = () => {
         setProfilePicturePreview(reader.result)
       }
       reader.readAsDataURL(file)
-      
-      toast.success("Image selected! Click upload to save.", {
-        duration: 3000,
-      })
     }
   }
 
@@ -208,20 +146,11 @@ export default function Settings() {
       setLoading(true)
       setErrors({})
       
-      // Show loading toast
-      const loadingToast = toast.loading("Uploading profile picture...")
-      
       const formData = new FormData()
       formData.append('profile_picture', profilePictureFile)
       
       const response = await uploadProfilePicture(formData)
       if (response.data.success) {
-        // Dismiss loading toast and show success
-        toast.dismiss(loadingToast)
-        toast.success("Profile picture updated successfully!", {
-          duration: 3000,
-        })
-        
         setSuccess("Profile picture updated successfully!")
         setProfileData(prev => ({
           ...prev,
@@ -231,14 +160,7 @@ export default function Settings() {
         setProfilePicturePreview(null)
       }
     } catch (error) {
-      // Dismiss loading toast
-      toast.dismiss(loadingToast)
-      
-      const errorMessage = error.response?.data?.message || "Failed to upload picture"
-      setErrors({ picture: errorMessage })
-      toast.error(errorMessage, {
-        duration: 4000,
-      })
+      setErrors({ picture: error.response?.data?.message || "Failed to upload picture" })
     } finally {
       setLoading(false)
     }
@@ -249,29 +171,13 @@ export default function Settings() {
       setLoading(true)
       setErrors({})
       
-      // Show loading toast
-      const loadingToast = toast.loading("Deleting profile picture...")
-      
       const response = await deleteProfilePicture()
       if (response.data.success) {
-        // Dismiss loading toast and show success
-        toast.dismiss(loadingToast)
-        toast.success("Profile picture deleted successfully!", {
-          duration: 3000,
-        })
-        
         setSuccess("Profile picture deleted successfully!")
         setProfileData(prev => ({ ...prev, profile_url: null }))
       }
     } catch (error) {
-      // Dismiss loading toast
-      toast.dismiss(loadingToast)
-      
-      const errorMessage = error.response?.data?.message || "Failed to delete picture"
-      setErrors({ picture: errorMessage })
-      toast.error(errorMessage, {
-        duration: 4000,
-      })
+      setErrors({ picture: error.response?.data?.message || "Failed to delete picture" })
     } finally {
       setLoading(false)
     }
@@ -282,37 +188,17 @@ export default function Settings() {
       setLoading(true)
       setErrors({})
       
-      // Show loading toast
-      const loadingToast = toast.loading("Deactivating account...")
-      
       const response = await deactivateAccount(deactivatePassword)
       if (response.data.success) {
-        // Dismiss loading toast and show success
-        toast.dismiss(loadingToast)
-        toast.success("Account deactivated successfully. Redirecting...", {
-          duration: 3000,
-        })
-        
-        // Add delay to show success message before redirecting
-        setTimeout(() => {
-          window.location.href = "/login"
-        }, 2000)
+        alert("Account deactivated successfully. You will be logged out.")
+        // Redirect to login or handle logout
+        window.location.href = "/login"
       }
     } catch (error) {
-      // Dismiss loading toast
-      toast.dismiss(loadingToast)
-      
       if (error.response?.data?.field_errors) {
         setErrors(error.response.data.field_errors)
-        toast.error("Please check your password and try again", {
-          duration: 4000,
-        })
       } else {
-        const errorMessage = error.response?.data?.message || "Failed to deactivate account"
-        setErrors({ general: errorMessage })
-        toast.error(errorMessage, {
-          duration: 4000,
-        })
+        setErrors({ general: error.response?.data?.message || "Failed to deactivate account" })
       }
     } finally {
       setLoading(false)
@@ -329,36 +215,6 @@ export default function Settings() {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      {/* Toast container */}
-      <Toaster
-        position="top-right"
-        toastOptions={{
-          duration: 3000,
-          style: {
-            background: '#363636',
-            color: '#fff',
-          },
-          success: {
-            iconTheme: {
-              primary: '#10b981',
-              secondary: '#fff',
-            },
-          },
-          error: {
-            iconTheme: {
-              primary: '#ef4444',
-              secondary: '#fff',
-            },
-          },
-          loading: {
-            iconTheme: {
-              primary: '#f59e0b',
-              secondary: '#fff',
-            },
-          },
-        }}
-      />
-
       <div className="max-w-6xl mx-auto p-6">
         {/* Header */}
         <div className="mb-8">
@@ -540,35 +396,33 @@ export default function Settings() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <MapPin className="h-4 w-4 inline mr-2" />
+                        <Mail className="h-4 w-4 inline mr-2" />
                         Longitude
                       </label>
                       <input
                         type="number"
-                        step="any"
                         value={profileData.current_longitude}
                         onChange={(e) => setProfileData(prev => ({ ...prev, current_longitude:e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                       />
-                      {errors.current_longitude && (
-                        <p className="text-red-600 text-sm mt-1">{errors.current_longitude[0]}</p>
+                      {errors.email && (
+                        <p className="text-red-600 text-sm mt-1">{errors.email[0]}</p>
                       )}
                     </div>
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        <MapPin className="h-4 w-4 inline mr-2" />
+                        <Phone className="h-4 w-4 inline mr-2" />
                         Latitude
                       </label>
                       <input
                         type="number"
-                        step="any"
                         value={profileData.current_latitude}
                         onChange={(e) => setProfileData(prev => ({ ...prev, current_latitude: e.target.value }))}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-amber-500 focus:border-transparent"
                       />
-                      {errors.current_latitude && (
-                        <p className="text-red-600 text-sm mt-1">{errors.current_latitude[0]}</p>
+                      {errors.phone && (
+                        <p className="text-red-600 text-sm mt-1">{errors.phone[0]}</p>
                       )}
                     </div>
                   </div>
