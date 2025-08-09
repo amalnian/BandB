@@ -1,4 +1,6 @@
 import { useState, useEffect } from "react"
+import toast, { Toaster } from "react-hot-toast"
+
 import { 
   User, 
   Lock, 
@@ -190,7 +192,7 @@ export default function Settings() {
       
       const response = await deactivateAccount(deactivatePassword)
       if (response.data.success) {
-        alert("Account deactivated successfully. You will be logged out.")
+        toast.success("Account deactivated successfully. You will be logged out.")
         // Redirect to login or handle logout
         window.location.href = "/login"
       }

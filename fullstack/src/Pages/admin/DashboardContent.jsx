@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast, { Toaster } from "react-hot-toast"
 import { 
     LineChart, Line, AreaChart, Area, BarChart, Bar, 
     XAxis, YAxis, CartesianGrid, Tooltip, Legend, 
@@ -115,12 +116,12 @@ const DashboardContent = () => {
             };
 
             await recordShopPayment(paymentData);
-            alert('Payment recorded successfully!');
+            toast.success('Payment recorded successfully!');
             closePaymentModal();
             fetchDashboardData(); // Refresh data
         } catch (error) {
             console.error('Payment recording failed:', error);
-            alert(`Payment recording failed: ${error.response?.data?.error || error.message}`);
+            toast.success(`Payment recording failed: ${error.response?.data?.error || error.message}`);
         } finally {
             setPaymentLoading(false);
         }
@@ -141,7 +142,7 @@ const DashboardContent = () => {
             window.URL.revokeObjectURL(url);
         } catch (error) {
             console.error('Export failed:', error);
-            alert(`Export failed: ${error.message || 'Unknown error'}`);
+            toast.error(`Export failed: ${error.message || 'Unknown error'}`);
         }
     };
 

@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { User, Lock, Save, Eye, EyeOff, Loader, CheckCircle, AlertCircle } from 'lucide-react';
 import { getAdminProfile, updateAdminProfile, changeAdminPassword } from '@/endpoints/AdminAPI';// adjust path as needed
 
+import toast, { Toaster } from "react-hot-toast"
 
 
 const AdminSettings = () => {
@@ -42,7 +43,7 @@ const fetchProfile = async () => {
   } catch (error) {
     console.error('Failed to fetch profile:', error);
     if (error.response?.status === 403) {
-      alert('Access denied. Admin privileges required.');
+      toast.error('Access denied. Admin privileges required.');
     }
   } finally {
     setIsInitialLoading(false);

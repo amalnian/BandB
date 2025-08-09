@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { getShopBookings, updateBookingStatus, getBookingStats } from '@/endpoints/APIs';
+import toast, { Toaster } from "react-hot-toast"
+
 
 const AppointmentsContent = () => {
   const [bookings, setBookings] = useState([]);
@@ -74,7 +76,7 @@ const handleCompleteClick = (bookingId) => {
 
 const confirmCancel = () => {
   if (!cancellationReason.trim()) {
-    alert('Please provide a cancellation reason');
+    toast.error('Please provide a cancellation reason');
     return;
   }
   
@@ -239,7 +241,7 @@ const fetchBookings = async (page = currentPage) => {
       }
     } catch (error) {
       console.error('Error updating booking status:', error);
-      alert('Failed to update booking status. Please try again.');
+      toast.error('Failed to update booking status. Please try again.');
     } finally {
       setUpdating(prev => ({ ...prev, [bookingId]: false }));
     }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import toast, { Toaster } from "react-hot-toast"
 
 const OtpVerification = () => {
   const [otp, setOtp] = useState('');
@@ -152,7 +153,7 @@ const OtpVerification = () => {
       if (response.ok) {
         console.log('OTP resend response:', data);
         // Show success message
-        alert('A new verification code has been sent to your email.');
+        toast.success('A new verification code has been sent to your email.');
       } else {
         if (data.error) {
           setError(data.error);

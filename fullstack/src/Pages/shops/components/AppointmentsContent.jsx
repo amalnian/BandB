@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getShopBookings, updateBookingStatus, getBookingStats } from '@/endpoints/APIs';
+import toast, { Toaster } from "react-hot-toast"
 
 const AppointmentsContent = () => {
   const [bookings, setBookings] = useState([]);
@@ -90,7 +91,7 @@ const AppointmentsContent = () => {
       }
     } catch (error) {
       console.error('Error updating booking status:', error);
-      alert('Failed to update booking status');
+      toast.error('Failed to update booking status');
     } finally {
       setUpdating(prev => ({ ...prev, [bookingId]: false }));
     }

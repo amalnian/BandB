@@ -7,6 +7,7 @@ import {
   FaChartLine, FaCog, FaSignOutAlt, FaTimes, FaExclamationTriangle 
 } from 'react-icons/fa';
 import { logout as logoutAPI } from '../../../../endpoints/ShopAPI';
+import toast, { Toaster } from "react-hot-toast"
 
 const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
   const location = useLocation();
@@ -48,14 +49,14 @@ const Sidebar = ({ sidebarOpen, setSidebarOpen, shopData, isApproved }) => {
   const handleNavClick = (item, e) => {
     if (!isApproved && item.requiresApproval) {
       e.preventDefault();
-      alert('Please complete your shop profile and wait for approval to access other features.');
+      toast.error('Please complete your shop profile and wait for approval to access other features.');
       return;
     }
     
     // If payments link and no shopId, prevent navigation
     if (item.path.includes('payments') && !shopId) {
       e.preventDefault();
-      alert('Shop ID not available. Please try logging out and back in.');
+      toast.error('Shop ID not available. Please try logging out and back in.');
       return;
     }
   };

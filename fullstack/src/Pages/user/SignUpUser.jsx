@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
+import toast, { Toaster } from "react-hot-toast"
 
 const SignupPage = () => {
   const [formData, setFormData] = useState({
@@ -31,12 +32,12 @@ const SignupPage = () => {
 
     // Validate form
     if (formData.password !== formData.confirmPassword) {
-      alert("Passwords don't match")
+      toast.error("Passwords don't match")
       return
     }
 
     if (!formData.agreeTerms) {
-      alert("Please agree to the terms and conditions")
+      toast.error("Please agree to the terms and conditions")
       return
     }
 
@@ -73,12 +74,12 @@ const response = await fetch(`${import.meta.env.VITE_USER}users/`, {
         }, 1000) // 1 second delay to show loading
       } else {
         // Handle errors from backend
-        alert(data.message || "Registration failed")
+        toast.error(data.message || "Registration failed")
         setIsLoading(false)
       }
     } catch (error) {
       console.error("Error:", error)
-      alert("An error occurred during registration")
+      toast.error("An error occurred during registration")
       setIsLoading(false)
     }
   }

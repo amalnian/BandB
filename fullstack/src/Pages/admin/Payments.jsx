@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getShopPayments } from '@/endpoints/AdminAPI'; // Update path as needed
+import toast, { Toaster } from "react-hot-toast"
 
 const ShopPaymentsList = () => {
     const [payments, setPayments] = useState([]);
@@ -117,7 +118,7 @@ const ShopPaymentsList = () => {
 
     const downloadCSV = async () => {
         if (payments.length === 0) {
-            alert('No payments data to download');
+            toast.error('No payments data to download');
             return;
         }
 
@@ -158,7 +159,7 @@ const ShopPaymentsList = () => {
             }
         } catch (error) {
             console.error('Error downloading CSV:', error);
-            alert('Failed to download CSV. Please try again.');
+            toast.error('Failed to download CSV. Please try again.');
         } finally {
             setDownloading(false);
         }
