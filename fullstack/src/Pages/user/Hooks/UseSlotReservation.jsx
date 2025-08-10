@@ -4,7 +4,6 @@ import { toast } from 'react-hot-toast'
 
 export const useSlotReservation = (shopId) => {
   const [currentReservation, setCurrentReservation] = useState(null)
-  const [reservationTimer, setReservationTimer] = useState(null)
   const [timeRemaining, setTimeRemaining] = useState(0)
   const timerRef = useRef(null)
   const countdownRef = useRef(null)
@@ -26,7 +25,7 @@ export const useSlotReservation = (shopId) => {
     const handleBeforeUnload = () => {
       if (currentReservation) {
         // Use sendBeacon for reliable cleanup on page unload
-        navigator.sendBeacon('slots/release/', JSON.stringify({
+        navigator.sendBeacon('/api/slots/reserve/', JSON.stringify({
           reservation_id: currentReservation.reservation_id
         }))
       }
@@ -65,19 +64,26 @@ export const useSlotReservation = (shopId) => {
     countdownRef.current = setInterval(updateCountdown, 1000)
   }, [])
   
-  const reserveTimeSlot = useCallback(async (appointmentDate, appointmentTime, slotsNeeded = 1) => {
+  const reserveTimeSlot = useCallback(async (appointmentDate, appointmentTime, serviceIds) => {
     try {
       // Release any existing reservation first
       if (currentReservation) {
         await releaseCurrentReservation()
       }
       
+      if (!serviceIds || serviceIds.length === 0) {
+        toast.error('Please select services first')
+        return null
+      }
+      
       const reservationData = {
         shop: shopId,
         appointment_date: appointmentDate,
         appointment_time: appointmentTime,
-        slots_needed: slotsNeeded
+        services: serviceIds  // Send selected service IDs
       }
+      
+      console.log('Reserving slots with data:', reservationData)
       
       const response = await reserveSlot(reservationData)
       
@@ -87,9 +93,13 @@ export const useSlotReservation = (shopId) => {
           expires_at: response.data.expires_at,
           appointment_date: appointmentDate,
           appointment_time: appointmentTime,
-          slots_needed: slotsNeeded
+          service_start_time: response.data.service_start_time,
+          service_end_time: response.data.service_end_time,
+          total_duration_minutes: response.data.total_duration_minutes,
+          slots_reserved: response.data.slots_reserved,
+          services: response.data.services || []
         }
-        
+        console.log(reservation)
         setCurrentReservation(reservation)
         startCountdown(response.data.expires_at)
         
@@ -104,10 +114,18 @@ export const useSlotReservation = (shopId) => {
           toast.error('Slot reservation expired')
         }, 10 * 60 * 1000) // 10 minutes
         
-        toast.success('Slot reserved for 10 minutes', {
-          duration: 3000,
-          icon: '⏰'
-        })
+        // Show detailed success message
+        const durationText = reservation.total_duration_minutes >= 60 
+          ? `${Math.floor(reservation.total_duration_minutes / 60)}h ${reservation.total_duration_minutes % 60}m`
+          : `${reservation.total_duration_minutes}m`
+        
+        toast.success(
+          `Slots reserved for ${durationText} (${reservation.service_start_time} - ${reservation.service_end_time})`,
+          {
+            duration: 4000,
+            icon: '⏰'
+          }
+        )
         
         return reservation
       } else {
@@ -116,7 +134,13 @@ export const useSlotReservation = (shopId) => {
       }
     } catch (error) {
       console.error('Error reserving slot:', error)
-      toast.error('Failed to reserve slot. Please try again.')
+      
+      // Show specific error message if available
+      const errorMessage = error?.response?.data?.error || 
+                          error?.response?.data?.message ||
+                          'Failed to reserve slot. Please try again.'
+      
+      toast.error(errorMessage)
       return null
     }
   }, [shopId, currentReservation, startCountdown])
@@ -139,6 +163,8 @@ export const useSlotReservation = (shopId) => {
         clearInterval(countdownRef.current)
       }
       
+      console.log('Reservation released successfully')
+      
     } catch (error) {
       console.error('Error releasing reservation:', error)
       // Don't show error toast as this might be called during cleanup
@@ -149,11 +175,19 @@ export const useSlotReservation = (shopId) => {
     if (!currentReservation) return false
     
     try {
+      // Get the service IDs from the current reservation
+      const serviceIds = currentReservation.services?.map(s => s.id) || []
+      
+      if (serviceIds.length === 0) {
+        toast.error('Cannot extend reservation - no services found')
+        return false
+      }
+      
       // Reserve the same slot again to extend the timer
       const newReservation = await reserveTimeSlot(
         currentReservation.appointment_date,
         currentReservation.appointment_time,
-        currentReservation.slots_needed
+        serviceIds
       )
       
       if (newReservation) {
@@ -177,6 +211,15 @@ export const useSlotReservation = (shopId) => {
     return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`
   }, [timeRemaining])
   
+  const formatDuration = useCallback((minutes) => {
+    if (minutes < 60) {
+      return `${minutes} min`
+    }
+    const hours = Math.floor(minutes / 60)
+    const remainingMinutes = minutes % 60
+    return remainingMinutes > 0 ? `${hours}h ${remainingMinutes}m` : `${hours}h`
+  }, [])
+  
   return {
     currentReservation,
     timeRemaining,
@@ -184,6 +227,13 @@ export const useSlotReservation = (shopId) => {
     releaseCurrentReservation,
     extendReservation,
     formatTimeRemaining,
-    isSlotReserved: !!currentReservation
+    formatDuration,
+    isSlotReserved: !!currentReservation,
+    reservationDetails: currentReservation ? {
+      startTime: currentReservation.service_start_time,
+      endTime: currentReservation.service_end_time,
+      duration: currentReservation.total_duration_minutes,
+      services: currentReservation.services || []
+    } : null
   }
 }
