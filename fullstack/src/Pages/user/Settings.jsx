@@ -141,32 +141,33 @@ export default function Settings() {
     }
   }
 
-  const handleProfilePictureUpload = async () => {
-    if (!profilePictureFile) return
+const handleProfilePictureUpload = async () => {
+  if (!profilePictureFile) return
 
-    try {
-      setLoading(true)
-      setErrors({})
-      
-      const formData = new FormData()
-      formData.append('profile_picture', profilePictureFile)
-      
-      const response = await uploadProfilePicture(formData)
-      if (response.data.success) {
-        setSuccess("Profile picture updated successfully!")
-        setProfileData(prev => ({
-          ...prev,
-          profile_url: response.data.data.profile_url
-        }))
-        setProfilePictureFile(null)
-        setProfilePicturePreview(null)
-      }
-    } catch (error) {
-      setErrors({ picture: error.response?.data?.message || "Failed to upload picture" })
-    } finally {
-      setLoading(false)
+  try {
+    setLoading(true)
+    setErrors({})
+    
+    const formData = new FormData()
+    formData.append('profile_picture', profilePictureFile)
+    
+    const response = await uploadProfilePicture(formData)
+    if (response.data.success) {
+      setSuccess("Profile picture updated successfully!")
+      setProfileData(prev => ({
+        ...prev,
+        profile_url: response.data.data.profile_url
+      }))
+      // Clear the file input and preview AFTER updating the profile_url
+      setProfilePictureFile(null)
+      setProfilePicturePreview(null)
     }
+  } catch (error) {
+    setErrors({ picture: error.response?.data?.message || "Failed to upload picture" })
+  } finally {
+    setLoading(false)
   }
+}
 
   const handleProfilePictureDelete = async () => {
     try {

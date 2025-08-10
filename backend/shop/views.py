@@ -1,46 +1,39 @@
+
 import datetime
+import json
 import logging
-from django.db import models
-from shop import serializers
+from collections import defaultdict
+from datetime import datetime, timedelta
+
+
 import jwt
-from dateutil.parser import parse
-
-from django.conf import settings
-from django.core.mail import send_mail
-from django.contrib.auth import authenticate
-from django.db.models import Sum
-from django.forms import ValidationError
-from django.shortcuts import get_object_or_404
-from django.utils.translation import gettext_lazy as _
-from django.db import transaction
-from django.core.cache import cache
-from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
-import logging
-
-from shop.tasks import (
-    send_shop_registration_otp_task,
-    send_shop_forgot_password_otp_task,
-    send_shop_resend_otp_task
-)
-
-logger = logging.getLogger(__name__)
-
-from rest_framework import status, permissions, generics
+from dateutil.parser import parse
+from channels.layers import get_channel_layer
+from django.conf import settings
+from django.contrib.auth import authenticate
+from django.core.cache import cache
+from django.core.mail import send_mail
+from django.db import models, transaction
+from django.db.models import Avg, Count, F, Min, Q, Sum
+from django.forms import ValidationError
+from django.http import HttpResponse
+from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.translation import gettext_lazy as _
+from rest_framework import generics, permissions, status
+from rest_framework.decorators import api_view
 from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.permissions import IsAuthenticated, AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer, TokenRefreshSerializer
 from rest_framework_simplejwt.token_blacklist.models import BlacklistedToken
-from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+
 
 from chat.models import Notification
 from users.models import CustomUser
@@ -50,21 +43,25 @@ from shop.models import (
 )
 from shop.serializers import (
     BookingFeedbackSerializer,
+    BusinessHoursSerializer,
     CustomTokenObtainPairSerializer,
+    ServiceSerializer,
     ShopForgotPasswordSerializer,
+    ShopImageSerializer,
     ShopResetPasswordSerializer,
     ShopSerializer,
-    ShopImageSerializer,
-    # NotificationSerializer,
-    ServiceSerializer,
     ShopVerifyForgotPasswordOTPSerializer,
-    BusinessHoursSerializer,
     SpecialClosingDaySerializer,
+)
+from shop.tasks import (
+    send_shop_registration_otp_task,
+    send_shop_forgot_password_otp_task,
+    send_shop_resend_otp_task
 )
 
 
-
 logger = logging.getLogger(__name__)
+
 
 
 
@@ -72,17 +69,13 @@ class ShopRegisterView(APIView):
     permission_classes = [AllowAny]
 
     def post(self, request):
-        # Log the received data for debugging
         logger.debug(f"Received data: {request.data}")
         
-        # If the data is structured differently than expected, restructure it
         data = request.data
         if 'user' in data and isinstance(data['user'], dict) and 'shop' in data and isinstance(data['shop'], dict):
-            # The frontend is sending nested data, extract and merge it
             user_data = data['user']
             shop_data = data['shop']
             
-            # Merge data for the serializer
             serializer_data = {
                 'name': shop_data.get('name', ''),
                 'email': user_data.get('email', ''),
@@ -96,10 +89,8 @@ class ShopRegisterView(APIView):
                 'longitude': shop_data.get('longitude')
             }
         else:
-            # Direct data format
             serializer_data = data
         
-        # DEBUG: Log coordinate values and their lengths
         lat = serializer_data.get('latitude')
         lng = serializer_data.get('longitude')
         if lat is not None:
@@ -107,12 +98,9 @@ class ShopRegisterView(APIView):
         if lng is not None:
             logger.debug(f"Longitude value: {lng}, type: {type(lng)}, length: {len(str(lng))}")
         
-        # Process coordinates to ensure they fit the model constraints
         if lat is not None:
             try:
-                # Convert to float first, then to string with limited precision
                 lat_float = float(lat)
-                # Round to 9 decimal places to fit within 12 total digits
                 serializer_data['latitude'] = round(lat_float, 9)
                 logger.debug(f"Processed latitude: {serializer_data['latitude']}")
             except (ValueError, TypeError):
@@ -124,9 +112,7 @@ class ShopRegisterView(APIView):
         
         if lng is not None:
             try:
-                # Convert to float first, then to string with limited precision
                 lng_float = float(lng)
-                # Round to 9 decimal places to fit within 12 total digits
                 serializer_data['longitude'] = round(lng_float, 9)
                 logger.debug(f"Processed longitude: {serializer_data['longitude']}")
             except (ValueError, TypeError):
@@ -136,7 +122,6 @@ class ShopRegisterView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
         
-        # Check if email already exists before passing to serializer
         from django.contrib.auth import get_user_model
         User = get_user_model()
         
@@ -147,33 +132,27 @@ class ShopRegisterView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Now use the processed data
         serializer = ShopSerializer(data=serializer_data)
         
         if serializer.is_valid():
             try:
-                # Save the shop with is_active=False
                 shop = serializer.save()
                 
-                # Generate OTP using the OTP model
                 otp_obj = OTP.create_for_shop(shop)
                 
-                # Import and call synchronously
                 from shop.tasks import send_shop_otp_email_task
                 try:
                     send_shop_otp_email_task(
                         email=shop.email,
                         otp=otp_obj.otp_code,
-                        subject="🏪 Welcome! Verify Your Business Registration",
+                        subject="Welcome! Verify Your Business Registration",
                         email_type="shop_registration",
                         shop_name=shop.name,
                         owner_name=shop.owner_name
                     )
                     logger.info(f"Shop registration OTP email sent to {shop.email}")
                 except Exception as email_error:
-                    logger.warning(f"Failed to send shop OTP email to {shop.email}: {str(email_error)}")
-                    # Continue registration even if email fails
-                
+                    logger.warning(f"Failed to send shop OTP email to {shop.email}: {str(email_error)}")                
                 logger.info(f"Shop registration OTP email task queued for {shop.email}")
                 
                 return Response({
@@ -200,7 +179,6 @@ class ShopVerifyOTPView(APIView):
         email = request.data.get('email')
         otp_code = request.data.get('otp')
         
-        # Add detailed logging
         logger.info(f"OTP verification attempt for email: {email} with code: {otp_code}")
         
         if not email or not otp_code:
@@ -219,12 +197,10 @@ class ShopVerifyOTPView(APIView):
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Enhanced debugging for OTP investigation
         from django.utils import timezone
         current_time = timezone.now()
         logger.info(f"Current time: {current_time}")
         
-        # Check all OTPs for this shop (including expired ones)
         all_otps = OTP.objects.filter(shop=shop).order_by('-created_at')
         logger.info(f"Total OTPs ever created for shop {shop.id}: {all_otps.count()}")
         
@@ -269,7 +245,6 @@ class ShopVerifyOTPView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Convert input OTP to string and strip whitespace for comparison
         if not isinstance(otp_code, str):
             otp_code = str(otp_code)
         otp_code = otp_code.strip()
@@ -284,15 +259,12 @@ class ShopVerifyOTPView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # OTP is valid and matches
         logger.info(f"OTP verification successful for shop: {shop.id}")
         
-        # Activate the user account
         user = shop.user
         user.is_active = True
         user.save()
         
-        # Mark email as verified
         shop.is_email_verified = True
         shop.save()
         
@@ -342,18 +314,6 @@ class ShopResendOTPView(APIView):
     
 
 
-class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
-    @classmethod
-    def get_token(cls, user):
-        token = super().get_token(user)
-        token['role'] = user.role  
-        return token
-
-
-# Updated backend views with fixes
-
-# Updated views.py with fixes
-
 class CustomShopTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
     permission_classes = [permissions.AllowAny]
@@ -363,7 +323,6 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
             email = request.data.get("email")
             password = request.data.get("password")
 
-            # Check if user exists
             if not CustomUser.objects.filter(email=email).exists():
                 return Response(
                     {"success": False, "message": "User with this account does not exist"},
@@ -373,14 +332,12 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
             # Get the user and check if they have a shop
             user = CustomUser.objects.get(email=email)
             
-            # Check if user is active
             if not user.is_active:
                 return Response(
                     {"success": False, "message": "Account is not activated. Please verify your email first."},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Check if user is a shop owner
             if user.role != 'shop':
                 return Response(
                     {"success": False, "message": "This account is not registered as a shop"},
@@ -401,7 +358,6 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Proceed with authentication
             response = super().post(request, *args, **kwargs)
             token = response.data
 
@@ -429,14 +385,13 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
                 }
             }
 
-            # FIXED: Set cookies with root path for all shop routes
             res.set_cookie(
                 key="access_token",
                 value=access_token,
                 httponly=True,
-                secure=False,  # Set to True in production with HTTPS
-                samesite="Lax",  # Changed from "None" to "Lax" for local development
-                path='/',  # FIXED: Use root path instead of specific path
+                secure=True, 
+                samesite="Lax", 
+                path='/', 
                 max_age=3600
             )
 
@@ -444,10 +399,10 @@ class CustomShopTokenObtainPairView(TokenObtainPairView):
                 key="refresh_token",
                 value=refresh_token,
                 httponly=True,
-                secure=False,  # Set to True in production with HTTPS
-                samesite="Lax",  # Changed from "None" to "Lax" for local development
-                path='/',  # FIXED: Use root path instead of specific path
-                max_age=86400  # 24 hours for refresh token
+                secure=True, 
+                samesite="Lax", 
+                path='/',  
+                max_age=86400  
             )
             return res
 
@@ -477,13 +432,11 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Use the parent class's post method to handle token refresh properly
-            # This ensures proper token rotation and blacklisting
+
             original_data = request.data
             request._full_data = {"refresh": refresh_token}
             
             try:
-                # Call parent's post method which handles token rotation
                 response = super().post(request, *args, **kwargs)
                 
                 if response.status_code == 200:
@@ -491,7 +444,6 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                     access_token = token_data.get("access")
                     new_refresh_token = token_data.get("refresh")  # This might be None if rotation is disabled
                     
-                    # Create success response
                     res = Response(
                         {"success": True, "message": "Access token refreshed"},
                         status=status.HTTP_200_OK
@@ -502,7 +454,7 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                         key="access_token",
                         value=access_token,
                         httponly=True,
-                        secure=False,  # Set to True in production
+                        secure=True,  
                         samesite="Lax",
                         path='/',
                         max_age=3600
@@ -514,10 +466,10 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                             key="refresh_token",
                             value=new_refresh_token,
                             httponly=True,
-                            secure=False,  # Set to True in production
+                            secure=True,  
                             samesite="Lax",
                             path='/',
-                            max_age=86400  # 24 hours
+                            max_age=86400 
                         )
 
                     return res
@@ -528,7 +480,6 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                     )
                     
             except Exception as token_error:
-                # Handle specific token errors
                 error_message = str(token_error)
                 if "blacklisted" in error_message.lower():
                     return Response(
@@ -541,7 +492,6 @@ class CustomShopTokenRefreshView(TokenRefreshView):
                         status=status.HTTP_401_UNAUTHORIZED
                     )
             finally:
-                # Restore original request data
                 request._full_data = original_data
             
         except Exception as e:
@@ -556,25 +506,21 @@ class ShopLogoutView(APIView):
     
     def post(self, request):
         try:
-            # Get tokens from cookies
             access_token = request.COOKIES.get('access_token')
             refresh_token = request.COOKIES.get('refresh_token')
             
-            # Blacklist the refresh token if it exists
+            # Blacklist the refresh token 
             if refresh_token:
                 try:
                     token = RefreshToken(refresh_token)
                     token.blacklist()
                     print(f"Refresh token blacklisted successfully")
                 except TokenError as e:
-                    # Token might already be blacklisted or invalid
                     print(f"Token blacklist error: {str(e)}")
             
-            # Create response
             res = Response(status=status.HTTP_200_OK)
             res.data = {"success": True, "message": "Logged out successfully"}
             
-            # Clear cookies with consistent paths
             res.delete_cookie('access_token', path='/')
             res.delete_cookie('refresh_token', path='/')
             
@@ -586,7 +532,6 @@ class ShopLogoutView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-logger = logging.getLogger(__name__)
 
 class ShopProfileView(APIView):
     """View to retrieve the authenticated shop's profile information."""
@@ -595,7 +540,6 @@ class ShopProfileView(APIView):
     
     def get(self, request):
         try:
-            # Check if user is authenticated
             if not request.user.is_authenticated:
                 logger.warning("Unauthenticated user trying to access shop profile")
                 return Response(
@@ -603,7 +547,6 @@ class ShopProfileView(APIView):
                     status=status.HTTP_401_UNAUTHORIZED
                 )
             
-            # Check if user has shop role
             if getattr(request.user, 'role', None) != 'shop':
                 logger.warning(f"User {request.user.id} with role {getattr(request.user, 'role', 'None')} trying to access shop profile")
                 return Response(
@@ -641,7 +584,6 @@ class ShopUpdateView(APIView):
     
     def post(self, request):
         try:
-            # Check if user has shop role
             if getattr(request.user, 'role', None) != 'shop':
                 logger.warning(f"User {request.user.id} with role {getattr(request.user, 'role', 'None')} trying to update shop profile")
                 return Response(
@@ -651,7 +593,6 @@ class ShopUpdateView(APIView):
             
             shop = get_object_or_404(Shop, user=request.user)
             
-            # Update basic shop details
             shop.name = request.data.get('name', shop.name)
             shop.phone = request.data.get('phone', shop.phone)
             shop.owner_name = request.data.get('owner_name', shop.owner_name)
@@ -659,10 +600,8 @@ class ShopUpdateView(APIView):
             shop.description = request.data.get('description', shop.description)
             shop.save()
             
-            # Handle images if provided
             images_data = request.data.get('images', [])
             if images_data:
-                # Clear existing images
                 ShopImage.objects.filter(shop=shop).delete()
                 
                 # Add new images
@@ -673,7 +612,7 @@ class ShopUpdateView(APIView):
                         public_id=image_data.get('public_id'),
                         width=image_data.get('width'),
                         height=image_data.get('height'),
-                        is_primary=(index == 0),  # First image is primary
+                        is_primary=(index == 0),  
                         order=index
                     )
             
@@ -704,7 +643,6 @@ class ShopImageAddView(APIView):
     
     def post(self, request):
         try:
-            # Check if user has shop role
             if getattr(request.user, 'role', None) != 'shop':
                 return Response(
                     {"success": False, "error": "Only shop owners can access this endpoint"}, 
@@ -715,7 +653,7 @@ class ShopImageAddView(APIView):
             
             image_data = request.data
             order = ShopImage.objects.filter(shop=shop).count()
-            is_primary = order == 0  # First image is primary
+            is_primary = order == 0  
             
             shop_image = ShopImage.objects.create(
                 shop=shop,
@@ -748,7 +686,6 @@ class ShopImageRemoveView(APIView):
     
     def delete(self, request, image_id):
         try:
-            # Check if user has shop role
             if getattr(request.user, 'role', None) != 'shop':
                 return Response(
                     {"success": False, "error": "Only shop owners can access this endpoint"}, 
@@ -787,7 +724,6 @@ class ShopImageSetPrimaryView(APIView):
     
     def post(self, request, image_id):
         try:
-            # Check if user has shop role
             if getattr(request.user, 'role', None) != 'shop':
                 return Response(
                     {"success": False, "error": "Only shop owners can access this endpoint"}, 
@@ -858,80 +794,6 @@ class PublicShopListView(APIView):
             )
 
 
-# class ShopDashboardStatsView(APIView):
-#     """View to retrieve shop dashboard statistics."""
-    
-#     permission_classes = [IsAuthenticated]
-    
-#     def get(self, request):
-#         try:
-#             shop = Shop.objects.get(user=request.user)
-            
-#             # Check if shop is approved
-#             if not shop.is_approved:
-#                 return Response(
-#                     {"error": "Shop is not approved yet"}, 
-#                     status=status.HTTP_403_FORBIDDEN
-#                 )
-            
-#             # Get today's date to filter appointments
-#             from datetime import datetime, time
-#             today = datetime.now().date()
-#             today_start = datetime.combine(today, time.min)
-#             today_end = datetime.combine(today, time.max)
-            
-#             # Calculate statistics
-#             appointments_today = Appointment.objects.filter(
-#                 shop=shop, 
-#                 start_time__range=(today_start, today_end)
-#             ).count()
-            
-#             # Calculating total sales (this is a simplified example)
-#             total_sales = Appointment.objects.filter(
-#                 shop=shop, 
-#                 status='completed'
-#             ).aggregate(total=Sum('price'))['total'] or 0
-            
-#             # Count unique customers
-#             total_customers = CustomUser.objects.filter(appointments__shop=shop).distinct().count()
-            
-#             # Count services/products offered by this shop
-#             total_services = Service.objects.filter(shop=shop).count()
-            
-#             stats = {
-#                 'appointments_today': appointments_today,
-#                 'total_sales': total_sales,
-#                 'total_customers': total_customers,
-#                 'products': total_services  # Called 'products' to match frontend expectation
-#             }
-            
-#             return Response(stats)
-            
-#         except Shop.DoesNotExist:
-#             return Response(
-#                 {"error": "Shop profile not found"}, 
-#                 status=status.HTTP_404_NOT_FOUND
-#             )
-
-
-# Shop Data Views
-# class RecentAppointmentsView(APIView):
-#     """View to retrieve recent appointments for a shop."""
-    
-#     permission_classes = [IsAuthenticated]
-    
-#     def get(self, request):
-#         try:
-#             shop = Shop.objects.get(user=request.user)
-#             # Get the most recent appointments (e.g., limited to 5)
-#             appointments = Appointment.objects.filter(shop=shop).order_by('-start_time')[:5]
-#             serializer = AppointmentSerializer(appointments, many=True)
-#             return Response(serializer.data)
-#         except Shop.DoesNotExist:
-#             return Response(
-#                 {"error": "Shop profile not found"}, 
-#                 status=status.HTTP_404_NOT_FOUND
-#             )
 
 
 class ShopNotificationsView(APIView):
@@ -954,11 +816,10 @@ class ShopNotificationsView(APIView):
 
 
 class BusinessHoursView(APIView):
-    """API view for business hours operations using DRF."""
+    """API view for business hours."""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        """Get all business hours for the authenticated user's shop."""
         try:
             shop = request.user.shop
         except Shop.DoesNotExist:
@@ -967,7 +828,6 @@ class BusinessHoursView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get business hours for this specific shop
         hours = BusinessHours.objects.filter(shop=shop)
         serializer = BusinessHoursSerializer(hours, many=True)
         return Response(serializer.data)
@@ -978,9 +838,7 @@ class BusinessHoursUpdateView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        """Update business hours."""
         try:
-            # Get the shop associated with the authenticated user
             try:
                 shop = request.user.shop
             except Shop.DoesNotExist:
@@ -999,38 +857,31 @@ class BusinessHoursUpdateView(APIView):
                 if day_of_week is None:
                     continue
                 
-                # Create defaults dictionary
                 defaults = {'is_closed': is_closed}
                 
-                # Always set default times - even for closed days
-                # This ensures NOT NULL constraints are satisfied
                 opening_time = hour_data.get('opening_time', '09:00')
                 closing_time = hour_data.get('closing_time', '17:00')
                 
                 try:
-                    # Parse time strings - assuming format like "09:00"
                     from datetime import time
                     
                     if isinstance(opening_time, str) and opening_time:
                         hour, minute = map(int, opening_time.split(':'))
                         defaults['opening_time'] = time(hour=hour, minute=minute)
                     else:
-                        # Default opening time if not provided or invalid
                         defaults['opening_time'] = time(hour=9, minute=0)
                     
                     if isinstance(closing_time, str) and closing_time:
                         hour, minute = map(int, closing_time.split(':'))
                         defaults['closing_time'] = time(hour=hour, minute=minute)
                     else:
-                        # Default closing time if not provided or invalid
                         defaults['closing_time'] = time(hour=17, minute=0)
                 except Exception as e:
                     return Response({'error': f'Invalid time format: {str(e)}'}, 
                                    status=status.HTTP_400_BAD_REQUEST)
                 
-                # Create or update the business hours - NOW INCLUDING THE SHOP
                 hours, created = BusinessHours.objects.update_or_create(
-                    shop=shop,  # Include the shop in the lookup
+                    shop=shop, 
                     day_of_week=day_of_week,
                     defaults=defaults
                 )
@@ -1048,116 +899,14 @@ class BusinessHoursUpdateView(APIView):
             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
-# class AvailableSlotsView(APIView):
-#     """API view for available time slots using DRF."""
-#     permission_classes = [IsAuthenticated]
-    
-#     def get(self, request):
-#         """Get available time slots for a specific date."""
-#         date_str = request.query_params.get('date')
-#         barber_id = request.query_params.get('barber_id')
-#         service_id = request.query_params.get('service_id')
-        
-#         if not date_str:
-#             return Response({'error': 'Date parameter is required'}, status=status.HTTP_400_BAD_REQUEST)
-        
-#         try:
-#             date = parse(date_str).date()
-#         except ValueError:
-#             return Response({'error': 'Invalid date format'}, status=status.HTTP_400_BAD_REQUEST)
-        
-#         # Get selected barber if provided
-#         barber = None
-#         if barber_id:
-#             try:
-#                 barber = Barber.objects.get(id=barber_id)
-#             except Barber.DoesNotExist:
-#                 return Response({'error': 'Barber not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-#         # Get service duration if provided
-#         slot_duration = 30  # Default 30 min
-#         if service_id:
-#             try:
-#                 service = Service.objects.get(id=service_id)
-#                 slot_duration = service.duration.total_seconds() // 60  # Convert to minutes
-#             except Service.DoesNotExist:
-#                 return Response({'error': 'Service not found'}, status=status.HTTP_404_NOT_FOUND)
-        
-#         # Get available slots
-#         slots = get_available_slots(date, barber, slot_duration)
-        
-#         # Format slots for response
-#         formatted_slots = []
-#         for start, end in slots:
-#             formatted_slots.append({
-#                 'start_time': start.strftime('%Y-%m-%d %H:%M'),
-#                 'end_time': end.strftime('%Y-%m-%d %H:%M'),
-#                 'display': f"{start.strftime('%H:%M')} - {end.strftime('%H:%M')}"
-#             })
-        
-#         return Response({
-#             'date': date.strftime('%Y-%m-%d'),
-#             'available_slots': formatted_slots
-#         })
-
-
-# class AppointmentCreateView(APIView):
-#     """API view for creating appointments using DRF."""
-#     permission_classes = [IsAuthenticated]
-    
-#     def post(self, request):
-#         """Create a new appointment."""
-#         try:
-#             serializer = AppointmentSerializer(data=request.data)
-#             if serializer.is_valid():
-#                 # Extract data
-#                 customer_id = serializer.validated_data.get('customer_id')
-#                 barber_id = serializer.validated_data.get('barber_id')
-#                 service_id = serializer.validated_data.get('service_id')
-#                 start_time = serializer.validated_data.get('start_time')
-                
-#                 # Get the service for duration
-#                 service = Service.objects.get(id=service_id)
-#                 end_time = start_time + service.duration
-                
-#                 # Check if the slot is still available
-#                 date = start_time.date()
-#                 available_slots = get_available_slots(date, Barber.objects.get(id=barber_id))
-                
-#                 slot_available = False
-#                 for slot_start, slot_end in available_slots:
-#                     if slot_start == start_time:
-#                         slot_available = True
-#                         break
-                
-#                 if not slot_available:
-#                     return Response({'error': 'This time slot is no longer available'}, 
-#                                     status=status.HTTP_400_BAD_REQUEST)
-                
-#                 # Create the appointment
-#                 appointment = serializer.save(end_time=end_time)
-                
-#                 return Response({
-#                     'success': True,
-#                     'appointment_id': appointment.id,
-#                     'start_time': appointment.start_time.strftime('%Y-%m-%d %H:%M'),
-#                     'end_time': appointment.end_time.strftime('%Y-%m-%d %H:%M')
-#                 }, status=status.HTTP_201_CREATED)
-            
-#             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-            
-#         except Exception as e:
-#             return Response({'error': str(e)}, status=status.HTTP_400_BAD_REQUEST)
 
 
 class SpecialClosingDayView(APIView):
-    """API view for managing special closing days using DRF."""
+    """API view for managing special closing days."""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        """Get all special closing days for the authenticated shop owner."""
         try:
-            # Use 'user' instead of 'owner'
             shop = Shop.objects.get(user=request.user)
             closing_days = SpecialClosingDay.objects.filter(shop=shop).order_by('date')
             serializer = SpecialClosingDaySerializer(closing_days, many=True)
@@ -1166,13 +915,10 @@ class SpecialClosingDayView(APIView):
             return Response({'error': 'Shop not found'}, status=status.HTTP_404_NOT_FOUND)
     
     def post(self, request):
-        """Add a special closing day and cancel existing bookings."""
         try:
-            # Use 'user' instead of 'owner'
             shop = Shop.objects.get(user=request.user)
             
             with transaction.atomic():
-                # Add shop to the request data
                 data = request.data.copy()
                 data['shop'] = shop.id
                 
@@ -1180,9 +926,8 @@ class SpecialClosingDayView(APIView):
                 if serializer.is_valid():
                     closing_day = serializer.save()
                     
-                    # Find all bookings on this date FOR THIS SHOP ONLY
                     affected_bookings = Booking.objects.filter(
-                        shop=shop,  # Filter by shop
+                        shop=shop,  
                         appointment_date=closing_day.date,
                         booking_status__in=['pending', 'confirmed']
                     )
@@ -1200,24 +945,21 @@ class SpecialClosingDayView(APIView):
                             })
                             refunded_amount += booking.total_amount
                     
-                    # Send notifications (same logic as before)
+                    # Send notifications 
                     for booking in affected_bookings:
                         if booking.booking_status == 'cancelled':
                             try:
                                 user = booking.user
                                 shop_owner = request.user
                                 
-                                # Check if user exists and is different from shop owner
                                 if user and user.id != shop_owner.id:
-                                    # Create notification message
                                     notification_message = f"Your booking for {booking.shop.name} on {closing_day.date.strftime('%Y-%m-%d')} has been cancelled - {closing_day.reason}. Refund: ₹{booking.total_amount}"
                                     
-                                    # Create database notification FIRST
                                     logger.info(f"Creating database notification for user {user.id}")
                                     
                                     notification = Notification.objects.create(
-                                        sender=shop_owner,  # Shop owner is the sender
-                                        receiver=user,  # Booking user is the receiver
+                                        sender=shop_owner, 
+                                        receiver=user, 
                                         message=notification_message,
                                         is_read=False
                                     )
@@ -1262,7 +1004,6 @@ class SpecialClosingDayView(APIView):
                             except Exception as notification_error:
                                 logger.error(f"Notification failed for booking {booking.id}: {str(notification_error)}")
                                 logger.error(f"Notification error type: {type(notification_error)}")
-                                # Continue with other bookings - don't fail the entire process
                                 continue
                     
                     return Response({
@@ -1290,16 +1031,13 @@ class SpecialClosingDayView(APIView):
 
 
 class SpecialClosingDayDetailView(APIView):
-    """API view for managing a specific special closing day using DRF."""
+    """API view for managing a specific special closing day."""
     permission_classes = [IsAuthenticated]
     
     def delete(self, request, id):
-        """Remove a special closing day."""
         try:
-            # Use 'user' instead of 'owner'
             shop = Shop.objects.get(user=request.user)
             
-            # Ensure the closing day belongs to this shop
             closing_day = get_object_or_404(SpecialClosingDay, id=id, shop=shop)
             closing_day.delete()
             
@@ -1316,21 +1054,15 @@ class SpecialClosingDayDetailView(APIView):
 
 class ServiceListView(generics.ListAPIView):
     """
-    API view for listing all services belonging to the authenticated shop.
+    API view for listing all services belonging to the  shop.
     """
     serializer_class = ServiceSerializer
     permission_classes = [IsAuthenticated]
 
     def get_queryset(self):
-        """
-        Return services belonging to the authenticated user's shop.
-        Assumes the authenticated user has a related shop.
-        """
         try:
-            # If your User model has a direct relationship to Shop
             if hasattr(self.request.user, 'shop'):
                 return Service.objects.filter(shop=self.request.user.shop)
-            # If the User IS the Shop (your current setup)
             else:
                 return Service.objects.filter(shop=self.request.user)
         except AttributeError:
@@ -1347,13 +1079,10 @@ class ServiceCreateView(generics.CreateAPIView):
     def perform_create(self, serializer):
         logger.info(f"Creating service for user: {self.request.user}")
         
-        # Automatically use the authenticated user as the shop
         try:
-            # If your User model has a direct relationship to Shop
             if hasattr(self.request.user, 'shop'):
                 shop = self.request.user.shop
                 logger.info(f"Using user.shop: {shop}")
-            # If the User IS the Shop (your current setup based on other views)
             else:
                 shop = self.request.user
                 logger.info(f"Using user as shop: {shop}")
@@ -1379,7 +1108,6 @@ class ServiceUpdateView(generics.RetrieveUpdateAPIView):
     def get_queryset(self):
         logger.info(f"Getting queryset for user: {self.request.user}")
         
-        # Get services for the authenticated shop
         try:
             if hasattr(self.request.user, 'shop'):
                 shop = self.request.user.shop
@@ -1401,7 +1129,6 @@ class ServiceUpdateView(generics.RetrieveUpdateAPIView):
     def perform_update(self, serializer):
         logger.info(f"Updating service for user: {self.request.user}")
         
-        # Ensure the shop remains the same during update
         try:
             if hasattr(self.request.user, 'shop'):
                 shop = self.request.user.shop
@@ -1418,7 +1145,6 @@ class ServiceUpdateView(generics.RetrieveUpdateAPIView):
             raise ValidationError({"error": "Failed to update service"})
 
 
-# DEBUG: Add a simple test view to check what's happening
 class ServiceDebugView(generics.GenericAPIView):
     """
     Debug view to test validation manually.
@@ -1429,7 +1155,6 @@ class ServiceDebugView(generics.GenericAPIView):
     def post(self, request, *args, **kwargs):
         logger.info(f"Debug view called with data: {request.data}")
         
-        # Test the serializer validation manually
         serializer = self.get_serializer(data=request.data)
         
         try:
@@ -1445,15 +1170,11 @@ class ServiceDebugView(generics.GenericAPIView):
 class ServiceDeleteView(generics.DestroyAPIView):
     """
     API view for deleting an existing service.
-    Only allows deleting services belonging to the authenticated shop.
     """
     permission_classes = [IsAuthenticated]
     lookup_field = 'id'
 
     def get_queryset(self):
-        """
-        Return services belonging to the authenticated user (shop) only.
-        """
         try:
             shop = self.request.user.shop
             return Service.objects.filter(shop=shop)
@@ -1461,9 +1182,6 @@ class ServiceDeleteView(generics.DestroyAPIView):
             return Service.objects.none()
         
     def get_object(self):
-        """
-        Override to ensure proper permission checking.
-        """
         obj = get_object_or_404(self.get_queryset(), id=self.kwargs['id'])
         self.check_object_permissions(self.request, obj)
         return obj
@@ -1482,16 +1200,14 @@ class ShopForgotPasswordView(APIView):
         if serializer.is_valid():
             user = serializer.save()
             
-            # Get shop information for personalized email
             try:
                 shop = Shop.objects.get(user=user)
                 shop_name = shop.name
                 owner_name = shop.owner_name
             except Shop.DoesNotExist:
-                shop_name = "Your Shop"  # Fallback
+                shop_name = "Shop" 
                 owner_name = user.get_full_name() or user.username
             
-            # Send forgot password OTP email asynchronously
             send_shop_forgot_password_otp_task(
                 email=user.email,
                 otp=user.otp,
@@ -1530,22 +1246,13 @@ class ShopResetPasswordView(APIView):
 
 
 
-
-
-
-
-
-
-
-
 class UserBookingFeedbackListView(APIView):
     """
-    Get all feedback submitted by the authenticated user
+    Get all feedback submitted by user
     """
     permission_classes = [IsAuthenticated]
     
     def get(self, request, *args, **kwargs):
-        """Get all feedback by the user"""
         try:
             feedbacks = BookingFeedback.objects.filter(
                 user=request.user
@@ -1566,21 +1273,17 @@ class UserBookingFeedbackListView(APIView):
 
 class ShopFeedbackListView(APIView):
     """
-    Get all feedback for a specific shop (for shop owners or public view)
+    Get all feedback for a specific shop 
     """
     permission_classes = [IsAuthenticated]
     
     def get(self, request, shop_id, *args, **kwargs):
-        """Get all feedback for a shop"""
         try:
-            # You might want to add additional permission checks here
-            # For example, only allow shop owners to see their feedback
             
             feedbacks = BookingFeedback.objects.filter(
                 shop_id=shop_id
             ).select_related('user', 'booking').order_by('-created_at')
             
-            # Optional: Hide user sensitive information for public view
             serializer = BookingFeedbackSerializer(feedbacks, many=True)
             
             # Calculate average ratings
@@ -1613,9 +1316,6 @@ class ShopFeedbackListView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-from django.db.models import Avg, Count
-from rest_framework.decorators import api_view
-
 
 @api_view(['GET'])
 def get_shop_rating_summary(request, shop_id):
@@ -1630,7 +1330,6 @@ def get_shop_rating_summary(request, shop_id):
             status=status.HTTP_404_NOT_FOUND
         )
     
-    # Get all feedback for this shop
     feedback_queryset = BookingFeedback.objects.filter(shop=shop)
     
     # Calculate ratings
@@ -1643,7 +1342,6 @@ def get_shop_rating_summary(request, shop_id):
         avg_value_for_money=Avg('value_for_money')
     )
     
-    # Prepare response data - simplified for just overall rating
     response_data = {
         'shop_id': shop.id,
         'shop_name': shop.name,
@@ -1652,30 +1350,6 @@ def get_shop_rating_summary(request, shop_id):
     }
     
     return Response(response_data, status=status.HTTP_200_OK)
-
-
-
-
-
-
-
-
-
-
-
-
-
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
-from django.db.models import Sum, Count, Avg, Q, F, Min
-from django.utils import timezone
-from datetime import datetime, timedelta
-from django.http import HttpResponse
-import json
-from collections import defaultdict
-
 
 
 
@@ -1740,7 +1414,6 @@ class MostBookedServicesView(APIView):
             booking_status__in=['completed', 'confirmed']
         ).prefetch_related('services')
         
-        # Count services
         service_counts = defaultdict(lambda: {'bookings': 0, 'revenue': 0})
         
         for booking in bookings:
@@ -1748,7 +1421,6 @@ class MostBookedServicesView(APIView):
                 service_counts[service.name]['bookings'] += 1
                 service_counts[service.name]['revenue'] += float(booking.total_amount) / booking.services.count()
         
-        # Convert to list and sort
         services = []
         for name, stats in service_counts.items():
             services.append({
@@ -1760,7 +1432,7 @@ class MostBookedServicesView(APIView):
         services.sort(key=lambda x: x['bookings'], reverse=True)
         
         return Response({
-            'services': services[:10],  # Top 10
+            'services': services[:10], 
             'period': period
         })
 
@@ -2127,13 +1799,12 @@ class ExportSalesReportView(APIView):
         styles = getSampleStyleSheet()
         story = []
         
-        # Title
         title_style = ParagraphStyle(
             'CustomTitle',
             parent=styles['Heading1'],
             fontSize=18,
             spaceAfter=30,
-            alignment=1  # Center alignment
+            alignment=1 
         )
         story.append(Paragraph(f"Sales Report - {shop.name}", title_style))
         story.append(Paragraph(f"Period: {start_date} to {end_date}", styles['Normal']))
@@ -2284,25 +1955,20 @@ class ExportSalesReportView(APIView):
 
 
 
-# Add this to your Django views
 class ShopSpecificPaymentView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, shop_id):
         """List all commission payments for a specific shop"""
         try:
-            # Check if shop exists
             shop = Shop.objects.get(id=shop_id)
             
-            # Get query parameters for filtering
             payment_method = request.query_params.get('payment_method')
             start_date = request.query_params.get('start_date')
             end_date = request.query_params.get('end_date')
             
-            # Start with payments for this shop only
             payments = ShopCommissionPayment.objects.filter(shop_id=shop_id)
             
-            # Apply additional filters
             if payment_method:
                 payments = payments.filter(payment_method=payment_method)
             if start_date:
@@ -2310,15 +1976,12 @@ class ShopSpecificPaymentView(APIView):
             if end_date:
                 payments = payments.filter(payment_date__lte=end_date)
             
-            # Order by most recent first
             payments = payments.order_by('-payment_date')
             
-            # Calculate total amount
             total_amount = payments.aggregate(
                 total=models.Sum('amount')
             )['total'] or 0
             
-            # Serialize the data
             payment_data = []
             for payment in payments:
                 payment_data.append({

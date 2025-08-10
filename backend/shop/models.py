@@ -8,7 +8,7 @@ from dateutil.rrule import rrule, DAILY, MO, TU, WE, TH, FR, SA, SU
 class Shop(models.Model):
     user = models.OneToOneField(CustomUser, on_delete=models.CASCADE, related_name='shop')
     name = models.CharField(max_length=100)
-    email = models.EmailField(editable=False)  # Will be automatically set from user's email
+    email = models.EmailField(editable=False)
     phone = models.CharField(max_length=20, blank=True)
     address = models.TextField(blank=True)
     description = models.TextField(blank=True)
@@ -16,7 +16,6 @@ class Shop(models.Model):
     opening_hours = models.CharField(max_length=255, blank=True)
     latitude = models.DecimalField(max_digits=15, decimal_places=12, blank=True, null=True)
     longitude = models.DecimalField(max_digits=15, decimal_places=12, blank=True, null=True)
-    # Fields for verification and approval
     is_email_verified = models.BooleanField(default=False)
     is_approved = models.BooleanField(default=False)
     approval_request_date = models.DateTimeField(auto_now_add=True)
@@ -29,11 +28,7 @@ class Shop(models.Model):
         return self.user.is_active
     
     def get_average_rating(self):
-        """
-        Calculate the average rating from shop reviews (BookingFeedback)
-        """
-        # Use the correct related name - it should be 'bookingfeedback_set' by default
-        # or if you set a related_name in BookingFeedback, use that
+        """Calculate the average rating from shop reviews (BookingFeedback)"""
         reviews = self.reviews.all()
         if not reviews.exists():
             return None
@@ -41,11 +36,9 @@ class Shop(models.Model):
         return round(total / reviews.count(), 1)
     
     def save(self, *args, **kwargs):
-        # Always set email to user's email
         if self.user:
             self.email = self.user.email
             
-            # Set user role to 'shop' if not already set
             if self.user.role != 'shop':
                 self.user.role = 'shop'
                 self.user.save(update_fields=['role'])
@@ -55,8 +48,8 @@ class Shop(models.Model):
 
 class ShopImage(models.Model):
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='images')
-    image_url = models.URLField(max_length=500)  # Cloudinary URL
-    public_id = models.CharField(max_length=255)  # Cloudinary public_id
+    image_url = models.URLField(max_length=500)
+    public_id = models.CharField(max_length=255)
     width = models.IntegerField(null=True, blank=True)
     height = models.IntegerField(null=True, blank=True)
     is_primary = models.BooleanField(default=False)
@@ -86,7 +79,7 @@ class OTP(models.Model):
         """Check if OTP is still valid (not expired)"""
         from django.utils import timezone
         
-        current_time = timezone.now()  # This gets current UTC time
+        current_time = timezone.now()
         
         # Debug logging to see what's happening
         import logging
@@ -105,20 +98,17 @@ class OTP(models.Model):
         import random
         import string
         
-        # Generate 6-digit OTP
         otp_code = ''.join(random.choices(string.digits, k=6))
         
         # Set expiration to 10 minutes from now (in UTC)
         expires_at = timezone.now() + timezone.timedelta(minutes=10)
         
-        # Create OTP
         otp = cls.objects.create(
             shop=shop,
             otp_code=otp_code,
             expires_at=expires_at
         )
         
-        # Debug logging
         import logging
         logger = logging.getLogger(__name__)
         logger.info(f"Created OTP - Code: {otp_code}")
@@ -128,22 +118,14 @@ class OTP(models.Model):
         
         return otp
 
-    
-
 
 class Service(models.Model):
-    """
-    Services offered by shops.
-    """
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='services')
     name = models.CharField(max_length=100)
     description = models.TextField(blank=True, null=True)
     price = models.DecimalField(max_digits=10, decimal_places=2)
     duration_minutes = models.IntegerField(default=30)
-    # Number of continuous slots this service requires
-    # Will be calculated automatically based on duration_minutes and slot_size
     slots_required = models.PositiveIntegerField(default=1)
-    # Default slot size in minutes (for calculating slots_required)
     default_slot_size = models.PositiveIntegerField(default=30)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -154,7 +136,6 @@ class Service(models.Model):
     def save(self, *args, **kwargs):
         # Calculate slots_required based on duration_minutes and default_slot_size
         if self.duration_minutes and self.default_slot_size:
-            # Calculate how many slots this service requires
             # Use ceiling division to round up (e.g., 45 minutes with 30-minute slots = 2 slots)
             import math
             self.slots_required = math.ceil(self.duration_minutes / self.default_slot_size)
@@ -162,7 +143,6 @@ class Service(models.Model):
 
 
 class BusinessHours(models.Model):
-    """Model to store the barbershop's opening and closing hours for each day of the week."""
     DAYS_OF_WEEK = (
         (0, 'Monday'),
         (1, 'Tuesday'),
@@ -173,14 +153,14 @@ class BusinessHours(models.Model):
         (6, 'Sunday'),
     )
 
-    shop = models.ForeignKey('Shop', on_delete=models.CASCADE, related_name='business_hours')  # Added missing shop relationship
+    shop = models.ForeignKey('Shop', on_delete=models.CASCADE, related_name='business_hours')
     day_of_week = models.IntegerField(choices=DAYS_OF_WEEK)
-    opening_time = models.TimeField(null=True, blank=True)  # Allow null for closed days
-    closing_time = models.TimeField(null=True, blank=True)  # Allow null for closed days
+    opening_time = models.TimeField(null=True, blank=True)
+    closing_time = models.TimeField(null=True, blank=True)
     is_closed = models.BooleanField(default=False)
 
     class Meta:
-        unique_together = ('shop', 'day_of_week')  # Updated to include shop
+        unique_together = ('shop', 'day_of_week')
         ordering = ['day_of_week']
 
     def __str__(self):
@@ -210,7 +190,6 @@ class Booking(models.Model):
         ('wallet', 'Wallet'),
     ]
 
-    # Basic booking info
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE)
     services = models.ManyToManyField('Service')
@@ -218,16 +197,13 @@ class Booking(models.Model):
     appointment_time = models.TimeField()
     total_amount = models.DecimalField(max_digits=10, decimal_places=2)
 
-    # Status tracking
     booking_status = models.CharField(max_length=20, choices=BOOKING_STATUS_CHOICES, default='pending')
     payment_status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='pending')
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES, default='razorpay')
 
-    # Payment details
     razorpay_order_id = models.CharField(max_length=100, blank=True)
     razorpay_payment_id = models.CharField(max_length=100, blank=True)
 
-    # Additional info
     notes = models.TextField(blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -254,7 +230,6 @@ class Booking(models.Model):
         )
 
     def mark_confirmed(self):
-        """Mark booking as confirmed"""
         self.booking_status = 'confirmed'
         self.save()
 
@@ -270,7 +245,6 @@ class Booking(models.Model):
         self.save()
 
     def cancel_booking(self):
-        """Cancel booking"""
         if self.booking_status == 'completed':
             raise ValidationError("Completed bookings cannot be cancelled")
         
@@ -302,19 +276,16 @@ class Booking(models.Model):
         from django.db import transaction
         
         with transaction.atomic():
-            # Update booking status
             self.booking_status = 'cancelled'
             self.save()
             
             # Process refund only if payment was successful
             if self.payment_status == 'paid':
-                # Get or create user's wallet
                 wallet, created = Wallet.objects.get_or_create(
                     user=self.user,
                     defaults={'balance': 0.00}
                 )
                 
-                # Create credit transaction
                 WalletTransaction.objects.create(
                     wallet=wallet,
                     transaction_type='credit',
@@ -322,13 +293,11 @@ class Booking(models.Model):
                     description=f"Refund for cancelled booking #{self.id} - {reason}"
                 )
                 
-                # Update payment status
                 self.payment_status = 'refunded'
                 self.save()
                 
                 return True
         return False
-
 
 
 class BookingFeedback(models.Model):
@@ -344,48 +313,39 @@ class BookingFeedback(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='reviews')
     
-    # Rating and feedback
     rating = models.IntegerField(choices=RATING_CHOICES)
     feedback_text = models.TextField(blank=True, help_text="Optional feedback comment")
     
-    # Service-specific ratings (optional)
     service_quality = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
     staff_behavior = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
     cleanliness = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
     value_for_money = models.IntegerField(choices=RATING_CHOICES, null=True, blank=True)
     
-    # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
     class Meta:
         ordering = ['-created_at']
-        unique_together = ['booking', 'user']  # Ensure one feedback per booking
+        unique_together = ['booking', 'user']
     
     def __str__(self):
         return f"Feedback for Booking {self.booking.id} - {self.rating} stars"
 
-    
-
-
 
 class SpecialClosingDay(models.Model):
-    """Model for holidays or special days when the shop is closed."""
     shop = models.ForeignKey('Shop', on_delete=models.CASCADE, related_name='special_closing_days', null=True, blank=True)
     date = models.DateField()
     reason = models.CharField(max_length=100, blank=True)
     
     class Meta:
-        unique_together = ('shop', 'date')  # Ensure one closing day per shop per date
+        unique_together = ('shop', 'date')
     
     def __str__(self):
         return f"{self.shop.name} - {self.date.strftime('%Y-%m-%d')}: {self.reason}"
 
 
-# Utility functions for time slot generation
-
 def get_weekday_mapping():
-    """Map Django weekday integers to dateutil weekday constants."""
+    """Map Django weekday integers to dateutil weekday constants"""
     return {
         0: MO,  # Monday
         1: TU,  # Tuesday
@@ -395,13 +355,6 @@ def get_weekday_mapping():
         5: SA,  # Saturday
         6: SU,  # Sunday
     }
-
-
-
-
-
-
-
 
 
 class ShopCommissionPayment(models.Model):
@@ -421,12 +374,11 @@ class ShopCommissionPayment(models.Model):
     shop = models.ForeignKey(Shop, on_delete=models.CASCADE, related_name='commission_payments')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
     payment_method = models.CharField(max_length=20, choices=PAYMENT_METHOD_CHOICES)
-    transaction_reference = models.CharField(max_length=100, blank=True)  # UTR, transaction ID, etc.
+    transaction_reference = models.CharField(max_length=100, blank=True)
     payment_date = models.DateTimeField()
     notes = models.TextField(blank=True)
     status = models.CharField(max_length=20, choices=PAYMENT_STATUS_CHOICES, default='paid')
     
-    # Admin who made the payment
     paid_by = models.ForeignKey(CustomUser, on_delete=models.SET_NULL, null=True, blank=True)
     
     created_at = models.DateTimeField(auto_now_add=True)
@@ -437,14 +389,6 @@ class ShopCommissionPayment(models.Model):
 
     def __str__(self):
         return f"Payment to {self.shop.name} - ₹{self.amount}"
-    
-
-
-
-
-
-
-
 
 
 class TemporarySlotReservation(models.Model):
@@ -455,18 +399,16 @@ class TemporarySlotReservation(models.Model):
     user = models.ForeignKey(CustomUser, on_delete=models.CASCADE)
     shop = models.ForeignKey('Shop', on_delete=models.CASCADE)
     appointment_date = models.DateField()
-    appointment_time = models.TimeField()  # This is the start time of this specific slot
-    slots_needed = models.IntegerField(default=1)  # Total slots needed for entire service
-    total_service_duration = models.IntegerField(default=30)  # Total duration of all services in minutes
-    service_end_time = models.TimeField(null=True, blank=True)  # When the actual service ends
-    service_ids = models.JSONField(default=list, blank=True)  # Store selected service IDs
+    appointment_time = models.TimeField()
+    slots_needed = models.IntegerField(default=1)
+    total_service_duration = models.IntegerField(default=30)
+    service_end_time = models.TimeField(null=True, blank=True)
+    service_ids = models.JSONField(default=list, blank=True)
     reserved_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
-    session_id = models.CharField(max_length=100, blank=True, null=True)  # For anonymous users
+    session_id = models.CharField(max_length=100, blank=True, null=True)
     
     class Meta:
-        # Allow multiple reservations for the same slot if they're part of the same booking
-        # unique_together = ['shop', 'appointment_date', 'appointment_time']
         indexes = [
             models.Index(fields=['expires_at']),
             models.Index(fields=['shop', 'appointment_date']),

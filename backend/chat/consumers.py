@@ -100,7 +100,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
                 user = await self.get_user(user_id)
                 conversation = await self.get_conversation(self.conversation_id)
                 
-                # Use simple user data instead of complex serializer
                 user_data = {
                     "id": user.id,
             "username": await sync_to_async(self.user.get_display_name)(),
@@ -263,11 +262,6 @@ class ChatConsumer(AsyncWebsocketConsumer):
             ONLINE_USERS = f'chat:online_users'
             curr_users = cache.get(ONLINE_USERS, [])
             logger.info(f"Current online users: {curr_users}")
-            # Check conversation-specific online users
-            # ONLINE_USERS = f'chat:online_users_{self.conversation_id}'
-            # curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
-            # print('online',curr_users)
-            # print(ONLINE_USERS)
             online_user_ids = [user_data["id"] for user_data in curr_users]
             
             notification_data = {
@@ -281,23 +275,20 @@ class ChatConsumer(AsyncWebsocketConsumer):
             }
             
             for participant in participants:
-                if participant.id != sender.id:  # Don't notify sender
+                if participant.id != sender.id:  
                     if participant.id in online_user_ids:
-                        # Send real-time notification
                         await self.channel_layer.group_send(
                             f'user_{participant.id}',
                             notification_data
                         )
                         print(f"✅ Real-time notification sent to user {participant.id}")
                     else:
-                        # Save notification for offline user
                         await self.save_notification(sender, participant, message.content)
                         print(f"✅ Notification saved for offline user {participant.id}")
         
         except Exception as e:
             print(f"❌ Error sending notifications: {e}")
     
-    # *** ADD THESE HELPER METHODS ***
     @database_sync_to_async
     def get_conversation_participants(self, conversation):
         return list(conversation.participants.all())
@@ -321,7 +312,6 @@ class UserConsumer(AsyncWebsocketConsumer):
             self.user_id = self.scope["url_route"]["kwargs"]["user_id"]
             self.user_group_name = f'user_{self.user_id}'
             
-            # Get user first to validate
             self.user = await self.get_user(self.user_id)
             if not self.user:
                 print(f"❌ User {self.user_id} not found")
@@ -338,7 +328,6 @@ class UserConsumer(AsyncWebsocketConsumer):
             await self.accept()
             print(f"✅ WebSocket connected for user {self.user_id}")
             
-            # Rest of your connection logic...
             ONLINE_USERS = f'chat:online_users'
             curr_users = await sync_to_async(cache.get)(ONLINE_USERS, [])
             
@@ -392,7 +381,6 @@ class UserConsumer(AsyncWebsocketConsumer):
             notifications = await self.get_unsent_notifications()
             
             for notification in notifications:
-                # Get conversation details for stored notifications
                 conversation = await self.get_conversation(notification.conversation_id) if notification.conversation_id else None
                 
                 await self.send(text_data=json.dumps({
@@ -427,7 +415,7 @@ class UserConsumer(AsyncWebsocketConsumer):
     @database_sync_to_async
     def get_conversation(self, conversation_id):
         """Get conversation by ID"""
-        from chat.models import Conversation  # Adjust import based on your model location
+        from chat.models import Conversation  
         try:
             return Conversation.objects.get(id=conversation_id)
         except Conversation.DoesNotExist:

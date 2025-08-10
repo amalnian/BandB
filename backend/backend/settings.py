@@ -17,15 +17,11 @@ from dotenv import load_dotenv
 import cloudinary
 
 
-# Load environment variables from .env file
 load_dotenv()
 
-# Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
 
 SECRET_KEY = os.environ.get('SECRET_KEY', 'django-insecure-default-key-for-development')
 
@@ -62,8 +58,8 @@ INSTALLED_APPS = [
 ]
 
 # Google OAuth settings
-SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = '1016181249848-kn59ov7i80ep5gj5g7qc05ncfg4qpp1j.apps.googleusercontent.com'
-SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = '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'
+SOCIAL_AUTH_GOOGLE_OAUTH2_KEY = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_KEY')
+SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET = os.getenv('SOCIAL_AUTH_GOOGLE_OAUTH2_SECRET')
 
 SOCIAL_AUTH_GOOGLE_OAUTH2_SCOPE = [
     'https://www.googleapis.com/auth/userinfo.email',
@@ -102,8 +98,6 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'
 
 
-# Database
-# https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
 DATABASES = {
     'default': {
@@ -165,13 +159,13 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 #--------------------------------------------------------------------
 AUTH_USER_MODEL = 'users.CustomUser'
 
-# Add this to your settings.py
+
 
 # REST Framework settings
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'shop.authentication.CookieJWTAuthentication',
-        'users.authentication.CoustomJWTAuthentication',  # Replace with actual path
+        'users.authentication.CoustomJWTAuthentication', 
         'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
         'rest_framework.authentication.TokenAuthentication',
@@ -181,12 +175,10 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     
-    # Default page size
     'PAGE_SIZE': 10,
 
 }
 
-# JWT Settings
 from datetime import timedelta
 
 SIMPLE_JWT = {
@@ -225,7 +217,7 @@ SIMPLE_JWT = {
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOWED_ORIGINS = [
     'https://bandbs.amalnian.xyz',
-    "http://localhost:3000",  # Your React dev server
+    "http://localhost:3000",  
     "http://127.0.0.1:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
@@ -239,11 +231,6 @@ CSRF_TRUSTED_ORIGINS = [
 
 CORS_ALLOW_CREDENTIALS = True
 
-# if DEBUG:
-#     CORS_ALLOW_ALL_ORIGINS = True
-
-# For development only - remove in production
-# CORS_ALLOW_ALL_ORIGINS = True
 SESSION_COOKIE_HTTPONLY = True
 
 # Session and Cookie settings
@@ -334,25 +321,22 @@ CACHES = {
 CELERY_BEAT_SCHEDULE = {
     'cleanup-expired-reservations': {
         'task': 'users.tasks.cleanup_expired_reservations',
-        'schedule': 300.0,  # Run every 5 minutes
+        'schedule': 300.0,  
     },
 }
 
 
 # Celery Configuration
-CELERY_BROKER_URL = 'redis://localhost:6379/0'  # or your Redis URL
+CELERY_BROKER_URL = 'redis://localhost:6379/0'  
 CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
 CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 
-
-# CRITICAL: These settings ensure tasks run asynchronously
-CELERY_TASK_ALWAYS_EAGER = False  # This is the key setting!
+CELERY_TASK_ALWAYS_EAGER = False
 CELERY_TASK_EAGER_PROPAGATES = False
 CELERY_TASK_STORE_EAGER_RESULT = True
 
-# Additional settings for better performance
 CELERY_BROKER_CONNECTION_RETRY_ON_STARTUP = True
 CELERY_BROKER_TRANSPORT = 'redis'

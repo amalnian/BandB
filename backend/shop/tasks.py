@@ -1,4 +1,3 @@
-# shop_tasks.py (add these to your existing tasks.py)
 from celery import shared_task
 from django.core.mail import EmailMultiAlternatives
 from django.conf import settings
@@ -17,7 +16,6 @@ def send_shop_otp_email_task(self, email, otp, subject, email_type, shop_name=No
     Enhanced Celery task to send shop OTP emails with HTML templates
     """
     try:
-        # Generate HTML content based on email type
         if email_type == "shop_registration":
             html_content = get_shop_registration_template(otp, shop_name or "Your Shop", owner_name or "Business Owner")
             plain_message = f'Welcome! Your shop verification code is: {otp}. This code will expire in 10 minutes.'
@@ -50,18 +48,15 @@ def send_shop_otp_email_task(self, email, otp, subject, email_type, shop_name=No
             """
             plain_message = f'Your shop verification code is: {otp}. This code will expire in 10 minutes.'
 
-        # Create email with both HTML and plain text versions
         email_message = EmailMultiAlternatives(
             subject=subject,
-            body=plain_message,  # Plain text version
+            body=plain_message,
             from_email=settings.DEFAULT_FROM_EMAIL,
             to=[email]
         )
         
-        # Attach HTML version
         email_message.attach_alternative(html_content, "text/html")
         
-        # Send the email
         email_message.send(fail_silently=False)
         
         logger.info(f"Shop OTP email sent successfully to {email} (Type: {email_type})")
@@ -75,7 +70,6 @@ def send_shop_otp_email_task(self, email, otp, subject, email_type, shop_name=No
             logger.info(f"Retrying shop email send to {email}. Attempt {self.request.retries + 1}")
             raise self.retry(exc=e, countdown=60 * (self.request.retries + 1))
         
-        # If all retries failed, log the final failure
         logger.error(f"All retry attempts failed for sending shop email to {email}")
         raise e
 

@@ -14,13 +14,11 @@ class CookieJWTAuthentication(JWTAuthentication):
     """
     
     def authenticate(self, request):
-        # First try to get token from cookies
         raw_token = request.COOKIES.get('access_token')
         
         logger.debug(f"Cookie authentication attempt. Token found: {'Yes' if raw_token else 'No'}")
         
         if raw_token is None:
-            # If no token in cookies, try the default header method
             logger.debug("No token in cookies, trying header method")
             return super().authenticate(request)
         
@@ -40,5 +38,4 @@ class CookieJWTAuthentication(JWTAuthentication):
         """
         Validates an encoded JSON Web Token and returns a validated token wrapper object.
         """
-        # Simply use the parent class method which handles token validation properly
         return super().get_validated_token(raw_token)

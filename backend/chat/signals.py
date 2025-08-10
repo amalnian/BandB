@@ -17,15 +17,15 @@ def send_message_notification(sender, instance, created, **kwargs):
     
     channel_layer = get_channel_layer()
     data = {
-        'type': 'notification',  # This must match the method name in your consumer
+        'type': 'notification',  
         'message': {
             'sender': instance.sender.username,
             'sender_id': instance.sender.id,
             'content': instance.content,
             'timestamp': instance.timestamp.isoformat(),
-            'conversation_id': instance.conversation.id,  # Add conversation ID
-            'conversation_type': 'direct' if instance.conversation.participants.count() == 2 else 'group',  # Add conversation type
-            'conversation_name': getattr(instance.conversation, 'name', None) or f"Chat with {instance.sender.username}",  # Add conversation name
+            'conversation_id': instance.conversation.id,  
+            'conversation_type': 'direct' if instance.conversation.participants.count() == 2 else 'group',  
+            'conversation_name': getattr(instance.conversation, 'name', None) or f"Chat with {instance.sender.username}", 
         }
     }
 
@@ -57,7 +57,7 @@ def send_message_notification(sender, instance, created, **kwargs):
                         sender=instance.sender,
                         receiver=user,
                         message=instance.content,
-                        conversation_id=instance.conversation.id  # Pass conversation ID
+                        conversation_id=instance.conversation.id 
                     )
                     print(f"✅ Notification saved for user {user.id}")
                 except Exception as e:
@@ -69,5 +69,5 @@ def save_notification(sender, receiver, message, conversation_id):
         sender=sender,
         receiver=receiver,
         message=message,
-        conversation_id=conversation_id  # Store conversation ID in notification
+        conversation_id=conversation_id 
     )

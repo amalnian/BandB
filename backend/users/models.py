@@ -11,7 +11,7 @@ class CustomUserManager(BaseUserManager):
             raise ValueError("The Email field must be set")
         email = self.normalize_email(email)
         extra_fields.setdefault('username', email.split('@')[0])
-        extra_fields.setdefault('is_active', False)  # Changed to False for email verification
+        extra_fields.setdefault('is_active', False)  
         user = self.model(email=email, **extra_fields)
         user.set_password(password)
         user.save(using=self._db)
@@ -20,7 +20,7 @@ class CustomUserManager(BaseUserManager):
     def create_superuser(self, email, password=None, **extra_fields):
         extra_fields.setdefault('is_staff', True)
         extra_fields.setdefault('is_superuser', True)
-        extra_fields.setdefault('is_active', True)  # Superusers should be active by default
+        extra_fields.setdefault('is_active', True)  
         extra_fields.setdefault('username', email.split('@')[0])
 
         if extra_fields.get('is_staff') is not True:
@@ -34,14 +34,14 @@ class CustomUserManager(BaseUserManager):
 class CustomUser(AbstractUser):
     ROLE_CHOICES = (
         ('user', 'User'),
-        ('shop', 'Shop Owner'),  # Added shop role
+        ('shop', 'Shop Owner'), 
     )
     profile_url = models.URLField(blank=True,null=True)
     role = models.CharField(max_length=10, choices=ROLE_CHOICES, default='user')
     email = models.EmailField(unique=True)
     otp = models.CharField(max_length=6, blank=True, null=True)
     otp_created_at = models.DateTimeField(null=True, blank=True)
-    is_blocked = models.BooleanField(default=False)  # Added is_blocked field
+    is_blocked = models.BooleanField(default=False)  
     phone_regex = RegexValidator(
         regex=r'^\+?1?\d{9,15}$',
         message="Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
@@ -69,30 +69,24 @@ class CustomUser(AbstractUser):
     objects = CustomUserManager()
     
     def is_shop_owner(self):
-        """Helper method to check if user is a shop owner"""
         return self.role == 'shop'
     
     def update_location(self, latitude, longitude):
-        """Update user's current location"""
         self.current_latitude = latitude
         self.current_longitude = longitude
         self.location_enabled = True
         self.save()
 
     def get_display_name(self):
-        """Get the appropriate display name based on user role"""
         if self.role == 'shop' and hasattr(self, 'shop'):
             return self.shop.name
         return self.username
 
     def get_display_image(self):
-        """Get the appropriate display image based on user role"""
         if self.role == 'shop' and hasattr(self, 'shop'):
-            # Get the primary shop image or first image
             primary_image = self.shop.images.filter(is_primary=True).first()
             if primary_image:
                 return primary_image.image_url
-            # If no primary image, get the first image
             first_image = self.shop.images.first()
             if first_image:
                 return first_image.image_url

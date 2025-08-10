@@ -1,25 +1,30 @@
+import os
+import re
 import json
 import math
 import hmac
-import re
-from chat.models import Conversation
 import jwt
-import logging
 import random
 import string
 import hashlib
-from datetime import datetime, date, timedelta
+import logging
+import zoneinfo
 from decimal import Decimal
+from datetime import datetime, date, time, timedelta
 from math import radians, cos, sin, asin, sqrt
 
+from dotenv import load_dotenv
 import cloudinary.uploader
 from cloudinary.exceptions import Error as CloudinaryError
 
+from google.oauth2 import id_token
+from google.auth.transport import requests
+import razorpay
 
-from channels.layers import get_channel_layer
-from asgiref.sync import async_to_sync
-from django.core.paginator import Paginator
+from django.utils import timezone
 from django.conf import settings
+from django.shortcuts import get_object_or_404, render
+from django.core.paginator import Paginator
 from django.core.mail import send_mail
 from django.core.exceptions import ValidationError
 from django.contrib.auth import authenticate, update_session_auth_hash
@@ -28,24 +33,22 @@ from django.db import transaction
 from django.db.models import Q, Sum
 from django.forms import ValidationError as DjangoValidationError
 from django.http import JsonResponse, Http404
-from django.shortcuts import get_object_or_404, render
-from django.utils import timezone
 from django.utils.decorators import method_decorator
 from django.utils.translation import gettext_lazy as _
 from django.views import View
 from django.views.decorators.csrf import csrf_exempt
+from django.core.cache import cache
 
-
-from google.oauth2 import id_token
-from google.auth.transport import requests
+from channels.layers import get_channel_layer
+from asgiref.sync import async_to_sync
 
 from rest_framework import status, permissions, generics
-from rest_framework.decorators import authentication_classes, permission_classes, api_view
-from rest_framework.exceptions import AuthenticationFailed
-from rest_framework.pagination import PageNumberPagination
-from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
-from rest_framework.response import Response
 from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, AllowAny, IsAdminUser
+from rest_framework.decorators import authentication_classes, permission_classes, api_view
+from rest_framework.pagination import PageNumberPagination
+from rest_framework.exceptions import AuthenticationFailed
 
 from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.exceptions import InvalidToken, TokenError
@@ -58,12 +61,29 @@ from rest_framework_simplejwt.views import (
     TokenViewBase,
 )
 
-import razorpay
-from chat.models import Notification
-# Project-specific
+from chat.models import Conversation, Message, Notification
+from shop.models import (
+    BookingFeedback,
+    Shop,
+    ShopImage,
+    Service,
+    OTP,
+    BusinessHours,
+    SpecialClosingDay,
+    Booking,
+    TemporarySlotReservation,
+)
+from shop.serializers import (
+    BookingFeedbackSerializer,
+    ShopSerializer,
+    ShopUpdateSerializer,
+    ShopImageSerializer,
+    ServiceSerializer,
+    BusinessHoursSerializer,
+    BookingSerializer,
+)
 from .models import CustomUser, Wallet, WalletTransaction
 from .authentication import CoustomJWTAuthentication
-
 from users.serializers import (
     CustomTokenObtainPairSerializer,
     UserProfileSerializer,
@@ -74,33 +94,9 @@ from users.serializers import (
     VerifyForgotPasswordOTPSerializer,
 )
 
-from shop.models import (
-    BookingFeedback,
-    Shop,
-    ShopImage,
-    # Notification,
-    Service,
-    OTP,
-    BusinessHours,
-    SpecialClosingDay,
-    Booking,
-    TemporarySlotReservation,
-)
-
-from shop.serializers import (
-    BookingFeedbackSerializer,
-    ShopSerializer,
-    ShopUpdateSerializer,
-    ShopImageSerializer,
-    # NotificationSerializer,
-    ServiceSerializer,
-    BusinessHoursSerializer,
-    BookingSerializer,
-)
-
-
-# Set up logger
+load_dotenv()
 logger = logging.getLogger(__name__)
+
 
 class CoustomTokenObtainPairView(TokenObtainPairView):
     serializer_class = CustomTokenObtainPairSerializer
@@ -125,7 +121,6 @@ class CoustomTokenObtainPairView(TokenObtainPairView):
 
             user = CustomUser.objects.get(email=email)
             
-            # Consistent cookie settings
             cookie_settings = {
                 'httponly': True,
                 'secure': not settings.DEBUG,
@@ -179,7 +174,6 @@ class CustomTokenRefreshView(TokenRefreshView):
     def post(self, request, *args, **kwargs):
         try:
             refresh_token = request.COOKIES.get("refresh_token")
-            logger.info(f"Refresh token from cookies: {refresh_token[:20] if refresh_token else 'None'}...")
             
             if not refresh_token:
                 return Response(
@@ -188,11 +182,9 @@ class CustomTokenRefreshView(TokenRefreshView):
                 )
             
             try:
-                # Validate and refresh the token using Simple JWT's RefreshToken
                 refresh = RefreshToken(refresh_token)
                 access_token = str(refresh.access_token)
                 
-                # Consistent cookie settings
                 cookie_settings = {
                     'httponly': True,
                     'secure': not settings.DEBUG,
@@ -203,7 +195,7 @@ class CustomTokenRefreshView(TokenRefreshView):
                 res = Response({
                     "success": True, 
                     "message": "Access token refreshed",
-                    "access": access_token  # Include access token in response if needed
+                    "access": access_token 
                 }, status=status.HTTP_200_OK)
 
                 res.set_cookie(
@@ -213,22 +205,17 @@ class CustomTokenRefreshView(TokenRefreshView):
                     **cookie_settings
                 )
 
-                # If rotation is enabled, create new refresh token manually
                 if settings.SIMPLE_JWT.get('ROTATE_REFRESH_TOKENS', False):
-                    # Get user from the refresh token
                     user_id = refresh.payload.get('user_id')
                     user = CustomUser.objects.get(id=user_id)
                     
-                    # Create new refresh token
                     new_refresh = RefreshToken.for_user(user)
                     new_refresh_token = str(new_refresh)
                     
-                    # Blacklist old token if blacklisting is enabled
                     if settings.SIMPLE_JWT.get('BLACKLIST_AFTER_ROTATION', False):
                         try:
                             refresh.blacklist()
                         except AttributeError:
-                            # Blacklisting not available in this version
                             pass
                     
                     res.set_cookie(
@@ -260,6 +247,8 @@ class CustomTokenRefreshView(TokenRefreshView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+
+
 class RegisterUserView(generics.CreateAPIView):
     serializer_class = CustomUserCreateSerializer
     permission_classes = [AllowAny]
@@ -267,7 +256,6 @@ class RegisterUserView(generics.CreateAPIView):
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         if serializer.is_valid():
-            # Let the serializer handle OTP generation and email sending
             user = serializer.save()
             
             return Response({
@@ -282,6 +270,7 @@ class RegisterUserView(generics.CreateAPIView):
             'errors': serializer.errors
         }, status=status.HTTP_400_BAD_REQUEST)
 
+
 class EmailOTPVerifyView(generics.GenericAPIView):
     serializer_class = EmailOTPVerifySerializer
     permission_classes = [AllowAny]
@@ -295,26 +284,21 @@ class EmailOTPVerifyView(generics.GenericAPIView):
             try:
                 user = CustomUser.objects.get(email=email)
                 
-                # Logger for debugging instead of print statements
                 logger.debug(f"OTP Verification attempt for {email}")
                 logger.debug(f"Current status: is_active={user.is_active}")
                 
-                # Check if OTP exists
                 if not user.otp or not user.otp_created_at:
                     return Response({'error': 'No OTP found for this account. Please request a new one.'}, 
                                    status=status.HTTP_400_BAD_REQUEST)
                 
-                # Check if OTP is expired
                 if timezone.now() > user.otp_created_at + timedelta(minutes=10):
                     return Response({'error': 'OTP has expired. Please request a new one.'}, 
                                    status=status.HTTP_400_BAD_REQUEST)
 
-                # Verify OTP
                 if user.otp != otp:
                     return Response({'error': 'Invalid OTP. Please try again.'}, 
                                    status=status.HTTP_400_BAD_REQUEST)
 
-                # Update is_active flag
                 user.is_active = True
                 user.otp = None 
                 user.otp_created_at = None
@@ -383,11 +367,9 @@ class Logout(APIView):
                     # Token might already be blacklisted or invalid
                     print(f"Token blacklist error: {str(e)}")
             
-            # Create response
             res = Response(status=status.HTTP_200_OK)
             res.data = {"success": True, "message": "Logout successfully"}
             
-            # Delete cookies
             res.delete_cookie(
                 key="access_token",
                 path='/',
@@ -470,7 +452,7 @@ class ResetPasswordView(APIView):
                     return Response({"error": "Invalid OTP"}, status=status.HTTP_400_BAD_REQUEST)
                 
                 user.set_password(new_password)
-                user.otp = None  # Clear the OTP after successful password reset
+                user.otp = None  
                 user.otp_created_at = None
                 user.save()
                 return Response({"message": "Password reset successfully"}, status=status.HTTP_200_OK)
@@ -478,10 +460,11 @@ class ResetPasswordView(APIView):
                 return Response({"error": "User not found"}, status=status.HTTP_400_BAD_REQUEST)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+
 @method_decorator(csrf_exempt, name='dispatch')
 class GoogleAuthView(APIView):
-    permission_classes = [AllowAny]  # Allow unauthenticated access
-    authentication_classes = []      # Disable authentication for this view
+    permission_classes = [AllowAny]  
+    authentication_classes = []     
     
     def post(self, request):
         credential = request.data.get('credential')
@@ -494,7 +477,7 @@ class GoogleAuthView(APIView):
         
         try:
             # Verify the Google token
-            GOOGLE_OAUTH2_CLIENT_ID = '1016181249848-kn59ov7i80ep5gj5g7qc05ncfg4qpp1j.apps.googleusercontent.com'
+            GOOGLE_OAUTH2_CLIENT_ID = os.getenv('GOOGLE_OAUTH2_CLIENT_ID')
             
             
             idinfo = id_token.verify_oauth2_token(
@@ -519,7 +502,6 @@ class GoogleAuthView(APIView):
             try:
                 user = CustomUser.objects.get(email=email)
                 print(f"Existing user found: {user.email}")
-                # Update user info if needed
                 if not user.first_name and first_name:
                     user.first_name = first_name
                 if not user.last_name and last_name:
@@ -529,18 +511,16 @@ class GoogleAuthView(APIView):
                 print(f"Creating new user for: {email}")
                 # Create new user
                 user = CustomUser.objects.create_user(
-                    username=email,  # Use email as username
+                    username=email,  
                     email=email,
                     first_name=first_name,
                     last_name=last_name,
                     is_active=True
                 )
             
-            # Generate tokens
             refresh = RefreshToken.for_user(user)
             access_token = refresh.access_token
             
-            # Prepare response data
             user_data = {
                 'id': user.id,
                 'email': user.email,
@@ -563,7 +543,6 @@ class GoogleAuthView(APIView):
             
             response = Response(response_data, status=status.HTTP_200_OK)
             
-            # Consistent cookie settings
             cookie_settings = {
                 'httponly': True,
                 'secure': not settings.DEBUG,
@@ -571,7 +550,6 @@ class GoogleAuthView(APIView):
                 'path': '/'
             }
             
-            # Set HTTP-only cookies
             response.set_cookie(
                 'access_token',
                 str(access_token),
@@ -602,7 +580,6 @@ class GoogleAuthView(APIView):
 
 
 class UserProfileView(APIView):
-    """Get current user's profile information"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -622,7 +599,6 @@ class UserProfileView(APIView):
 
 
 class UpdateUserProfileView(APIView):
-    """Update user profile information"""
     permission_classes = [IsAuthenticated]
 
     def patch(self, request):
@@ -630,7 +606,6 @@ class UpdateUserProfileView(APIView):
             user = request.user
             data = request.data.copy()
             
-            # Remove sensitive fields that shouldn't be updated here
             sensitive_fields = ['password', 'is_staff', 'is_superuser', 'is_active', 'role', 'otp', 'is_blocked']
             for field in sensitive_fields:
                 data.pop(field, None)
@@ -690,7 +665,6 @@ class UpdateUserProfileView(APIView):
 
 
 class ChangePasswordView(APIView):
-    """Change user password"""
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
@@ -790,8 +764,8 @@ class ProfilePictureView(APIView):
                     if public_id:
                         cloudinary.uploader.destroy(public_id)
                 except CloudinaryError:
-                    pass  # Continue even if deletion fails
-            
+                    pass 
+
             # Upload new image to Cloudinary
             try:
                 upload_result = cloudinary.uploader.upload(
@@ -845,7 +819,7 @@ class ProfilePictureView(APIView):
                     if public_id:
                         cloudinary.uploader.destroy(public_id)
                 except CloudinaryError:
-                    pass  # Continue even if deletion fails
+                    pass 
                 
                 # Remove URL from user profile
                 user.profile_url = None
@@ -871,16 +845,14 @@ class ProfilePictureView(APIView):
             if 'upload' in parts:
                 upload_index = parts.index('upload')
                 if upload_index + 2 < len(parts):
-                    # Get everything after version number, remove file extension
                     public_id_part = '/'.join(parts[upload_index + 2:])
-                    return public_id_part.rsplit('.', 1)[0]  # Remove file extension
+                    return public_id_part.rsplit('.', 1)[0] 
             return None
         except:
             return None
 
 
 class UserStatsView(APIView):
-    """Get user account statistics"""
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
@@ -892,7 +864,7 @@ class UserStatsView(APIView):
                 'last_login': user.last_login.isoformat() if user.last_login else None,
                 'is_active': user.is_active,
                 'role': user.get_role_display(),
-                'email_verified': user.is_active,  # Assuming active means email verified
+                'email_verified': user.is_active,  
                 'has_profile_picture': bool(user.profile_url),
             }
             
@@ -1002,7 +974,6 @@ class NearbyShopsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get_shop_primary_image(self, shop):
-        """Get the primary image URL for a shop"""
         try:
             # Try to get primary image first
             primary_image = shop.images.filter(is_primary=True).first()
@@ -1024,7 +995,6 @@ class NearbyShopsView(APIView):
             return None
 
     def get_shop_images_data(self, shop):
-        """Get all images data for a shop"""
         try:
             images_data = []
             for image in shop.images.all():
@@ -1072,7 +1042,6 @@ class NearbyShopsView(APIView):
                 except (ValueError, TypeError):
                     return Response({'error': 'Invalid coordinate values'}, status=status.HTTP_400_BAD_REQUEST)
             
-            # Use prefetch_related to optimize image queries
             shops = Shop.objects.filter(
                 latitude__isnull=False,
                 longitude__isnull=False,
@@ -1080,7 +1049,7 @@ class NearbyShopsView(APIView):
                 is_approved=True,
                 is_email_verified=True
             ).select_related('user').prefetch_related('images')
-            print(f"Total shops in database: {shops.count()}")  # ADD THIS LINE
+            print(f"Total shops in database: {shops.count()}")  
 
             nearby_shops = []
             for shop in shops:
@@ -1089,7 +1058,7 @@ class NearbyShopsView(APIView):
                     shop_lng = float(shop.longitude)
                     distance = self.calculate_distance(user_lat, user_lng, shop_lat, shop_lng)
                     
-                    print(f"Shop: {shop.name}, Distance: {distance}, Radius: {radius}")  # ADD THIS LINE
+                    print(f"Shop: {shop.name}, Distance: {distance}, Radius: {radius}")  
 
 
                     if distance <= radius:
@@ -1098,7 +1067,6 @@ class NearbyShopsView(APIView):
                         except:
                             average_rating = 0.0
                         
-                        # Get images data
                         primary_image_url = self.get_shop_primary_image(shop)
                         images_data = self.get_shop_images_data(shop)
                         
@@ -1115,12 +1083,11 @@ class NearbyShopsView(APIView):
                             'longitude': shop_lng,
                             'distance': round(distance, 2),
                             'average_rating': average_rating,
-                            'rating': average_rating,  # Add both for compatibility
+                            'rating': average_rating,  
                             'is_active': shop.is_active,
-                            'image_url': primary_image_url,  # Primary image URL
-                            'images': images_data,  # All images data
-                            # Additional fields your frontend might expect
-                            'cloudinary_url': primary_image_url,  # Alias for compatibility
+                            'image_url': primary_image_url, 
+                            'images': images_data, 
+                            'cloudinary_url': primary_image_url,  
                         }
                         nearby_shops.append(shop_data)
                 except (ValueError, TypeError):
@@ -1207,7 +1174,6 @@ class AllShopsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get_shop_primary_image(self, shop):
-        """Get the primary image URL for a shop"""
         try:
             # Try to get primary image first
             primary_image = shop.images.filter(is_primary=True).first()
@@ -1249,7 +1215,6 @@ class AllShopsView(APIView):
     
     def get(self, request):
         try:
-            # Use prefetch_related to optimize image queries
             shops = Shop.objects.filter(
                 is_approved=True,
                 user__is_active=True,
@@ -1263,7 +1228,6 @@ class AllShopsView(APIView):
                 except:
                     average_rating = 0.0
                 
-                # Get images data
                 primary_image_url = self.get_shop_primary_image(shop)
                 images_data = self.get_shop_images_data(shop)
                     
@@ -1279,11 +1243,10 @@ class AllShopsView(APIView):
                     'latitude': float(shop.latitude) if shop.latitude else None,
                     'longitude': float(shop.longitude) if shop.longitude else None,
                     'average_rating': average_rating,
-                    'rating': average_rating,  # Add both for compatibility
-                    'image_url': primary_image_url,  # Primary image URL
-                    'images': images_data,  # All images data
-                    # Additional fields your frontend might expect
-                    'cloudinary_url': primary_image_url,  # Alias for compatibility
+                    'rating': average_rating,  
+                    'image_url': primary_image_url, 
+                    'images': images_data,  
+                    'cloudinary_url': primary_image_url,  
                 }
                 shops_data.append(shop_data)
             
@@ -1299,30 +1262,20 @@ class AllShopsView(APIView):
 
 
 class ShopDetailView(generics.RetrieveAPIView):
-    """
-    Retrieve shop details by ID
-    """
+
     queryset = Shop.objects.all()
     serializer_class = ShopSerializer
     permission_classes = [AllowAny]
     lookup_field = 'id'
 
     def get_object(self):
-        """
-        Override to add custom logic and validation
-        """
         shop_id = self.kwargs.get('id')
         
-        # Validate shop_id
         if not shop_id:
             raise Http404("Shop ID is required")
         
         try:
             shop = get_object_or_404(Shop, id=shop_id)
-            
-            # Optional: Add business logic checks
-            # if not shop.is_active:
-            #     raise Http404("Shop is not active")
             
             return shop
             
@@ -1334,9 +1287,6 @@ class ShopDetailView(generics.RetrieveAPIView):
             raise Http404("Error retrieving shop details")
 
     def retrieve(self, request, *args, **kwargs):
-        """
-        Override retrieve method for consistent response format
-        """
         try:
             instance = self.get_object()
             serializer = self.get_serializer(instance)
@@ -1368,15 +1318,11 @@ class ShopDetailView(generics.RetrieveAPIView):
 
 
 class ShopServicesView(APIView):
-    """
-    Get all active services for a specific shop
-    """
-    permission_classes = [IsAuthenticated]  # Add if authentication required
+
+    permission_classes = [IsAuthenticated]  
     
     def get(self, request, shop_id):
-        """Get all active services for a shop"""
         try:
-            # Verify shop exists
             shop = get_object_or_404(Shop, id=shop_id)
             
             # Get active services for the shop
@@ -1409,15 +1355,11 @@ class ShopBusinessHoursView(APIView):
     """
     Get business hours for a specific shop
     """
-    permission_classes = [IsAuthenticated]  # Add if authentication required
-    
+    permission_classes = [IsAuthenticated]  
     def get(self, request, shop_id):
-        """Get business hours for a shop"""
         try:
-            # Verify shop exists
             shop = get_object_or_404(Shop, id=shop_id)
             
-            # Get business hours for the shop
             business_hours = BusinessHours.objects.filter(
                 shop_id=shop_id
             ).order_by('day_of_week')
@@ -1440,21 +1382,7 @@ class ShopBusinessHoursView(APIView):
                 'success': False,
                 'error': f'An error occurred: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
-
-
-from django.utils import timezone
-from django.conf import settings
-from datetime import datetime, timedelta
-from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from django.db.models import Q
-import math
-import zoneinfo  # Python 3.9+ (or use pytz for older versions)
+  
 
 class AvailableTimeSlotsView(APIView):
     """
@@ -1463,7 +1391,6 @@ class AvailableTimeSlotsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, shop_id):
-        """Generate available time slots for a specific date"""
         date_str = request.GET.get('date')
         service_ids = request.GET.getlist('services', [])  # Get selected services
         
@@ -1474,36 +1401,28 @@ class AvailableTimeSlotsView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Verify shop exists
+            
             shop = get_object_or_404(Shop, id=shop_id)
             
-            # Get shop's timezone (you can set this in settings or shop model)
-            # For India, use 'Asia/Kolkata'
             shop_timezone_str = getattr(shop, 'timezone', 'Asia/Kolkata')
             
             try:
                 shop_timezone = zoneinfo.ZoneInfo(shop_timezone_str)
             except:
-                # Fallback to UTC if timezone is invalid
                 shop_timezone = zoneinfo.ZoneInfo('UTC')
             
-            # Parse the date
             selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-            day_of_week = selected_date.weekday()  # Monday is 0
-            
-            # Get current time in shop's timezone
+            day_of_week = selected_date.weekday()  
             now_utc = timezone.now()
             now_local = now_utc.astimezone(shop_timezone)
             today_local = now_local.date()
             
-            # Check if date is in the past (using local date)
             if selected_date < today_local:
                 return Response({
                     'success': False,
                     'error': 'Cannot book appointments for past dates'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Check for special closing days - UPDATED TO BE SHOP-SPECIFIC
             special_closing = SpecialClosingDay.objects.filter(
                 shop=shop,
                 date=selected_date
@@ -1610,7 +1529,7 @@ class AvailableTimeSlotsView(APIView):
         # Calculate how many 30-minute slots are needed
         slots_needed = math.ceil(total_duration / 30) if total_duration > 0 else 1
         
-        # Check if the selected date is today (in local timezone)
+        # Check if the selected date is today 
         is_today = selected_date == now_local.date()
         current_hour_minute = now_local.time() if is_today else None
         
@@ -1628,7 +1547,7 @@ class AvailableTimeSlotsView(APIView):
             # Check if slot is in the past (for today only, using local time)
             is_past_slot = False
             if is_today and current_hour_minute:
-                # Add buffer time (e.g., 15 minutes) to prevent booking slots that are about to start
+                # Add buffer time to prevent booking slots that are about to start
                 buffer_minutes = 15
                 current_time_with_buffer = self._add_minutes_to_time(current_hour_minute, buffer_minutes)
                 is_past_slot = current_time <= current_time_with_buffer
@@ -1648,33 +1567,26 @@ class AvailableTimeSlotsView(APIView):
                 'available': is_available,
                 'is_past': is_past_slot,
                 'slots_needed': slots_needed,
-                'duration': 30  # Always 30 minutes per slot
+                'duration': 30  
             })
             
-            # Add 30 minutes to current time
             current_datetime = datetime.combine(selected_date, current_time)
             current_datetime += slot_duration
             current_time = current_datetime.time()
             
-            # Prevent infinite loop
             if len(slots) > 48:
                 break
         
         return slots
     
     def _add_minutes_to_time(self, time_obj, minutes):
-        """Add minutes to a time object"""
         datetime_obj = datetime.combine(datetime.today(), time_obj)
         datetime_obj += timedelta(minutes=minutes)
         return datetime_obj.time()
     
     def _are_consecutive_slots_available(self, shop_id, date, start_time, slots_needed):
-        """
-        Check if consecutive time slots are available for booking
-        Updated to consider temporary reservations
-        """
+
         try:
-            # Clean up expired reservations first
             TemporarySlotReservation.objects.filter(
                 expires_at__lt=timezone.now()
             ).delete()
@@ -1706,7 +1618,7 @@ class AvailableTimeSlotsView(APIView):
                 if temp_reservation:
                     return False
                     
-                # Also check if any existing booking overlaps with this slot
+                # check if any existing booking overlaps with this slot
                 overlapping_bookings = Booking.objects.filter(
                     shop_id=shop_id,
                     appointment_date=date,
@@ -1736,140 +1648,7 @@ class AvailableTimeSlotsView(APIView):
 
     
 
-# class CreateBookingView(APIView):
-#     """
-#     Create a new booking with duration-based slot reservation
-#     """
-#     permission_classes = [IsAuthenticated]
-    
-#     def post(self, request):
-#         """Create a new booking"""
-#         try:
-#             booking_data = request.data
-            
-#             # Validate required fields
-#             required_fields = ['shop', 'services', 'appointment_date', 'appointment_time']
-#             missing_fields = [field for field in required_fields if field not in booking_data]
-            
-#             if missing_fields:
-#                 return Response({
-#                     'success': False,
-#                     'error': f'Missing required fields: {", ".join(missing_fields)}'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Validate shop exists
-#             shop_id = booking_data.get('shop')
-#             shop = get_object_or_404(Shop, id=shop_id)
-            
-#             # Validate services exist
-#             service_ids = booking_data.get('services', [])
-#             if not service_ids:
-#                 return Response({
-#                     'success': False,
-#                     'error': 'At least one service must be selected'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             services = Service.objects.filter(
-#                 id__in=service_ids,
-#                 shop=shop,
-#                 is_active=True
-#             )
-            
-#             if len(services) != len(service_ids):
-#                 return Response({
-#                     'success': False,
-#                     'error': 'One or more selected services are invalid'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Calculate total duration
-#             total_duration = sum(service.duration_minutes for service in services)
-#             slots_needed = math.ceil(total_duration / 30)
-            
-#             # Validate date and time
-#             try:
-#                 appointment_date = datetime.strptime(
-#                     booking_data['appointment_date'], '%Y-%m-%d'
-#                 ).date()
-#                 appointment_time = datetime.strptime(
-#                     booking_data['appointment_time'], '%H:%M'
-#                 ).time()
-#             except ValueError:
-#                 return Response({
-#                     'success': False,
-#                     'error': 'Invalid date or time format'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Check if consecutive slots are still available
-#             time_slots_view = AvailableTimeSlotsView()
-#             are_slots_available = time_slots_view._are_consecutive_slots_available(
-#                 shop_id, 
-#                 appointment_date, 
-#                 appointment_time,
-#                 slots_needed
-#             )
-            
-#             if not are_slots_available:
-#                 return Response({
-#                     'success': False,
-#                     'error': f'Selected time slot is no longer available. Need {slots_needed} consecutive slots for {total_duration} minutes.'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Calculate total amount
-#             total_amount = sum(float(service.price) for service in services)
-#             service_fee = float(booking_data.get('service_fee', 25))
-#             total_amount += service_fee
-            
-#             # Create booking
-#             booking = Booking.objects.create(
-#                 user=request.user,
-#                 shop=shop,
-#                 appointment_date=appointment_date,
-#                 appointment_time=appointment_time,
-#                 total_amount=total_amount,
-#                 payment_method=booking_data.get('payment_method', 'wallet'),
-#                 status='pending',
-#                 notes=booking_data.get('notes', '')
-#             )
-            
-#             # Add services to booking
-#             booking.services.set(services)
-            
-#             # Calculate end time for response
-#             end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
-            
-#             response_data = {
-#                 'success': True,
-#                 'data': {
-#                     'id': booking.id,
-#                     'message': 'Booking created successfully',
-#                     'shop_name': shop.name,
-#                     'appointment_date': appointment_date.strftime('%Y-%m-%d'),
-#                     'appointment_time': appointment_time.strftime('%H:%M'),
-#                     'appointment_end_time': end_time.strftime('%H:%M'),
-#                     'services': [service.name for service in services],
-#                     'total_duration': total_duration,
-#                     'slots_reserved': slots_needed,
-#                     'total_amount': float(total_amount),
-#                     'status': 'pending'
-#                 }
-#             }
-            
-#             return Response(response_data, status=status.HTTP_201_CREATED)
-            
-#         except Shop.DoesNotExist:
-#             return Response({
-#                 'success': False,
-#                 'error': 'Shop not found'
-#             }, status=status.HTTP_404_NOT_FOUND)
-            
-#         except Exception as e:
-#             return Response({
-#                 'success': False,
-#                 'error': f'An error occurred: {str(e)}'
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-
-# Additional utility view to check slot requirements
 class ServiceDurationView(APIView):
     """
     Calculate total duration and slots needed for selected services
@@ -1877,7 +1656,6 @@ class ServiceDurationView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request, shop_id):
-        """Calculate duration for selected services"""
         try:
             service_ids = request.data.get('services', [])
             
@@ -1921,9 +1699,6 @@ class ServiceDurationView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
-
-
-# Initialize Razorpay client
 razorpay_client = razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
 
 class CreateRazorpayOrderView(APIView):
@@ -1999,7 +1774,6 @@ class VerifyRazorpayPaymentView(APIView):
             razorpay_payment_id = data.get('razorpay_payment_id')
             razorpay_signature = data.get('razorpay_signature')
             
-            # Validate required fields
             if not all([razorpay_order_id, razorpay_payment_id, razorpay_signature]):
                 logger.error("Missing payment details")
                 return Response({
@@ -2022,7 +1796,6 @@ class VerifyRazorpayPaymentView(APIView):
                     'error': 'Payment verification failed'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Get booking data
             booking_data = data.get('booking_data', {})
             logger.info(f"Booking data: {booking_data}")
             
@@ -2040,7 +1813,6 @@ class VerifyRazorpayPaymentView(APIView):
                     'error': f'Missing fields in booking data: {", ".join(missing_fields)}'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Validate shop exists
             try:
                 shop = get_object_or_404(Shop, id=booking_data['shop'])
             except Exception as e:
@@ -2050,7 +1822,6 @@ class VerifyRazorpayPaymentView(APIView):
                     'error': 'Invalid shop'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Validate services exist
             try:
                 services = Service.objects.filter(
                     id__in=booking_data['services'],
@@ -2070,7 +1841,6 @@ class VerifyRazorpayPaymentView(APIView):
                     'error': 'Service validation failed'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Parse date and time
             try:
                 appointment_date = datetime.strptime(
                     booking_data['appointment_date'], '%Y-%m-%d'
@@ -2085,10 +1855,8 @@ class VerifyRazorpayPaymentView(APIView):
                     'error': 'Invalid date or time format'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Create booking with transaction
             try:
                 with transaction.atomic():
-                    # Create booking with explicit field mapping
                     booking = Booking.objects.create(
                         user=request.user,
                         shop=shop,
@@ -2103,7 +1871,6 @@ class VerifyRazorpayPaymentView(APIView):
                         notes=booking_data.get('notes', '')
                     )
                     
-                    # Add services
                     booking.services.set(services)
                     
                     logger.info(f"Booking created successfully: {booking.id}")
@@ -2122,7 +1889,6 @@ class VerifyRazorpayPaymentView(APIView):
                             logger.error("Shop owner is None for notification!")
                             raise Exception("Shop owner is None")
                         
-                        # Check if shop owner is different from booking user
                         if request.user.id == shop_owner.id:
                             logger.warning("User is booking their own shop - skipping notification")
                         else:
@@ -2140,7 +1906,6 @@ class VerifyRazorpayPaymentView(APIView):
                                 logger.info("Sending real-time notification to shop owner")
                                 channel_layer = get_channel_layer()
                                 
-                                # Create notification message
                                 notification_message = f"New booking from {request.user.username} for {shop.name}"
                                 
                                 data = {
@@ -2164,7 +1929,6 @@ class VerifyRazorpayPaymentView(APIView):
                             else:
                                 logger.info("Shop owner is offline, notification will be stored in database only")
                             
-                            # Always create database notification for persistence
                             notification = Notification.objects.create(
                                 sender=request.user,
                                 receiver=shop_owner,
@@ -2175,15 +1939,12 @@ class VerifyRazorpayPaymentView(APIView):
                     except Exception as notification_error:
                         logger.error(f"Error sending notification: {str(notification_error)}")
                         logger.error(f"Notification error type: {type(notification_error)}")
-                        # Don't fail the entire booking - log error but continue
                         logger.warning("Notification failed, but booking will continue")
                     
                     # Create or get conversation between user and shop owner
                     try:
-                        # Check if shop has a user/owner field
                         logger.info(f"Shop object attributes: {dir(shop)}")
                         
-                        # Try different possible field names for shop owner
                         shop_owner = None
                         if hasattr(shop, 'user'):
                             shop_owner = shop.user
@@ -2198,7 +1959,6 @@ class VerifyRazorpayPaymentView(APIView):
                         
                         logger.info(f"Current user: {request.user.id}, Shop owner: {shop_owner.id}")
                         
-                        # Check if users are the same (booking own shop)
                         if request.user.id == shop_owner.id:
                             logger.warning("User is booking their own shop - skipping conversation creation")
                         else:
@@ -2254,7 +2014,6 @@ class VerifyRazorpayPaymentView(APIView):
                     except Exception as conversation_error:
                         logger.error(f"Error creating conversation: {str(conversation_error)}")
                         logger.error(f"Error type: {type(conversation_error)}")
-                        # Don't fail the entire booking - log error but continue
                         logger.warning("Conversation creation failed, but booking will continue")
                     
                     return Response({
@@ -2286,223 +2045,6 @@ class VerifyRazorpayPaymentView(APIView):
                 'error': 'Payment verification failed'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# class AvailableTimeSlotsView(APIView):
-#     """
-#     Generate available time slots based on business hours and existing bookings
-#     """
-#     permission_classes = [IsAuthenticated]
-    
-#     def get(self, request, shop_id):
-#         """Generate available time slots for a specific date"""
-#         try:
-#             date_str = request.GET.get('date')
-#             service_ids = request.GET.getlist('services', [])
-            
-#             if not date_str:
-#                 return Response({
-#                     'success': False,
-#                     'error': 'Date parameter is required (format: YYYY-MM-DD)'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Verify shop exists
-#             shop = get_object_or_404(Shop, id=shop_id)
-            
-#             # Parse the date
-#             selected_date = datetime.strptime(date_str, '%Y-%m-%d').date()
-#             day_of_week = selected_date.weekday()
-            
-#             # Check if date is in the past
-#             if selected_date < timezone.now().date():
-#                 return Response({
-#                     'success': False,
-#                     'error': 'Cannot book appointments for past dates'
-#                 }, status=status.HTTP_400_BAD_REQUEST)
-            
-#             # Get business hours for the day
-#             try:
-#                 business_hours = BusinessHours.objects.get(
-#                     shop=shop,
-#                     day_of_week=day_of_week
-#                 )
-#             except BusinessHours.DoesNotExist:
-#                 return Response({
-#                     'success': True,
-#                     'data': {
-#                         'time_slots': [],
-#                         'message': 'Business hours not configured for this day'
-#                     }
-#                 })
-            
-#             # If shop is closed on this day
-#             if business_hours.is_closed:
-#                 return Response({
-#                     'success': True,
-#                     'data': {
-#                         'time_slots': [],
-#                         'message': f'Shop is closed on {business_hours.get_day_of_week_display()}'
-#                     }
-#                 })
-            
-#             # Calculate total duration needed for selected services
-#             total_duration = 0
-#             if service_ids:
-#                 selected_services = Service.objects.filter(
-#                     id__in=service_ids,
-#                     shop=shop,
-#                     is_active=True
-#                 )
-#                 total_duration = sum(service.duration_minutes for service in selected_services)
-            
-#             # Generate time slots
-#             slots = self._generate_time_slots_with_duration(
-#                 business_hours, 
-#                 selected_date, 
-#                 shop_id,
-#                 total_duration
-#             )
-            
-#             return Response({
-#                 'success': True,
-#                 'data': {
-#                     'time_slots': slots,
-#                     'date': date_str,
-#                     'day': business_hours.get_day_of_week_display(),
-#                     'shop_name': shop.name,
-#                     'total_duration': total_duration,
-#                     'slots_needed': math.ceil(total_duration / 30) if total_duration > 0 else 1
-#                 }
-#             }, status=status.HTTP_200_OK)
-            
-#         except ValueError:
-#             return Response({
-#                 'success': False,
-#                 'error': 'Invalid date format. Use YYYY-MM-DD'
-#             }, status=status.HTTP_400_BAD_REQUEST)
-            
-#         except Exception as e:
-#             logger.error(f"Available slots error: {str(e)}")
-#             return Response({
-#                 'success': False,
-#                 'error': f'An error occurred: {str(e)}'
-#             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-    
-#     def _are_consecutive_slots_available(self, shop_id, date, start_time, slots_needed):
-#         """
-#         Check if consecutive time slots are available for booking
-#         """
-#         try:
-#             for i in range(slots_needed):
-#                 slot_time = self._add_minutes_to_time(start_time, i * 30)
-                
-#                 # Check if this specific slot is booked
-#                 # FIXED: Use correct field name
-#                 existing_booking = Booking.objects.filter(
-#                     shop_id=shop_id,
-#                     appointment_date=date,
-#                     booking_status__in=['confirmed', 'pending']  # Fixed field name
-#                 ).filter(
-#                     Q(appointment_time__lte=slot_time) & 
-#                     Q(appointment_time__gt=self._add_minutes_to_time(slot_time, -30))
-#                 ).exists()
-                
-#                 if existing_booking:
-#                     return False
-                    
-#                 # Also check if any existing booking overlaps with this slot
-#                 overlapping_bookings = Booking.objects.filter(
-#                     shop_id=shop_id,
-#                     appointment_date=date,
-#                     booking_status__in=['confirmed', 'pending']  # Fixed field name
-#                 )
-                
-#                 for booking in overlapping_bookings:
-#                     booking_duration = self._get_booking_total_duration(booking)
-#                     booking_end_time = self._add_minutes_to_time(booking.appointment_time, booking_duration)
-                    
-#                     # Check if there's an overlap
-#                     if (booking.appointment_time <= slot_time < booking_end_time):
-#                         return False
-            
-#             return True
-            
-#         except Exception as e:
-#             logger.error(f"Error checking consecutive slots availability: {e}")
-#             return False
-    
-#     def _generate_time_slots_with_duration(self, business_hours, selected_date, shop_id, total_duration):
-#         """Generate time slots considering service duration"""
-#         slots = []
-        
-#         # Check if business hours has opening and closing times
-#         if not business_hours.opening_time or not business_hours.closing_time:
-#             return slots
-        
-#         current_time = business_hours.opening_time
-#         closing_time = business_hours.closing_time
-#         slot_duration = timedelta(minutes=30)
-        
-#         # Calculate how many 30-minute slots are needed
-#         slots_needed = math.ceil(total_duration / 30) if total_duration > 0 else 1
-        
-#         # Get current time if the selected date is today
-#         now = timezone.now()
-#         is_today = selected_date == now.date()
-#         current_hour_minute = now.time() if is_today else None
-        
-#         while current_time < closing_time:
-#             # Check if there's enough time before closing for the entire service
-#             service_end_time = self._add_minutes_to_time(current_time, total_duration if total_duration > 0 else 30)
-            
-#             # Skip if service would end after closing time
-#             if service_end_time > closing_time:
-#                 break
-            
-#             # Check if slot is in the past (for today only)
-#             is_past_slot = False
-#             if is_today and current_hour_minute:
-#                 is_past_slot = current_time <= current_hour_minute
-            
-#             # Check if consecutive slots are available
-#             is_available = self._are_consecutive_slots_available(
-#                 shop_id, 
-#                 selected_date, 
-#                 current_time,
-#                 slots_needed
-#             ) and not is_past_slot
-            
-#             slots.append({
-#                 'time': current_time.strftime('%H:%M'),
-#                 'end_time': service_end_time.strftime('%H:%M'),
-#                 'available': is_available,
-#                 'is_past': is_past_slot,
-#                 'slots_needed': slots_needed,
-#                 'duration': total_duration if total_duration > 0 else 30
-#             })
-            
-#             # Add 30 minutes to current time
-#             current_datetime = datetime.combine(selected_date, current_time)
-#             current_datetime += slot_duration
-#             current_time = current_datetime.time()
-            
-#             # Prevent infinite loop
-#             if len(slots) > 48:
-#                 break
-        
-#         return slots
-    
-#     def _add_minutes_to_time(self, time_obj, minutes):
-#         """Add minutes to a time object"""
-#         datetime_obj = datetime.combine(datetime.today(), time_obj)
-#         datetime_obj += timedelta(minutes=minutes)
-#         return datetime_obj.time()
-    
-#     def _get_booking_total_duration(self, booking):
-#         """Calculate total duration of a booking based on its services"""
-#         total_duration = 0
-#         for service in booking.services.all():
-#             total_duration += service.duration_minutes
-#         return total_duration if total_duration > 0 else 30
-
 
 class HandlePaymentFailureView(APIView):
     """Handle payment failure"""
@@ -2512,9 +2054,7 @@ class HandlePaymentFailureView(APIView):
         try:
             data = request.data
             logger.info(f"Payment failure: {data}")
-            
-            # You can store failed payment attempts in database if needed
-            
+                        
             return Response({
                 'success': True,
                 'message': 'Payment failure recorded'
@@ -2527,7 +2067,7 @@ class HandlePaymentFailureView(APIView):
                 'error': str(e)
             }, status=status.HTTP_400_BAD_REQUEST)
         
-from rest_framework.pagination import PageNumberPagination
+
 
 class MyCustomPagination(PageNumberPagination):
     page_size = 10
@@ -2539,12 +2079,10 @@ class ShopBookingsAPIView(APIView):
 
     def get(self, request):
         try:
-            # Check if user is authenticated
             if not request.user.is_authenticated:
                 return Response({'success': False, 'message': 'Authentication required'}, 
                               status=status.HTTP_401_UNAUTHORIZED)
 
-            # Get shop - handle case where shop doesn't exist
             try:
                 shop = Shop.objects.get(user=request.user)
             except Shop.DoesNotExist:
@@ -2552,29 +2090,24 @@ class ShopBookingsAPIView(APIView):
                 return Response({'success': False, 'message': 'Shop not found for this user'}, 
                               status=status.HTTP_404_NOT_FOUND)
 
-            # Get query parameters
             booking_status = request.GET.get('status', None)
             date_filter = request.GET.get('date', None)
             search = request.GET.get('search', None)
 
-            # Start with base queryset
             try:
                 bookings = Booking.objects.filter(shop=shop)
                 bookings = bookings.select_related('user', 'shop')
-                # Only uncomment if 'services' relationship exists
-                # bookings = bookings.prefetch_related('services')
+
             except Exception as e:
                 logger.error(f"Error building base queryset: {str(e)}")
                 return Response({'success': False, 'message': 'Database query error'}, 
                               status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # Apply status filter
             if booking_status and booking_status != 'all':
                 valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
                 if booking_status in valid_statuses:
                     bookings = bookings.filter(booking_status=booking_status)
 
-            # Apply date filter
             if date_filter:
                 try:
                     filter_date = datetime.strptime(date_filter, '%Y-%m-%d').date()
@@ -2582,7 +2115,6 @@ class ShopBookingsAPIView(APIView):
                 except ValueError:
                     logger.warning(f"Invalid date format: {date_filter}")
 
-            # Apply search filter
             if search:
                 search_filters = Q()
                 try:
@@ -2593,18 +2125,15 @@ class ShopBookingsAPIView(APIView):
                 except Exception as e:
                     logger.error(f"Error applying search filters: {str(e)}")
 
-            # Order results
             try:
                 bookings = bookings.order_by('-appointment_date', '-appointment_time')
             except Exception as e:
                 logger.error(f"Error ordering bookings: {str(e)}")
                 bookings = bookings.order_by('-id')
 
-            # Apply pagination
             paginator = MyCustomPagination()
             paginated_bookings = paginator.paginate_queryset(bookings, request)
             
-            # Serialize data
             try:
                 serializer = BookingSerializer(paginated_bookings, many=True)
                 booking_data = serializer.data
@@ -2613,12 +2142,10 @@ class ShopBookingsAPIView(APIView):
                 return Response({'success': False, 'message': 'Data serialization error'}, 
                               status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # Get pagination info
             total_count = paginator.page.paginator.count
             total_pages = paginator.page.paginator.num_pages
             current_page = paginator.page.number
 
-            # Return custom response structure that matches your frontend
             return Response({
                 'success': True,
                 'bookings': booking_data,
@@ -2640,14 +2167,12 @@ class BookingStatusUpdateAPIView(APIView):
 
     def patch(self, request, booking_id):
         try:
-            # Get shop
             try:
                 shop = Shop.objects.get(user=request.user)
             except Shop.DoesNotExist:
                 return Response({'success': False, 'message': 'Shop not found for this user'}, 
                               status=status.HTTP_404_NOT_FOUND)
 
-            # Get booking
             try:
                 booking = Booking.objects.get(id=booking_id, shop=shop)
             except Booking.DoesNotExist:
@@ -2656,13 +2181,11 @@ class BookingStatusUpdateAPIView(APIView):
 
             new_status = request.data.get('status')
 
-            # Validate status
             valid_statuses = ['pending', 'confirmed', 'completed', 'cancelled']
             if new_status not in valid_statuses:
                 return Response({'success': False, 'message': 'Invalid status'}, 
                               status=status.HTTP_400_BAD_REQUEST)
 
-            # Update status based on value
             try:
                 if new_status == 'confirmed':
                     if hasattr(booking, 'mark_confirmed'):
@@ -2672,14 +2195,12 @@ class BookingStatusUpdateAPIView(APIView):
                         booking.save()
                         
                 elif new_status == 'completed':
-                    # Check if appointment time has passed
                     if not booking.is_appointment_time_passed():
                         return Response({
                             'success': False, 
                             'message': 'Booking cannot be completed before the appointment time'
                         }, status=status.HTTP_400_BAD_REQUEST)
                     
-                    # Check if booking is confirmed
                     if booking.booking_status != 'confirmed':
                         return Response({
                             'success': False, 
@@ -2716,7 +2237,6 @@ class BookingStatusUpdateAPIView(APIView):
                 return Response({'success': False, 'message': 'Failed to update booking status'}, 
                               status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # Serialize updated booking
             try:
                 serializer = BookingSerializer(booking)
                 return Response({
@@ -2743,7 +2263,6 @@ class BookingStatsAPIView(APIView):
 
     def get(self, request):
         try:
-            # Get shop
             try:
                 shop = Shop.objects.get(user=request.user)
             except Shop.DoesNotExist:
@@ -2752,8 +2271,6 @@ class BookingStatsAPIView(APIView):
                               status=status.HTTP_404_NOT_FOUND)
 
             today = date.today()
-
-            # Get all stats with individual error handling
             stats = {}
             
             try:
@@ -2805,9 +2322,7 @@ class BookingStatsAPIView(APIView):
 
 
 class UserBookingListView(generics.ListAPIView):
-    """
-    List all bookings for the authenticated user with pagination
-    """
+
     serializer_class = BookingSerializer
     permission_classes = [IsAuthenticated]
     pagination_class = MyCustomPagination
@@ -2835,7 +2350,6 @@ class MyCustomPagination(PageNumberPagination):
 
 
 class WalletBalanceView(APIView):
-    """Get user's wallet balance"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
@@ -2863,7 +2377,6 @@ class WalletBalanceView(APIView):
 
 
 class WalletTransactionsView(APIView):
-    """Get user's wallet transaction history"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
@@ -2873,23 +2386,18 @@ class WalletTransactionsView(APIView):
                 defaults={'balance': Decimal('0.00')}
             )
             
-            # Get query parameters for filtering
-            transaction_type = request.GET.get('type', None)  # 'credit' or 'debit'
+            transaction_type = request.GET.get('type', None) 
             
-            # Filter transactions
             transactions_query = wallet.transactions.all()
             
             if transaction_type in ['credit', 'debit']:
                 transactions_query = transactions_query.filter(transaction_type=transaction_type)
             
-            # Order by latest first
             transactions_query = transactions_query.order_by('-timestamp')
             
-            # Apply pagination
             paginator = MyCustomPagination()
             paginated_transactions = paginator.paginate_queryset(transactions_query, request)
             
-            # Serialize transactions
             transactions_data = []
             for txn in paginated_transactions:
                 transactions_data.append({
@@ -2901,14 +2409,11 @@ class WalletTransactionsView(APIView):
                     'formatted_date': txn.timestamp.strftime('%Y-%m-%d %H:%M:%S')
                 })
             
-            # Get paginated response
             paginated_response = paginator.get_paginated_response(transactions_data)
             
-            # Add wallet balance to the response
             paginated_response.data['current_balance'] = float(wallet.balance)
             paginated_response.data['success'] = True
             
-            # Restructure to match your frontend expectations
             return Response({
                 'success': True,
                 'data': {
@@ -2934,7 +2439,6 @@ class WalletTransactionsView(APIView):
 
 
 class AddMoneyToWalletView(APIView):
-    """Add money to user's wallet"""
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
@@ -2944,7 +2448,6 @@ class AddMoneyToWalletView(APIView):
             payment_method = request.data.get('payment_method', 'online')
             payment_id = request.data.get('payment_id', None)
             
-            # Validate amount
             if not amount:
                 return Response({
                     'success': False,
@@ -2961,15 +2464,12 @@ class AddMoneyToWalletView(APIView):
                     'error': 'Invalid amount format'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Get or create wallet
             wallet, created = Wallet.objects.get_or_create(
                 user=request.user,
                 defaults={'balance': Decimal('0.00')}
             )
             
-            # Create transaction in atomic block
             with transaction.atomic():
-                # Create wallet transaction
                 wallet_transaction = WalletTransaction.objects.create(
                     wallet=wallet,
                     transaction_type='credit',
@@ -2977,7 +2477,6 @@ class AddMoneyToWalletView(APIView):
                     description=f"{description} - Payment ID: {payment_id}" if payment_id else description
                 )
                 
-                # Wallet balance is automatically updated in WalletTransaction.save()
                 wallet.refresh_from_db()
                 
                 return Response({
@@ -2999,25 +2498,6 @@ class AddMoneyToWalletView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# Updated CreateBookingView to handle wallet payment
-# Add this import at the top of your file
-from chat.models import Conversation, Message
-
-import logging
-from django.db import transaction
-from django.shortcuts import get_object_or_404
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from decimal import Decimal
-from datetime import datetime
-import math
-from django.core.cache import cache
-
-# Set up logging
-logger = logging.getLogger(__name__)
-
 class CreateBookingView(APIView):
     """
     Create a new booking with duration-based slot reservation and wallet payment
@@ -3029,7 +2509,6 @@ class CreateBookingView(APIView):
         try:
             booking_data = request.data
             
-            # Validate required fields
             required_fields = ['shop', 'services', 'appointment_date', 'appointment_time']
             missing_fields = [field for field in required_fields if field not in booking_data]
             
@@ -3039,14 +2518,11 @@ class CreateBookingView(APIView):
                     'error': f'Missing required fields: {", ".join(missing_fields)}'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Validate shop exists
             shop_id = booking_data.get('shop')
             shop = get_object_or_404(Shop, id=shop_id)
             
-            # DEBUG: Log shop information
             logger.info(f"Shop found: {shop.name}, ID: {shop.id}")
             
-            # Validate services exist
             service_ids = booking_data.get('services', [])
             if not service_ids:
                 return Response({
@@ -3070,7 +2546,6 @@ class CreateBookingView(APIView):
             total_duration = sum(service.duration_minutes for service in services)
             slots_needed = math.ceil(total_duration / 30)
             
-            # Validate date and time
             try:
                 appointment_date = datetime.strptime(
                     booking_data['appointment_date'], '%Y-%m-%d'
@@ -3084,12 +2559,10 @@ class CreateBookingView(APIView):
                     'error': 'Invalid date or time format'
                 }, status=status.HTTP_400_BAD_REQUEST)
            
-            # Clean up expired reservations
             TemporarySlotReservation.objects.filter(
                 expires_at__lt=timezone.now()
             ).delete()
 
-            # Check if user has a valid reservation for this slot
             user_reservation = TemporarySlotReservation.objects.filter(
                 user=request.user,
                 shop=shop,
@@ -3121,24 +2594,19 @@ class CreateBookingView(APIView):
             
             payment_method = booking_data.get('payment_method', 'wallet')
             
-            # Handle wallet payment
             if payment_method == 'wallet':
-                # Get or create user's wallet
                 wallet, created = Wallet.objects.get_or_create(
                     user=request.user,
                     defaults={'balance': Decimal('0.00')}
                 )
                 
-                # Check if wallet has sufficient balance
                 if wallet.balance < Decimal(str(total_amount)):
                     return Response({
                         'success': False,
                         'error': f'Insufficient wallet balance. Required: ₹{total_amount}, Available: ₹{wallet.balance}'
                     }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Create booking in atomic transaction
             with transaction.atomic():
-                # Create booking
                 logger.info('Creating booking...')
                 booking = Booking.objects.create(
                     user=request.user,
@@ -3154,10 +2622,8 @@ class CreateBookingView(APIView):
                 
                 logger.info(f"Booking created with ID: {booking.id}")
                 
-                # Add services to booking
                 booking.services.set(services)
                 
-                # Remove the temporary reservation after successful booking
                 if user_reservation:
                     user_reservation.delete()
                     logger.info(f"Removed user's temporary reservation for booking {booking.id}")
@@ -3170,9 +2636,7 @@ class CreateBookingView(APIView):
                     ).delete()[0]
                     logger.info(f"Removed {deleted_count} temporary reservations for slot")
                 
-                # Process wallet payment
                 if payment_method == 'wallet':
-                    # Deduct amount from wallet
                     wallet_transaction = WalletTransaction.objects.create(
                         wallet=wallet,
                         transaction_type='debit',
@@ -3180,15 +2644,12 @@ class CreateBookingView(APIView):
                         description=f'Booking payment - Booking ID: {booking.id} - {shop.name}'
                     )
                     
-                    # Update booking payment status
                     booking.payment_status = 'paid'
                     booking.save()
                     
-                # Send notification to shop owner about new booking
                 logger.info(f"Preparing notification for booking {booking.id}")
                 
                 try:
-                    # Get shop owner (sender is booking user, receiver is shop owner)
                     shop_owner = None
                     if hasattr(shop, 'user'):
                         shop_owner = shop.user
@@ -3201,7 +2662,6 @@ class CreateBookingView(APIView):
                         logger.error("Shop owner is None for notification!")
                         raise Exception("Shop owner is None")
                     
-                    # Check if shop owner is different from booking user
                     if request.user.id == shop_owner.id:
                         logger.warning("User is booking their own shop - skipping notification")
                     else:
@@ -3210,16 +2670,14 @@ class CreateBookingView(APIView):
                         curr_users = cache.get(ONLINE_USERS, [])
                         logger.info(f"Current online users: {curr_users}")
                         
-                        # Check if shop owner is online
                         is_shop_owner_online = shop_owner.id in [user["id"] for user in curr_users]
                         logger.info(f"Shop owner {shop_owner.id} online status: {is_shop_owner_online}")
                         
                         if is_shop_owner_online:
-                            # Send real-time notification via WebSocket
+                            # Send real-time notification 
                             logger.info("Sending real-time notification to shop owner")
                             channel_layer = get_channel_layer()
                             
-                            # Create notification message
                             notification_message = f"New booking from {request.user.username} for {shop.name}"
                             
                             data = {
@@ -3243,10 +2701,9 @@ class CreateBookingView(APIView):
                         else:
                             logger.info("Shop owner is offline, notification will be stored in database only")
                         
-                        # Always create database notification for persistence
                         notification = Notification.objects.create(
-                            sender=request.user,  # Booking user is the sender
-                            receiver=shop_owner,  # Shop owner is the receiver
+                            sender=request.user,  
+                            receiver=shop_owner, 
                             message=f"New booking from {request.user.username} for {shop.name}",
                         )
                         logger.info(f"Database notification created with ID: {notification.id}")
@@ -3254,19 +2711,12 @@ class CreateBookingView(APIView):
                 except Exception as notification_error:
                     logger.error(f"Error sending notification: {str(notification_error)}")
                     logger.error(f"Notification error type: {type(notification_error)}")
-                    # Don't fail the entire booking - log error but continue
                     logger.warning("Notification failed, but booking will continue")
 
-                # Calculate end time for response
                 time_slots_view = AvailableTimeSlotsView()
                 end_time = time_slots_view._add_minutes_to_time(appointment_time, total_duration)
 
-                # DEBUG: Create or get conversation between user and shop owner
                 try:
-                    # Check if shop has a user/owner field
-                    # logger.info(f"Shop object attributes: {dir(shop)}")
-                    
-                    # Try different possible field names for shop owner
                     shop_owner = None
                     if hasattr(shop, 'user'):
                         shop_owner = shop.user
@@ -3335,7 +2785,6 @@ class CreateBookingView(APIView):
                 except Exception as conversation_error:
                     logger.error(f"Error creating conversation: {str(conversation_error)}")
                     logger.error(f"Error type: {type(conversation_error)}")
-                    # Don't fail the entire booking - log error but continue
                     logger.warning("Conversation creation failed, but booking will continue")
 
                 response_data = {
@@ -3379,7 +2828,6 @@ class CreateBookingView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# Fixed cancel_booking view - Remove manual wallet balance update
 @api_view(['PATCH'])
 @permission_classes([IsAuthenticated])
 def cancel_booking(request, booking_id):
@@ -3389,14 +2837,12 @@ def cancel_booking(request, booking_id):
     try:
         booking = get_object_or_404(Booking, id=booking_id, user=request.user)
         
-        # Check if booking can be cancelled based on status
         if booking.booking_status in ['completed', 'cancelled']:
             return Response(
                 {'error': 'Cannot cancel a booking that is already completed or cancelled'}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Get cancellation reason from request
         cancellation_reason = request.data.get('reason', '').strip()
         
         if not cancellation_reason:
@@ -3405,19 +2851,15 @@ def cancel_booking(request, booking_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if cancellation is allowed based on time
         try:
-            # Handle different date field types
             if hasattr(booking.appointment_date, 'date'):
                 appointment_date = booking.appointment_date.date()
             else:
                 appointment_date = booking.appointment_date
             
-            # Parse appointment time
             appointment_time_str = str(booking.appointment_time)
             appointment_datetime = None
             
-            # Try different time parsing approaches
             time_formats = [
                 '%H:%M:%S', '%H:%M', '%I:%M %p', '%I:%M:%S %p',
             ]
@@ -3446,7 +2888,6 @@ def cancel_booking(request, booking_id):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Make datetime timezone aware
             if timezone.is_naive(appointment_datetime):
                 appointment_datetime = timezone.make_aware(appointment_datetime)
             
@@ -3478,12 +2919,9 @@ def cancel_booking(request, booking_id):
             logger.error(f"Error parsing appointment datetime for booking {booking_id}: {str(e)}")
             pass
         
-        # Process cancellation and refund in atomic transaction
         with transaction.atomic():
-            # Update booking status
             booking.booking_status = 'cancelled'
             
-            # Add cancellation reason to notes
             current_notes = booking.notes or ""
             cancellation_note = f"Cancellation Reason: {cancellation_reason}"
             
@@ -3492,28 +2930,23 @@ def cancel_booking(request, booking_id):
             else:
                 booking.notes = cancellation_note
             
-            # Add cancellation timestamp
             try:
                 cancellation_timestamp = timezone.now().strftime("%Y-%m-%d %H:%M:%S")
                 booking.notes = f"{booking.notes}\nCancelled on: {cancellation_timestamp}"
             except Exception:
                 pass
             
-            # Handle wallet refund for paid bookings
             refund_amount = 0
             if booking.payment_status == 'paid' and (booking.payment_method == 'wallet' or booking.payment_method == 'razorpay'):
                 try:
-                    # Check if already refunded to prevent double refunds
                     if booking.payment_status == 'refunded':
                         logger.warning(f"Booking {booking_id} already refunded, skipping refund")
                     else:
-                        # Get user's wallet
                         wallet, created = Wallet.objects.get_or_create(
                             user=request.user,
                             defaults={'balance': Decimal('0.00')}
                         )
                         
-                        # Create refund transaction
                         refund_amount = booking.total_amount
                         wallet_transaction = WalletTransaction.objects.create(
                             wallet=wallet,
@@ -3522,22 +2955,18 @@ def cancel_booking(request, booking_id):
                             description=f'Refund for cancelled booking - Booking ID: {booking.id} - {booking.shop.name}'
                         )
                         
-                        # Refresh wallet to get updated balance
                         wallet.refresh_from_db()
                         
-                        # Update booking payment status
                         booking.payment_status = 'refunded'
                         
                         logger.info(f"Refunded ₹{refund_amount} to wallet for booking {booking_id}")
                     
                 except Exception as e:
                     logger.error(f"Error processing wallet refund for booking {booking_id}: {str(e)}")
-                    # Continue with cancellation even if refund fails
                     pass
             
             booking.save()
             
-            # Send notification to shop owner about booking cancellation
             try:
                 shop_owner = None
                 if hasattr(booking.shop, 'user'):
@@ -3551,25 +2980,20 @@ def cancel_booking(request, booking_id):
                     logger.error("Shop owner is None for cancellation notification!")
                     raise Exception("Shop owner is None")
                 
-                # Check if shop owner is different from booking user
                 if request.user.id == shop_owner.id:
                     logger.warning("User is cancelling their own shop booking - skipping notification")
                 else:
-                    # Check if shop owner is online
                     ONLINE_USERS = f'chat:online_users'
                     curr_users = cache.get(ONLINE_USERS, [])
                     logger.info(f"Current online users: {curr_users}")
                     
-                    # Check if shop owner is online
                     is_shop_owner_online = shop_owner.id in [user["id"] for user in curr_users]
                     logger.info(f"Shop owner {shop_owner.id} online status: {is_shop_owner_online}")
                     
                     if is_shop_owner_online:
-                        # Send real-time notification via WebSocket
                         logger.info("Sending real-time cancellation notification to shop owner")
                         channel_layer = get_channel_layer()
                         
-                        # Create notification message
                         notification_message = f"Booking cancelled by {request.user.username} for {booking.shop.name}"
                         
                         data = {
@@ -3594,7 +3018,6 @@ def cancel_booking(request, booking_id):
                     else:
                         logger.info("Shop owner is offline, cancellation notification will be stored in database only")
                     
-                    # Always create database notification for persistence
                     notification = Notification.objects.create(
                         sender=request.user,
                         receiver=shop_owner,
@@ -3605,10 +3028,8 @@ def cancel_booking(request, booking_id):
             except Exception as notification_error:
                 logger.error(f"Error sending cancellation notification: {str(notification_error)}")
                 logger.error(f"Cancellation notification error type: {type(notification_error)}")
-                # Don't fail the entire cancellation - log error but continue
                 logger.warning("Cancellation notification failed, but booking cancellation will continue")
         
-        # Serialize the booking data
         try:
             serializer = BookingSerializer(booking)
             booking_data = serializer.data
@@ -3650,7 +3071,6 @@ class BookingFeedbackView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request, booking_id, *args, **kwargs):
-        """Get feedback for a specific booking"""
         try:
             booking = get_object_or_404(Booking, id=booking_id, user=request.user)
             
@@ -3678,29 +3098,24 @@ class BookingFeedbackView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def post(self, request, booking_id, *args, **kwargs):
-        """Submit feedback for a completed booking"""
         try:
-            # Log the incoming request data for debugging
             logger.info(f"Feedback submission for booking {booking_id} by user {request.user.id}")
             logger.debug(f"Request data: {request.data}")
             
             booking = get_object_or_404(Booking, id=booking_id, user=request.user)
             
-            # Validate booking status
             if booking.booking_status != 'completed':
                 logger.warning(f"Attempted feedback submission for non-completed booking {booking_id}")
                 return Response({
                     'error': 'Feedback can only be submitted for completed bookings'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Check if feedback already exists
             if booking.has_feedback():
                 logger.warning(f"Duplicate feedback submission attempt for booking {booking_id}")
                 return Response({
                     'error': 'Feedback has already been submitted for this booking'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Validate required fields
             rating = request.data.get('rating')
             if not rating:
                 return Response({
@@ -3717,7 +3132,6 @@ class BookingFeedbackView(APIView):
                     'error': 'Rating must be an integer between 1 and 5'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Validate optional ratings
             optional_ratings = ['service_quality', 'staff_behavior', 'cleanliness', 'value_for_money']
             validated_data = {'rating': rating}
             
@@ -3732,9 +3146,8 @@ class BookingFeedbackView(APIView):
                             logger.warning(f"Optional rating {field} out of range: {value}")
                     except (ValueError, TypeError):
                         logger.warning(f"Invalid optional rating {field}: {value}")
-                        pass  # Ignore invalid optional ratings
-            
-            # Add other fields
+                        pass 
+
             validated_data.update({
                 'booking': booking,
                 'user': request.user,
@@ -3744,17 +3157,14 @@ class BookingFeedbackView(APIView):
             
             logger.debug(f"Validated data: {validated_data}")
             
-            # Create feedback using transaction
             try:
                 with transaction.atomic():
                     feedback = BookingFeedback.objects.create(**validated_data)
                     logger.info(f"Feedback created successfully with ID: {feedback.id}")
                     
-                    # Send notification to shop owner about new feedback
                     logger.info(f"Preparing notification for feedback {feedback.id}")
                     
                     try:
-                        # Get shop owner (sender is feedback user, receiver is shop owner)
                         shop_owner = None
                         if hasattr(booking.shop, 'user'):
                             shop_owner = booking.shop.user
@@ -3767,25 +3177,20 @@ class BookingFeedbackView(APIView):
                             logger.error("Shop owner is None for notification!")
                             raise Exception("Shop owner is None")
                         
-                        # Check if shop owner is different from feedback user
                         if request.user.id == shop_owner.id:
                             logger.warning("User is providing feedback for their own shop - skipping notification")
                         else:
-                            # Check if shop owner is online
                             ONLINE_USERS = f'chat:online_users'
                             curr_users = cache.get(ONLINE_USERS, [])
                             logger.info(f"Current online users: {curr_users}")
                             
-                            # Check if shop owner is online
                             is_shop_owner_online = shop_owner.id in [user["id"] for user in curr_users]
                             logger.info(f"Shop owner {shop_owner.id} online status: {is_shop_owner_online}")
                             
                             if is_shop_owner_online:
-                                # Send real-time notification via WebSocket
                                 logger.info("Sending real-time notification to shop owner")
                                 channel_layer = get_channel_layer()
                                 
-                                # Create notification message
                                 rating_stars = "⭐" * rating
                                 notification_message = f"New feedback from {request.user.username} for {booking.shop.name} - {rating_stars} ({rating}/5)"
                                 
@@ -3810,11 +3215,10 @@ class BookingFeedbackView(APIView):
                             else:
                                 logger.info("Shop owner is offline, notification will be stored in database only")
                             
-                            # Always create database notification for persistence
                             rating_stars = "⭐" * rating
                             notification = Notification.objects.create(
-                                sender=request.user,  # Feedback user is the sender
-                                receiver=shop_owner,  # Shop owner is the receiver
+                                sender=request.user, 
+                                receiver=shop_owner, 
                                 message=f"New feedback from {request.user.username} for {booking.shop.name} - {rating_stars} ({rating}/5)"
                             )
                             logger.info(f"Database notification created with ID: {notification.id}")
@@ -3822,20 +3226,17 @@ class BookingFeedbackView(APIView):
                     except Exception as notification_error:
                         logger.error(f"Error sending notification: {str(notification_error)}")
                         logger.error(f"Notification error type: {type(notification_error)}")
-                        # Don't fail the entire feedback - log error but continue
                         logger.warning("Notification failed, but feedback will continue")
                         
             except Exception as db_error:
                 logger.error(f"Database error creating feedback: {str(db_error)}")
                 raise
             
-            # Serialize the response
             try:
                 serializer = BookingFeedbackSerializer(feedback)
                 serialized_data = serializer.data
             except Exception as serializer_error:
                 logger.error(f"Serializer error: {str(serializer_error)}")
-                # Return success but with basic data if serializer fails
                 return Response({
                     'message': 'Feedback submitted successfully',
                     'feedback': {'id': feedback.id, 'rating': feedback.rating}
@@ -3858,13 +3259,10 @@ class BookingFeedbackView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class UserBookingFeedbackListView(APIView):
-    """
-    Get all feedback submitted by the authenticated user
-    """
+
     permission_classes = [IsAuthenticated]
     
     def get(self, request, *args, **kwargs):
-        """Get all feedback by the user"""
         try:
             feedbacks = BookingFeedback.objects.filter(
                 user=request.user
@@ -3882,14 +3280,6 @@ class UserBookingFeedbackListView(APIView):
             return Response({
                 'error': f'Failed to fetch feedbacks: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-        
-
-
-
-
-
-
-
 
 
 class NotificationListView(APIView):
@@ -3897,31 +3287,25 @@ class NotificationListView(APIView):
     
     def get(self, request):
         try:
-            # Get query parameters with proper type conversion
             page = int(request.GET.get('page', 1))
             per_page = int(request.GET.get('per_page', 20))
             unread_only = request.GET.get('unread_only', 'false').lower() == 'true'
             
-            # Validate parameters
             if page < 1:
                 page = 1
             if per_page < 1 or per_page > 100:
                 per_page = 20
             
-            # Get user's notifications
             notifications = Notification.objects.filter(
                 receiver=request.user
             ).select_related('sender').order_by('-timestamp')
             
-            # Filter unread notifications if requested
             if unread_only:
                 notifications = notifications.filter(is_read=False)
             
-            # Paginate results
             paginator = Paginator(notifications, per_page)
             page_obj = paginator.get_page(page)
             
-            # Serialize notifications
             notifications_data = []
             for notification in page_obj:
                 sender_data = {
@@ -3940,7 +3324,6 @@ class NotificationListView(APIView):
                     'time_ago': self.get_time_ago(notification.timestamp)
                 })
             
-            # Get unread count
             unread_count = Notification.objects.filter(
                 receiver=request.user, 
                 is_read=False
@@ -4080,26 +3463,6 @@ class NotificationDeleteView(APIView):
         
 
 
-
-
-
-
-
-
-
-
-
-
-import math
-from datetime import datetime, timedelta, time
-from django.shortcuts import get_object_or_404
-from django.utils import timezone
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-
-
 class SlotReservationView(APIView):
     """
     Handle temporary slot reservations based on actual service durations
@@ -4110,29 +3473,26 @@ class SlotReservationView(APIView):
         """Reserve slots temporarily based on selected services"""
         try:
             data = request.data
-            print(f"DEBUG: Received data: {data}")  # Debug log
+            print(f"DEBUG: Received data: {data}") 
             
             shop_id = data.get('shop')
             appointment_date = data.get('appointment_date')
             appointment_time = data.get('appointment_time')
-            service_ids = data.get('services', [])  # List of service IDs
+            service_ids = data.get('services', []) 
             
-            print(f"DEBUG: service_ids before conversion: {service_ids}, type: {type(service_ids)}")  # Debug log
+            print(f"DEBUG: service_ids before conversion: {service_ids}, type: {type(service_ids)}")  
             
-            # Ensure service_ids is always a list
             if not isinstance(service_ids, list):
                 service_ids = [service_ids] if service_ids else []
                 
-            print(f"DEBUG: service_ids after conversion: {service_ids}, type: {type(service_ids)}")  # Debug log
+            print(f"DEBUG: service_ids after conversion: {service_ids}, type: {type(service_ids)}")  
             
-            # Validate required fields
             if not all([shop_id, appointment_date, appointment_time, service_ids]):
                 return Response({
                     'success': False,
                     'error': 'Missing required fields: shop, appointment_date, appointment_time, services'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Parse date and time
             try:
                 appointment_date = datetime.strptime(appointment_date, '%Y-%m-%d').date()
                 appointment_time = datetime.strptime(appointment_time, '%H:%M').time()
@@ -4142,16 +3502,13 @@ class SlotReservationView(APIView):
                     'error': 'Invalid date or time format'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
-            # Check if shop exists
             shop = get_object_or_404(Shop, id=shop_id)
             
-            # Get selected services and calculate total duration
             try:
-                print(f"DEBUG: Querying services with IDs: {service_ids}")  # Debug log
+                print(f"DEBUG: Querying services with IDs: {service_ids}")  
                 services = Service.objects.filter(id__in=service_ids, shop=shop, is_active=True)
-                print(f"DEBUG: Found {services.count()} services")  # Debug log
+                print(f"DEBUG: Found {services.count()} services") 
                 
-                # ADDED: Better error handling with debugging information
                 if not services.exists():
                     available_service_ids = list(Service.objects.filter(shop=shop, is_active=True).values_list('id', flat=True))
                     return Response({
@@ -4160,26 +3517,25 @@ class SlotReservationView(APIView):
                     }, status=status.HTTP_400_BAD_REQUEST)
                 
                 # Calculate total duration and service end time
-                print("DEBUG: Calculating total duration...")  # Debug log
+                print("DEBUG: Calculating total duration...") 
                 total_duration = sum(service.duration_minutes for service in services)
-                print(f"DEBUG: Total duration: {total_duration}")  # Debug log
+                print(f"DEBUG: Total duration: {total_duration}") 
                 
             except Exception as e:
-                print(f"DEBUG: Error in services section: {str(e)}")  # Debug log
+                print(f"DEBUG: Error in services section: {str(e)}")  
                 raise
             service_end_time = self._add_minutes_to_time(appointment_time, total_duration)
             
             # Calculate how many 30-minute slots we need to cover the entire service duration
             slots_needed = math.ceil(total_duration / 30)
             
-            # Clean up expired reservations first
             self._cleanup_expired_reservations()
             
             # Check if all required slots are available
             try:
-                print("DEBUG: Checking if service slots are available...")  # Debug log
+                print("DEBUG: Checking if service slots are available...")  
                 slots_available = self._are_service_slots_available(shop_id, appointment_date, appointment_time, total_duration, request.user)
-                print(f"DEBUG: Slots available: {slots_available}")  # Debug log
+                print(f"DEBUG: Slots available: {slots_available}") 
                 
                 if not slots_available:
                     return Response({
@@ -4187,7 +3543,7 @@ class SlotReservationView(APIView):
                         'error': 'Selected time slot is no longer available for the chosen services'
                     }, status=status.HTTP_400_BAD_REQUEST)
             except Exception as e:
-                print(f"DEBUG: Error checking slot availability: {str(e)}")  # Debug log
+                print(f"DEBUG: Error checking slot availability: {str(e)}") 
                 raise
             
             # Remove any existing reservation by this user for this shop on this date
@@ -4197,7 +3553,6 @@ class SlotReservationView(APIView):
                 appointment_date=appointment_date
             ).delete()
             
-            # Create reservations for all affected slots
             reservations_created = []
             
             for i in range(slots_needed):
@@ -4212,14 +3567,14 @@ class SlotReservationView(APIView):
                     total_service_duration=total_duration,
                     service_end_time=service_end_time,
                     expires_at=timezone.now() + timedelta(minutes=10),
-                    service_ids=service_ids  # Store selected services
+                    service_ids=service_ids 
                 )
                 reservations_created.append(reservation)
             
             return Response({
                 'success': True,
                 'data': {
-                    'reservation_id': reservations_created[0].id,  # Primary reservation ID
+                    'reservation_id': reservations_created[0].id, 
                     'expires_at': reservations_created[0].expires_at.isoformat(),
                     'service_start_time': appointment_time.strftime('%H:%M'),
                     'service_end_time': service_end_time.strftime('%H:%M'),
@@ -4231,10 +3586,10 @@ class SlotReservationView(APIView):
             }, status=status.HTTP_201_CREATED)
             
         except Exception as e:
-            print(f"DEBUG: Exception in post method: {str(e)}")  # Debug log
-            print(f"DEBUG: Exception type: {type(e)}")  # Debug log
+            print(f"DEBUG: Exception in post method: {str(e)}")  
+            print(f"DEBUG: Exception type: {type(e)}") 
             import traceback
-            print(f"DEBUG: Traceback: {traceback.format_exc()}")  # Debug log
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")  
             return Response({
                 'success': False,
                 'error': f'An error occurred: {str(e)}'
@@ -4248,14 +3603,12 @@ class SlotReservationView(APIView):
             appointment_date = request.data.get('appointment_date')
             
             if reservation_id:
-                # Get the primary reservation to find related reservations
                 primary_reservation = TemporarySlotReservation.objects.filter(
                     id=reservation_id,
                     user=request.user
                 ).first()
                 
                 if primary_reservation:
-                    # Release all related reservations (same shop, date, user)
                     TemporarySlotReservation.objects.filter(
                         user=request.user,
                         shop=primary_reservation.shop,
@@ -4263,7 +3616,6 @@ class SlotReservationView(APIView):
                     ).delete()
                     
             elif shop_id and appointment_date:
-                # Release all reservations by this user for this shop on this date
                 appointment_date = datetime.strptime(appointment_date, '%Y-%m-%d').date()
                 TemporarySlotReservation.objects.filter(
                     user=request.user,
@@ -4298,72 +3650,68 @@ class SlotReservationView(APIView):
         Check if all slots needed for the service duration are available
         """
         try:
-            print(f"DEBUG: _are_service_slots_available called with duration: {total_duration_minutes}")  # Debug log
+            print(f"DEBUG: _are_service_slots_available called with duration: {total_duration_minutes}") 
             
             slots_needed = math.ceil(total_duration_minutes / 30)
             service_end_time = self._add_minutes_to_time(start_time, total_duration_minutes)
             
-            print(f"DEBUG: slots_needed: {slots_needed}, service_end_time: {service_end_time}")  # Debug log
+            print(f"DEBUG: slots_needed: {slots_needed}, service_end_time: {service_end_time}") 
             
             # Check each 30-minute slot that the service will occupy
             for i in range(slots_needed):
-                print(f"DEBUG: Checking slot {i + 1} of {slots_needed}")  # Debug log
+                print(f"DEBUG: Checking slot {i + 1} of {slots_needed}")  
                 
                 slot_start_time = self._add_minutes_to_time(start_time, i * 30)
                 slot_end_time = self._add_minutes_to_time(slot_start_time, 30)
                 
-                # For the last slot, only check until the actual service end time
                 if i == slots_needed - 1:
                     slot_end_time = service_end_time
                 
-                print(f"DEBUG: Slot time range: {slot_start_time} - {slot_end_time}")  # Debug log
+                print(f"DEBUG: Slot time range: {slot_start_time} - {slot_end_time}") 
                 
-                # Check for existing bookings that overlap with this slot
-                print("DEBUG: Checking for overlapping bookings...")  # Debug log
+                print("DEBUG: Checking for overlapping bookings...") 
                 overlapping_bookings = Booking.objects.filter(
                     shop_id=shop_id,
                     appointment_date=date,
                     booking_status__in=['confirmed', 'pending']
                 )
                 
-                print(f"DEBUG: Found {overlapping_bookings.count()} bookings to check")  # Debug log
+                print(f"DEBUG: Found {overlapping_bookings.count()} bookings to check") 
                 
                 for booking in overlapping_bookings:
-                    print(f"DEBUG: Checking booking {booking.id}")  # Debug log
-                    # Calculate booking end time based on services - FIXED THIS LINE
-                    booking_services = booking.services.all()  # Fixed: was Booking.services.all()
-                    print(f"DEBUG: Booking has {booking_services.count()} services")  # Debug log
+                    print(f"DEBUG: Checking booking {booking.id}") 
+                    booking_services = booking.services.all() 
+                    print(f"DEBUG: Booking has {booking_services.count()} services") 
                     
                     booking_duration = sum(s.duration_minutes for s in booking_services)
                     if booking_duration == 0:
-                        booking_duration = 30  # Default duration
+                        booking_duration = 30  
                         
-                    print(f"DEBUG: Booking duration: {booking_duration}")  # Debug log
+                    print(f"DEBUG: Booking duration: {booking_duration}")
                         
                     booking_end_time = self._add_minutes_to_time(
                         booking.appointment_time, 
                         booking_duration
                     )
                     
-                    print(f"DEBUG: Booking time range: {booking.appointment_time} - {booking_end_time}")  # Debug log
+                    print(f"DEBUG: Booking time range: {booking.appointment_time} - {booking_end_time}")
                     
                     # Check for time overlap
                     if self._times_overlap(
                         slot_start_time, slot_end_time,
                         booking.appointment_time, booking_end_time
                     ):
-                        print("DEBUG: Found overlap, slot not available")  # Debug log
+                        print("DEBUG: Found overlap, slot not available")  
                         return False
                 
-                print("DEBUG: Checking for overlapping reservations...")  # Debug log
-                # Check for existing reservations (excluding current user's reservations)
+                print("DEBUG: Checking for overlapping reservations...") 
                 overlapping_reservations = TemporarySlotReservation.objects.filter(
                     shop_id=shop_id,
                     appointment_date=date,
                     expires_at__gt=timezone.now()
                 ).exclude(user=current_user)
                 
-                print(f"DEBUG: Found {overlapping_reservations.count()} reservations to check")  # Debug log
+                print(f"DEBUG: Found {overlapping_reservations.count()} reservations to check")  
                 
                 for reservation in overlapping_reservations:
                     reservation_end_time = self._add_minutes_to_time(
@@ -4375,16 +3723,16 @@ class SlotReservationView(APIView):
                         slot_start_time, slot_end_time,
                         reservation.appointment_time, reservation_end_time
                     ):
-                        print("DEBUG: Found reservation overlap, slot not available")  # Debug log
+                        print("DEBUG: Found reservation overlap, slot not available") 
                         return False
             
-            print("DEBUG: All slots are available")  # Debug log
+            print("DEBUG: All slots are available") 
             return True
             
         except Exception as e:
-            print(f"DEBUG: Exception in _are_service_slots_available: {str(e)}")  # Debug log
+            print(f"DEBUG: Exception in _are_service_slots_available: {str(e)}") 
             import traceback
-            print(f"DEBUG: Traceback: {traceback.format_exc()}")  # Debug log
+            print(f"DEBUG: Traceback: {traceback.format_exc()}")
             raise
     
     def _times_overlap(self, start1, end1, start2, end2):
@@ -4396,14 +3744,11 @@ class SlotReservationView(APIView):
         if isinstance(time_obj, str):
             time_obj = datetime.strptime(time_obj, '%H:%M').time()
         
-        # Convert time to datetime, add minutes, then back to time
         today = datetime.today()
         dt = datetime.combine(today, time_obj)
         new_dt = dt + timedelta(minutes=minutes)
         
-        # Handle day overflow
         if new_dt.date() != today.date():
-            # If we overflow to the next day, cap at 23:59
             return time(23, 59)
         
         return new_dt.time()

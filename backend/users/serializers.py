@@ -1,4 +1,3 @@
-# serializers.py
 import re
 
 from users.tasks import send_forgot_password_otp_task, send_registration_otp_task
@@ -13,7 +12,6 @@ from django.conf import settings
 import logging
 from django.core.exceptions import ObjectDoesNotExist
 
-# Set up logger
 logger = logging.getLogger(__name__)
 
 
@@ -34,21 +32,20 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
         model = CustomUser
         fields = ('id','display_name', 'display_image', 'first_name', 'last_name', 'username', 'email', 'password', 'role', 'phone','current_latitude', 'current_longitude', 'location_enabled')
         extra_kwargs = {
-            'password': {'write_only': True}  # Make password write-only
+            'password': {'write_only': True}  
         }
     
-    def validate_current_latitude(self, value):  # Fixed method name
+    def validate_current_latitude(self, value): 
         if value is not None and not (-90 <= float(value) <= 90):
             raise serializers.ValidationError("Latitude must be between -90 and 90 degrees.")
         return value
     
-    def validate_current_longitude(self, value):  # Fixed method name
+    def validate_current_longitude(self, value):  
         if value is not None and not (-180 <= float(value) <= 180):
             raise serializers.ValidationError("Longitude must be between -180 and 180 degrees.")
         return value
 
     def validate(self, attrs):
-        # Always set default role to 'user' even if provided in the request
         attrs['role'] = 'user'
         return super().validate(attrs)
 
@@ -64,10 +61,10 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("User with this email already exists, it should be unique")
         return value
         
-    def validate_phone(self, value):  # Fixed method name to match model field
-        if value and not re.match(r'^\+?1?\d{9,15}$', value):  # Updated regex to match model validator
+    def validate_phone(self, value): 
+        if value and not re.match(r'^\+?1?\d{9,15}$', value): 
             raise serializers.ValidationError("Phone number must be in the format: '+999999999'. Up to 15 digits allowed.")
-        if value and CustomUser.objects.filter(phone=value).exists():  # Fixed field name
+        if value and CustomUser.objects.filter(phone=value).exists(): 
             raise serializers.ValidationError("Phone number already exists.")
         return value
         
@@ -80,36 +77,27 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
 
     def create(self, validated_data):
         try:
-            # Extract password from validated data
             password = validated_data.pop('password')
             
-            # Create user instance without saving
             user = CustomUser(**validated_data)
             
-            # Set password (this will hash it automatically)
             user.set_password(password)
             
-            # Set is_active to False until OTP verification
             user.is_active = False
             
-            # Generate OTP
             otp = ''.join(random.choices(string.digits, k=6))
             user.otp = otp
             user.otp_created_at = timezone.now()
             
-            # Save the user
             user.save()
 
             # Send OTP email
-        # Send OTP email asynchronously using Celery
-            # Import the actual function and call it directly (synchronously)
             from users.tasks import send_otp_email_task
             try:
                 send_otp_email_task.delay(user.email, otp, "Your Registration Verification Code")
                 logger.info(f"OTP email sent successfully to {user.email}")
             except Exception as email_error:
                 logger.warning(f"Failed to send OTP email to {user.email}: {str(email_error)}")
-                # Continue registration even if email fails
             
             return user
         except Exception as e:
@@ -117,16 +105,6 @@ class CustomUserCreateSerializer(serializers.ModelSerializer):
             raise
         
         
-# class CustomUserSerializer(UserSerializer):
-#     is_shop_owner = serializers.BooleanField(read_only=True)
-    
-#     class Meta(UserSerializer.Meta):
-#         model = CustomUser
-#         fields = ('id', 'first_name', 'last_name', 'username', 'email', 
-#                  'role', 'is_active', 'is_blocked', 'phone_number', 'is_shop_owner')
-
-
-
 
 class EmailOTPVerifySerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -136,15 +114,12 @@ class EmailOTPVerifySerializer(serializers.Serializer):
         try:
             user = CustomUser.objects.get(email=data['email'])
             
-            # Check if OTP exists and hasn't expired
             if not user.otp or not user.otp_created_at:
                 raise serializers.ValidationError("No OTP found for this account. Please request a new one.")
                 
-            # Check if OTP has expired (10 minutes)
             if timezone.now() > user.otp_created_at + timezone.timedelta(minutes=10):
                 raise serializers.ValidationError("OTP has expired. Please request a new one.")
                 
-            # Check if OTP matches
             if user.otp != data['otp']:
                 raise serializers.ValidationError("Invalid OTP.")
                 
@@ -261,7 +236,6 @@ class ForgotPasswordSerializer(serializers.Serializer):
         except ObjectDoesNotExist:
             raise serializers.ValidationError("No user found with this email address.")
 
-        # Generate a 6-digit OTP
         otp = ''.join(random.choices(string.digits, k=6))
 
         user.otp = otp
@@ -315,14 +289,12 @@ class ResetPasswordSerializer(serializers.Serializer):
         User = CustomUser
         user = User.objects.get(email=validated_data['email'])
         user.set_password(validated_data['new_password'])
-        user.otp = None  # Clear the OTP after successful password reset
+        user.otp = None 
         user.save()
         return user
     
 
-class UserProfileSerializer(serializers.ModelSerializer):
-    """Serializer for user profile data"""
-    
+class UserProfileSerializer(serializers.ModelSerializer):    
     class Meta:
         model = CustomUser
         fields = [
@@ -345,14 +317,12 @@ class UserProfileSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'date_joined', 'last_login', 'role', 'is_active']
     
     def validate_email(self, value):
-        """Validate email uniqueness"""
         user = self.instance
         if user and CustomUser.objects.filter(email=value).exclude(id=user.id).exists():
             raise serializers.ValidationError("This email is already in use.")
         return value
     
     def validate_phone(self, value):
-        """Validate phone number format"""
         if value:
             import re
             phone_pattern = re.compile(r'^\+?1?\d{9,15}$')
@@ -362,7 +332,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return value
     
     def validate_date_of_birth(self, value):
-        """Validate date of birth"""
         if value:
             from django.utils import timezone
             if value > timezone.now().date():
@@ -371,7 +340,6 @@ class UserProfileSerializer(serializers.ModelSerializer):
 
 
 class ChangePasswordSerializer(serializers.Serializer):
-    """Serializer for password change"""
     old_password = serializers.CharField(required=True, write_only=True)
     new_password = serializers.CharField(required=True, write_only=True)
     confirm_password = serializers.CharField(required=True, write_only=True)
@@ -394,11 +362,9 @@ class ChangePasswordSerializer(serializers.Serializer):
 
 
 class ProfilePictureSerializer(serializers.Serializer):
-    """Serializer for profile picture upload"""
     profile_picture = serializers.ImageField(required=True)
     
     def validate_profile_picture(self, value):
-        """Validate profile picture"""
         # Check file size (5MB max)
         if value.size > 5 * 1024 * 1024:
             raise serializers.ValidationError("File size too large. Maximum 5MB allowed.")

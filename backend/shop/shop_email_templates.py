@@ -1,4 +1,3 @@
-# shop_email_templates.py
 def get_shop_registration_template(otp, shop_name, owner_name):
     """Template for shop registration OTP email"""
     return f"""

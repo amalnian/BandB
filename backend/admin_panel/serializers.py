@@ -1,9 +1,7 @@
-# serializers.py
 from rest_framework import serializers
 from shop.models import Shop
 from users.models import CustomUser
 
-# This would typically be in shop/serializers.py
 class AdminShopSerializer(serializers.ModelSerializer):
     """
     Serializer for admin to manage shops with full access to all fields
@@ -15,17 +13,13 @@ class AdminShopSerializer(serializers.ModelSerializer):
             'description', 'opening_hours', 'is_approved', 
             'is_email_verified'
         ]
-        # Remove created_at and updated_at from read_only_fields if they don't exist
-        # read_only_fields = ['created_at', 'updated_at']
     
-    # Include the active status from the linked user
     def to_representation(self, instance):
         representation = super().to_representation(instance)
         representation['is_active'] = instance.user.is_active if hasattr(instance, 'user') else False
         return representation
 
 
-# This would typically be in users/serializers.py
 class AdminUserSerializer(serializers.ModelSerializer):
     """
     Serializer for admin to manage users with full access

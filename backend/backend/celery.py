@@ -1,4 +1,3 @@
-# celery.py in your project root
 import os
 from celery import Celery
 
@@ -14,11 +13,9 @@ app.conf.update(
     result_serializer='json',
     timezone='UTC',
     broker_connection_retry_on_startup=True,
-    # Ensure we're using Redis transport
     broker_transport='redis',
 )
 
-# Load task modules from all registered Django apps.
 app.autodiscover_tasks()
 
 @app.task(bind=True)

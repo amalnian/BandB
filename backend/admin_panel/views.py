@@ -2,10 +2,15 @@
 
 from django.conf import settings
 from django.utils import timezone
+from django.db import transaction
+from django.contrib.auth import get_user_model
+from django.contrib.auth.hashers import check_password
+from django.core.exceptions import ValidationError
+from django.contrib.auth.password_validation import validate_password
+from django.db.models import Sum, Count, Q
+from django.http import HttpResponse
 
-from rest_framework import (
-    viewsets, status, permissions, filters
-)
+from rest_framework import viewsets, status, permissions, filters
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -13,27 +18,26 @@ from rest_framework.pagination import PageNumberPagination
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
 from rest_framework.exceptions import AuthenticationFailed
 from rest_framework_simplejwt.serializers import TokenRefreshSerializer
-
-from rest_framework_simplejwt.views import (
-    TokenObtainPairView,
-    TokenRefreshView,
-)
+from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
 
 from django_filters.rest_framework import DjangoFilterBackend
 
 import jwt
+import re
+import csv
+import logging
+from datetime import datetime, timedelta
+from decimal import Decimal
 
-# App imports
 from users.models import CustomUser
 from shop.models import Booking, Shop, ShopCommissionPayment
-from users.serializers import (
-    AdminUserSerializer,
-    CustomTokenObtainPairSerializer,
-    UserStatusSerializer
-)
+from users.serializers import AdminUserSerializer, CustomTokenObtainPairSerializer, UserStatusSerializer
 from admin_panel.serializers import AdminShopSerializer
+
+logger = logging.getLogger(__name__)
+
 
 
 
@@ -54,7 +58,6 @@ class AdminTokenObtainPairView(TokenObtainPairView):
 
             user = CustomUser.objects.get(email=email)
 
-            # Check if user is active
             if not user.is_active:
                 return Response(
                     {"success": False, "message": "Account is inactive"},
@@ -84,27 +87,26 @@ class AdminTokenObtainPairView(TokenObtainPairView):
                 }
             }
 
-            # Environment-aware cookie settings
             is_production = getattr(settings, 'DEBUG', True) == False
             
             res.set_cookie(
                 key="access_token",
                 value=access_token,
                 httponly=True,
-                secure=is_production,  # True in production, False in development
-                samesite="None" if is_production else "Lax",  # None for production, Lax for development
+                secure=is_production,
+                samesite="None" if is_production else "Lax",
                 path='/',
-                max_age=3600  # 1 hour
+                max_age=3600
             )
 
             res.set_cookie(
                 key="refresh_token",
                 value=refresh_token,
                 httponly=True,
-                secure=is_production,  # True in production, False in development
-                samesite="None" if is_production else "Lax",  # None for production, Lax for development
+                secure=is_production,
+                samesite="None" if is_production else "Lax",
                 path='/',
-                max_age=86400  # 24 hours - FIXED: was 3600 (1 hour)
+                max_age=86400
             )
 
             return res
@@ -114,7 +116,6 @@ class AdminTokenObtainPairView(TokenObtainPairView):
                 {"success": False, "message": "Invalid credentials"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-
         except Exception as e:
             return Response(
                 {"success": False, "message": f"An error occurred: {str(e)}"},
@@ -134,7 +135,6 @@ class AdminTokenRefreshView(TokenRefreshView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Use the serializer with proper error handling for token rotation
             serializer = TokenRefreshSerializer(data={"refresh": refresh_token})
             
             try:
@@ -142,17 +142,15 @@ class AdminTokenRefreshView(TokenRefreshView):
                 validated_data = serializer.validated_data
                 
                 access_token = validated_data["access"]
-                new_refresh_token = validated_data.get("refresh")  # May be None if rotation disabled
+                new_refresh_token = validated_data.get("refresh")
                 
                 res = Response(
                     {"success": True, "message": "Access token refreshed"},
                     status=status.HTTP_200_OK
                 )
 
-                # Environment-aware cookie settings
                 is_production = getattr(settings, 'DEBUG', True) == False
 
-                # Set new access token
                 res.set_cookie(
                     key="access_token",
                     value=access_token,
@@ -163,7 +161,6 @@ class AdminTokenRefreshView(TokenRefreshView):
                     max_age=3600
                 )
                 
-                # Update refresh token cookie if we got a new one (token rotation)
                 if new_refresh_token:
                     res.set_cookie(
                         key="refresh_token",
@@ -172,13 +169,12 @@ class AdminTokenRefreshView(TokenRefreshView):
                         secure=is_production,
                         samesite="None" if is_production else "Lax",
                         path='/',
-                        max_age=86400  # 24 hours
+                        max_age=86400
                     )
 
                 return res
                 
             except ValidationError as ve:
-                # Handle token validation errors
                 error_detail = ve.detail
                 if isinstance(error_detail, dict):
                     refresh_errors = error_detail.get('refresh', [])
@@ -198,41 +194,28 @@ class AdminTokenRefreshView(TokenRefreshView):
                 {"success": False, "message": f"Token refresh failed: {str(e)}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
-        
+
+
 class Logout(APIView):
     permission_classes = [IsAdminUser]
     
     def post(self, request):
         try:
-            # Get tokens from cookies
-            access_token = request.COOKIES.get('access_token')
             refresh_token = request.COOKIES.get('refresh_token')
             
-            # Blacklist the refresh token if it exists
             if refresh_token:
                 try:
                     token = RefreshToken(refresh_token)
                     token.blacklist()
-                    print(f"Admin refresh token blacklisted successfully")
+                    logger.info(f"Admin refresh token blacklisted successfully")
                 except TokenError as e:
-                    # Token might already be blacklisted or invalid
-                    print(f"Admin token blacklist error: {str(e)}")
+                    logger.warning(f"Admin token blacklist error: {str(e)}")
             
-            # Create response
             res = Response(status=status.HTTP_200_OK)
             res.data = {"success": True, "message": "logout successfully"}
             
-            # Delete cookies
-            res.delete_cookie(
-                key="access_token",
-                path='/',
-                samesite='None',
-            )
-            res.delete_cookie(
-                key="refresh_token",
-                path='/',
-                samesite='None',
-            )
+            res.delete_cookie(key="access_token", path='/', samesite='None')
+            res.delete_cookie(key="refresh_token", path='/', samesite='None')
 
             return res
             
@@ -243,6 +226,8 @@ class Logout(APIView):
             )
 
 
+
+
 class StandardResultsSetPagination(PageNumberPagination):
     page_size = 10
     page_size_query_param = 'page_size'
@@ -250,17 +235,13 @@ class StandardResultsSetPagination(PageNumberPagination):
 
 
 class IsAdminUser(permissions.BasePermission):
-    """
-    Permission to only allow access to admin users.
-    """
     def has_permission(self, request, view):
         return request.user and request.user.is_staff
 
 
+
+
 class AdminShopViewSet(viewsets.ModelViewSet):
-    """
-    API endpoint for admin to manage all shops
-    """
     queryset = Shop.objects.all().order_by('name')
     serializer_class = AdminShopSerializer
     permission_classes = [IsAdminUser]
@@ -270,21 +251,16 @@ class AdminShopViewSet(viewsets.ModelViewSet):
     filterset_fields = ['is_approved', 'is_email_verified']
     
     def list(self, request, *args, **kwargs):
-        """Override list method to add debugging"""
         try:
-            print(f"Admin shop list request from user: {request.user}")
-            print(f"Request params: {request.query_params}")
+            logger.info(f"Admin shop list request from user: {request.user}")
             
-            # Check if user is admin
             if not request.user.is_staff:
                 return Response({'error': 'Admin access required'}, 
                               status=status.HTTP_403_FORBIDDEN)
             
             return super().list(request, *args, **kwargs)
         except Exception as e:
-            print(f"Error in AdminShopViewSet.list: {str(e)}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"Error in AdminShopViewSet.list: {str(e)}")
             return Response({'error': str(e)}, 
                           status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
@@ -292,30 +268,26 @@ class AdminShopViewSet(viewsets.ModelViewSet):
         try:
             queryset = super().get_queryset()
             
-            # Allow filtering by is_active (which is actually on the User model)
             is_active = self.request.query_params.get('is_active')
             if is_active is not None:
                 is_active = is_active.lower() == 'true'
                 queryset = queryset.filter(user__is_active=is_active)
                 
-            print(f"Filtered queryset count: {queryset.count()}")
+            logger.info(f"Filtered queryset count: {queryset.count()}")
             return queryset
         except Exception as e:
-            print(f"Error in get_queryset: {str(e)}")
+            logger.error(f"Error in get_queryset: {str(e)}")
             raise
     
     @action(detail=True, methods=['patch'])
     def toggle_status(self, request, pk=None):
-        """Toggle the shop's active status"""
         shop = self.get_object()
         
-        # Get the is_active value from the request data
         is_active = request.data.get('is_active')
         if is_active is None:
             return Response({'error': 'is_active parameter is required'}, 
                             status=status.HTTP_400_BAD_REQUEST)
         
-        # Update the shop's user active status
         try:
             shop.user.is_active = is_active
             shop.user.save()
@@ -325,16 +297,13 @@ class AdminShopViewSet(viewsets.ModelViewSet):
     
     @action(detail=True, methods=['patch'])
     def approve(self, request, pk=None):
-        """Approve a shop"""
         shop = self.get_object()
         
-        # Get the is_approved value from the request data
         is_approved = request.data.get('is_approved')
         if is_approved is None:
             return Response({'error': 'is_approved parameter is required'}, 
                             status=status.HTTP_400_BAD_REQUEST)
         
-        # Update the shop's approved status
         try:
             shop.is_approved = is_approved
             shop.save()
@@ -344,19 +313,14 @@ class AdminShopViewSet(viewsets.ModelViewSet):
 
 
 class AdminUserViewSet(viewsets.ModelViewSet):
-    """
-    A viewset for viewing and editing user instances by admins.
-    """
     serializer_class = AdminUserSerializer
     permission_classes = [IsAuthenticated, IsAdminUser]
     
     def get_queryset(self):
-        """Return all users"""
-        return CustomUser.objects.all().filter(role = 'user', is_staff=False).order_by('-date_joined')
+        return CustomUser.objects.all().filter(role='user', is_staff=False).order_by('-date_joined')
     
     @action(detail=True, methods=['patch'])
     def toggle_status(self, request, pk=None):
-        """Toggle the user's active status"""
         user = self.get_object()
         serializer = UserStatusSerializer(data=request.data)
         
@@ -370,105 +334,15 @@ class AdminUserViewSet(viewsets.ModelViewSet):
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
-class AdminStatusView(APIView):
-    """
-    Verify if the current user has admin privileges
-    """
-    permission_classes = [IsAuthenticated]
-    
-    def get(self, request):
-        """Check if user is admin and return appropriate status"""
-        is_admin = request.user.is_staff or request.user.role == 'admin'
-        return Response({
-            'is_admin': is_admin,
-            'role': request.user.role
-        })
-
-
-class DashboardStatsView(APIView):
-    """
-    Provide statistics for the admin dashboard
-    """
-    permission_classes = [IsAuthenticated, IsAdminUser]
-    
-    def get(self, request):
-        """Return basic stats for dashboard"""
-        total_users = CustomUser.objects.count()
-        active_users = CustomUser.objects.filter(is_active=True).count()
-        
-        # Shop statistics
-        total_shops = Shop.objects.count()
-        active_shops = Shop.objects.filter(user__is_active=True).count()
-        pending_shops = Shop.objects.filter(is_approved=False).count()
-        
-        return Response({
-            'total_users': total_users,
-            'active_users': active_users,
-            'new_users_this_month': CustomUser.objects.filter(
-                date_joined__month=timezone.now().month,
-                date_joined__year=timezone.now().year
-            ).count(),
-            'total_shops': total_shops,
-            'active_shops': active_shops,
-            'pending_shops': pending_shops
-        })
-
-
-class RecentAppointmentsView(APIView):
-    """
-    Provide recent appointments for admin dashboard 
-    (You'll need to implement this based on your Appointment model)
-    """
-    permission_classes = [IsAuthenticated, IsAdminUser]
-    
-    def get(self, request):
-        # This is just a placeholder - implement based on your actual Appointment model
-        return Response({
-            'appointments': []
-        })
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-from rest_framework.views import APIView
-from rest_framework.response import Response
-from rest_framework import status
-from rest_framework.permissions import IsAuthenticated
-from django.contrib.auth import authenticate
-from django.contrib.auth.models import User
-from django.db import transaction
-from rest_framework_simplejwt.authentication import JWTAuthentication
-from django.contrib.auth.hashers import check_password
-from django.core.exceptions import ValidationError
-from django.contrib.auth.password_validation import validate_password
-import re
 
 
 class AdminProfileView(APIView):
-    """
-    Get and update admin profile information
-    """
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        """Get current admin profile"""
         try:
             user = request.user
             
-            # Check if user is admin/staff
             if not (user.is_staff or user.is_superuser):
                 return Response(
                     {'error': 'Access denied. Admin privileges required.'}, 
@@ -490,11 +364,9 @@ class AdminProfileView(APIView):
             )
 
     def put(self, request):
-        """Update admin profile"""
         try:
             user = request.user
             
-            # Check if user is admin/staff
             if not (user.is_staff or user.is_superuser):
                 return Response(
                     {'error': 'Access denied. Admin privileges required.'}, 
@@ -504,12 +376,9 @@ class AdminProfileView(APIView):
             data = request.data
             errors = {}
             
-            # Validate required fields
             if not data.get('username', '').strip():
                 errors['username'] = 'Username is required'
             elif data.get('username') != user.username:
-                # Check if username already exists - use CustomUser instead of User
-                from django.contrib.auth import get_user_model
                 User = get_user_model()
                 if User.objects.filter(username=data.get('username')).exclude(id=user.id).exists():
                     errors['username'] = 'Username already exists'
@@ -517,38 +386,32 @@ class AdminProfileView(APIView):
             if not data.get('email', '').strip():
                 errors['email'] = 'Email is required'
             else:
-                # Validate email format
                 email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
                 if not re.match(email_pattern, data.get('email')):
                     errors['email'] = 'Email is invalid'
                 elif data.get('email') != user.email:
-                    # Check if email already exists
                     User = get_user_model()
                     if User.objects.filter(email=data.get('email')).exclude(id=user.id).exists():
                         errors['email'] = 'Email already exists'
             
-            # Validate phone if provided (using the regex from CustomUser model)
             phone = data.get('phone', '').strip()
             if phone:
-                phone_pattern = r'^\+?1?\d{9,15}$'  # Match the CustomUser regex
+                phone_pattern = r'^\+?1?\d{9,15}$'
                 if not re.match(phone_pattern, phone):
                     errors['phone'] = "Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed."
             
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
             
-            # Update user data
             with transaction.atomic():
                 user.username = data.get('username').strip()
                 user.email = data.get('email').strip()
                 
-                # Update phone if provided
                 if phone is not None:
                     user.phone = phone
                 
                 user.save()
             
-            # Return updated profile data
             updated_profile = {
                 'username': user.username,
                 'email': user.email,
@@ -565,17 +428,12 @@ class AdminProfileView(APIView):
 
 
 class AdminChangePasswordView(APIView):
-    """
-    Change admin password
-    """
     permission_classes = [IsAuthenticated]
 
     def post(self, request):
-        """Change admin password"""
         try:
             user = request.user
             
-            # Check if user is admin/staff
             if not (user.is_staff or user.is_superuser):
                 return Response(
                     {'error': 'Access denied. Admin privileges required.'}, 
@@ -588,13 +446,11 @@ class AdminChangePasswordView(APIView):
             current_password = data.get('current_password', '')
             new_password = data.get('new_password', '')
             
-            # Validate current password
             if not current_password:
                 errors['current_password'] = 'Current password is required'
             elif not check_password(current_password, user.password):
                 errors['current_password'] = 'Current password is incorrect'
             
-            # Validate new password
             if not new_password:
                 errors['new_password'] = 'New password is required'
             else:
@@ -603,14 +459,12 @@ class AdminChangePasswordView(APIView):
                 except ValidationError as e:
                     errors['new_password'] = list(e.messages)[0]
             
-            # Check if new password is same as current
             if new_password and current_password and new_password == current_password:
                 errors['new_password'] = 'New password must be different from current password'
             
             if errors:
                 return Response({'errors': errors}, status=status.HTTP_400_BAD_REQUEST)
             
-            # Update password
             user.set_password(new_password)
             user.save()
             
@@ -624,41 +478,50 @@ class AdminChangePasswordView(APIView):
                 {'error': f'Failed to change password: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+
+
+class AdminStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        is_admin = request.user.is_staff or request.user.role == 'admin'
+        return Response({
+            'is_admin': is_admin,
+            'role': request.user.role
+        })
+
+
+class DashboardStatsView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    
+    def get(self, request):
+        total_users = CustomUser.objects.count()
+        active_users = CustomUser.objects.filter(is_active=True).count()
         
-
-
-
-
-
-
-
-
-# admin_views.py
-from django.db.models import Sum, Count, Avg, Q
-from django.utils import timezone
-from datetime import datetime, timedelta
-from rest_framework.views import APIView
-from rest_framework.generics import ListAPIView
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework import status
-from decimal import Decimal
-import calendar
-
-# Import your models - CRITICAL: Make sure these imports are correct
-# from .models import BookingFeedback  # Add this if you have this model
-
-import logging
-logger = logging.getLogger(__name__)
+        total_shops = Shop.objects.count()
+        active_shops = Shop.objects.filter(user__is_active=True).count()
+        pending_shops = Shop.objects.filter(is_approved=False).count()
+        
+        return Response({
+            'total_users': total_users,
+            'active_users': active_users,
+            'new_users_this_month': CustomUser.objects.filter(
+                date_joined__month=timezone.now().month,
+                date_joined__year=timezone.now().year
+            ).count(),
+            'total_shops': total_shops,
+            'active_shops': active_shops,
+            'pending_shops': pending_shops
+        })
 
 
 class AdminDashboardStatsView(APIView):
-    """Get overall dashboard statistics"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
         try:
-            # Get date range from query params (default to last 30 days)
             end_date = timezone.now().date()
             start_date = end_date - timedelta(days=30)
             
@@ -667,21 +530,18 @@ class AdminDashboardStatsView(APIView):
             if request.GET.get('end_date'):
                 end_date = datetime.strptime(request.GET.get('end_date'), '%Y-%m-%d').date()
 
-            # Base queryset for paid bookings
             paid_bookings = Booking.objects.filter(
                 payment_status='paid',
                 created_at__date__range=[start_date, end_date]
             )
 
-            # Calculate total revenue and admin commission
             total_revenue = paid_bookings.aggregate(
                 total=Sum('total_amount')
             )['total'] or Decimal('0.00')
             
-            admin_commission = total_revenue * Decimal('0.10')  # 10% commission
+            admin_commission = total_revenue * Decimal('0.10')
             shop_earnings = total_revenue - admin_commission
 
-            # Booking statistics
             total_bookings = Booking.objects.count()
             completed_bookings = paid_bookings.filter(booking_status='completed').count()
             cancelled_bookings = Booking.objects.filter(
@@ -689,16 +549,13 @@ class AdminDashboardStatsView(APIView):
                 created_at__date__range=[start_date, end_date]
             ).count()
 
-            # Calculate completion rate
             completion_rate = (completed_bookings / total_bookings * 100) if total_bookings > 0 else 0
 
-            # Active shops count
             active_shops = Shop.objects.filter(
                 booking__payment_status='paid',
                 booking__created_at__date__range=[start_date, end_date]
             ).distinct().count()
 
-            # Top performing shops
             top_shops = Shop.objects.filter(
                 booking__payment_status='paid',
                 booking__created_at__date__range=[start_date, end_date]
@@ -751,25 +608,21 @@ class AdminDashboardStatsView(APIView):
 
 
 class AdminRevenueChartView(APIView):
-    """Get revenue data for charts"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
         try:
-            # Get chart type (daily, weekly, monthly)
             chart_type = request.GET.get('type', 'daily')
             
-            # Get date range
             end_date = timezone.now().date()
             
             if chart_type == 'daily':
                 start_date = end_date - timedelta(days=30)
             elif chart_type == 'weekly':
                 start_date = end_date - timedelta(weeks=12)
-            else:  # monthly
+            else:
                 start_date = end_date - timedelta(days=365)
 
-            # Get bookings data grouped by date
             bookings = Booking.objects.filter(
                 payment_status='paid',
                 created_at__date__range=[start_date, end_date]
@@ -778,7 +631,6 @@ class AdminRevenueChartView(APIView):
                 daily_bookings=Count('id')
             ).order_by('created_at__date')
 
-            # Process data for chart
             chart_data = []
             for booking in bookings:
                 date = booking['created_at__date']
@@ -789,7 +641,7 @@ class AdminRevenueChartView(APIView):
                     label = date.strftime('%Y-%m-%d')
                 elif chart_type == 'weekly':
                     label = f"Week {date.strftime('%W')}, {date.year}"
-                else:  # monthly
+                else:
                     label = date.strftime('%B %Y')
                 
                 chart_data.append({
@@ -814,18 +666,15 @@ class AdminRevenueChartView(APIView):
 
 
 class AdminShopsPerformanceView(APIView):
-    """Get shops performance data"""
     permission_classes = [IsAuthenticated]
     
     def get_shop_email(self, shop):
-        """Get shop email - it's automatically set from user's email"""
         return shop.email or 'N/A'
     
     def get(self, request):
         try:
             logger.info("AdminShopsPerformanceView called")
             
-            # Get date range
             end_date = timezone.now().date()
             start_date = end_date - timedelta(days=30)
             
@@ -851,7 +700,6 @@ class AdminShopsPerformanceView(APIView):
 
             logger.info(f"Date range: {start_date} to {end_date}")
 
-            # Get shops with their performance data
             try:
                 shops_with_bookings = Shop.objects.filter(
                     booking__payment_status='paid',
@@ -872,7 +720,6 @@ class AdminShopsPerformanceView(APIView):
                 try:
                     logger.info(f"Processing shop: {shop.id} - {shop.name}")
                     
-                    # Calculate stats for each shop individually
                     shop_bookings = Booking.objects.filter(
                         shop=shop,
                         payment_status='paid',
@@ -881,14 +728,12 @@ class AdminShopsPerformanceView(APIView):
                         created_at__date__lte=end_date
                     )
                     
-                    # Check if total_amount field exists, if not try amount or price
                     total_revenue = Decimal('0.00')
                     try:
                         total_revenue = shop_bookings.aggregate(
                             total=Sum('total_amount')
                         )['total'] or Decimal('0.00')
                     except Exception:
-                        # Try alternative field names
                         try:
                             total_revenue = shop_bookings.aggregate(
                                 total=Sum('amount')
@@ -904,12 +749,10 @@ class AdminShopsPerformanceView(APIView):
                     
                     total_bookings = shop_bookings.count()
                     
-                    # Check if booking_status field exists
                     completed_bookings = 0
                     try:
                         completed_bookings = shop_bookings.filter(booking_status='completed').count()
                     except Exception:
-                        # Try alternative field names
                         try:
                             completed_bookings = shop_bookings.filter(status='completed').count()
                         except Exception:
@@ -920,7 +763,6 @@ class AdminShopsPerformanceView(APIView):
                     completion_rate = (completed_bookings / total_bookings * 100) if total_bookings > 0 else 0
                     shop_earnings = float(total_revenue) - admin_commission
                     
-                    # Calculate total payments made to this shop
                     try:
                         total_payments = ShopCommissionPayment.objects.filter(
                             shop=shop,
@@ -931,17 +773,14 @@ class AdminShopsPerformanceView(APIView):
                         logger.warning(f"Error calculating payments for shop {shop.id}: {payment_error}")
                         total_payments = 0.00
                     
-                    # Calculate remaining earnings
                     remaining_earnings = shop_earnings - total_payments
                     
-                    # Calculate average rating using the shop's method
                     average_rating = 0
                     try:
                         rating = shop.get_average_rating()
                         average_rating = float(rating) if rating else 0
                     except Exception as rating_error:
                         logger.warning(f"Error getting rating for shop {shop.id}: {rating_error}")
-                        # Fallback: Try to get rating from reviews directly
                         try:
                             reviews = shop.reviews.all()
                             if reviews.exists():
@@ -950,13 +789,11 @@ class AdminShopsPerformanceView(APIView):
                         except Exception:
                             average_rating = 0
                     
-                    # Get owner name - prioritize owner_name field, then user info
                     owner_name = 'N/A'
                     try:
                         if shop.owner_name:
                             owner_name = shop.owner_name
-                        elif shop.user:  # Make sure shop.user exists
-                            # Try to get full name from user
+                        elif shop.user:
                             if hasattr(shop.user, 'get_full_name'):
                                 full_name = shop.user.get_full_name()
                                 if full_name and full_name.strip():
@@ -989,12 +826,9 @@ class AdminShopsPerformanceView(APIView):
                     
                 except Exception as shop_error:
                     logger.error(f"Error processing shop {shop.id}: {shop_error}")
-                    # Continue with next shop instead of breaking
                     continue
 
-            # Sort by total revenue
             shops_data.sort(key=lambda x: x['total_revenue'], reverse=True)
-
             logger.info(f"Successfully processed {len(shops_data)} shops")
 
             return Response({
@@ -1008,8 +842,6 @@ class AdminShopsPerformanceView(APIView):
 
         except Exception as e:
             logger.error(f"Error in AdminShopsPerformanceView: {str(e)}")
-            import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
             return Response(
                 {'error': f'Internal server error: {str(e)}'}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -1017,7 +849,6 @@ class AdminShopsPerformanceView(APIView):
 
 
 class AdminRecentBookingsView(APIView):
-    """Get recent bookings for admin dashboard"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
@@ -1060,12 +891,10 @@ class AdminRecentBookingsView(APIView):
 
 
 class AdminCommissionReportView(APIView):
-    """Get detailed commission report for admin"""
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
         try:
-            # Get date range
             end_date = timezone.now().date()
             start_date = end_date - timedelta(days=30)
             
@@ -1074,7 +903,6 @@ class AdminCommissionReportView(APIView):
             if request.GET.get('end_date'):
                 end_date = datetime.strptime(request.GET.get('end_date'), '%Y-%m-%d').date()
 
-            # Get daily commission data for chart
             daily_commission = Booking.objects.filter(
                 payment_status='paid',
                 created_at__date__range=[start_date, end_date]
@@ -1120,17 +948,24 @@ class AdminCommissionReportView(APIView):
             )
 
 
+class RecentAppointmentsView(APIView):
+    permission_classes = [IsAuthenticated, IsAdminUser]
+    
+    def get(self, request):
+        return Response({
+            'appointments': []
+        })
+
+
+
+
 class AdminPayShopCommissionView(APIView):
-    """Pay commission to shop (if you want to track payments)"""
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
         try:
             shop_id = request.data.get('shop_id')
             amount = request.data.get('amount')
-            
-            # You can add your payment processing logic here
-            # For now, just return success
             
             return Response({
                 'success': True,
@@ -1145,16 +980,107 @@ class AdminPayShopCommissionView(APIView):
             )
 
 
-class AdminExportDataView(APIView):
-    """Export dashboard data to CSV"""
+class RecordShopPaymentView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
         try:
-            from django.http import HttpResponse
-            import csv
+            shop_id = request.query_params.get('shop_id')
+            payment_method = request.query_params.get('payment_method')
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
             
-            export_type = request.GET.get('type', 'shops')  # shops, bookings, commission
+            payments = ShopCommissionPayment.objects.all()
+            
+            if shop_id:
+                payments = payments.filter(shop_id=shop_id)
+            if payment_method:
+                payments = payments.filter(payment_method=payment_method)
+            if start_date:
+                payments = payments.filter(payment_date__gte=start_date)
+            if end_date:
+                payments = payments.filter(payment_date__lte=end_date)
+            
+            payments = payments.order_by('-payment_date')
+            
+            payment_data = []
+            for payment in payments:
+                payment_data.append({
+                    'id': payment.id,
+                    'shop_id': payment.shop.id,
+                    'shop_name': payment.shop.name,
+                    'amount': float(payment.amount),
+                    'payment_method': payment.payment_method,
+                    'transaction_reference': payment.transaction_reference,
+                    'payment_date': payment.payment_date.strftime('%Y-%m-%d'),
+                    'notes': payment.notes,
+                    'paid_by': payment.paid_by.username if payment.paid_by else None,
+                    'created_at': payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(payment, 'created_at') else None
+                })
+            
+            return Response({
+                'payments': payment_data,
+                'total_count': len(payment_data)
+            })
+            
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def post(self, request):
+        try:
+            data = request.data
+            shop_id = data.get('shop_id')
+            amount = data.get('amount')
+            payment_method = data.get('payment_method')
+            transaction_reference = data.get('transaction_reference', '')
+            payment_date = data.get('payment_date')
+            notes = data.get('notes', '')
+            
+            if not all([shop_id, amount, payment_method, payment_date]):
+                return Response(
+                    {'error': 'Missing required fields'}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            shop = Shop.objects.get(id=shop_id)
+            
+            payment = ShopCommissionPayment.objects.create(
+                shop=shop,
+                amount=amount,
+                payment_method=payment_method,
+                transaction_reference=transaction_reference,
+                payment_date=payment_date,
+                notes=notes,
+                paid_by=request.user
+            )
+            
+            return Response({
+                'message': 'Payment recorded successfully',
+                'payment_id': payment.id
+            })
+            
+        except Shop.DoesNotExist:
+            return Response(
+                {'error': 'Shop not found'}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            return Response(
+                {'error': str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+
+class AdminExportDataView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        try:
+            export_type = request.GET.get('type', 'shops')
             
             response = HttpResponse(content_type='text/csv')
             
@@ -1163,7 +1089,6 @@ class AdminExportDataView(APIView):
                 writer = csv.writer(response)
                 writer.writerow(['Shop Name', 'Owner', 'Total Revenue', 'Commission', 'Bookings', 'Rating'])
                 
-                # Get shops data (you can reuse logic from AdminShopsPerformanceView)
                 shops = Shop.objects.filter(
                     booking__payment_status='paid'
                 ).distinct()
@@ -1194,118 +1119,6 @@ class AdminExportDataView(APIView):
             
         except Exception as e:
             logger.error(f"Error in AdminExportDataView: {str(e)}")
-            return Response(
-                {'error': str(e)}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-        
-
-
-
-
-
-
-
-
-# Add this to your existing view or create a new one
-class RecordShopPaymentView(APIView):
-    permission_classes = [IsAuthenticated]
-    
-    def get(self, request):
-        """List all shop commission payments with optional filtering"""
-        try:
-            # Get query parameters for filtering
-            shop_id = request.query_params.get('shop_id')
-            payment_method = request.query_params.get('payment_method')
-            start_date = request.query_params.get('start_date')
-            end_date = request.query_params.get('end_date')
-            
-            # Start with all payments
-            payments = ShopCommissionPayment.objects.all()
-            
-            # Apply filters
-            if shop_id:
-                payments = payments.filter(shop_id=shop_id)
-            if payment_method:
-                payments = payments.filter(payment_method=payment_method)
-            if start_date:
-                payments = payments.filter(payment_date__gte=start_date)
-            if end_date:
-                payments = payments.filter(payment_date__lte=end_date)
-            
-            # Order by most recent first
-            payments = payments.order_by('-payment_date')
-            
-            # Serialize the data
-            payment_data = []
-            for payment in payments:
-                payment_data.append({
-                    'id': payment.id,
-                    'shop_id': payment.shop.id,
-                    'shop_name': payment.shop.name,  # Assuming shop has a name field
-                    'amount': float(payment.amount),
-                    'payment_method': payment.payment_method,
-                    'transaction_reference': payment.transaction_reference,
-                    'payment_date': payment.payment_date.strftime('%Y-%m-%d'),
-                    'notes': payment.notes,
-                    'paid_by': payment.paid_by.username if payment.paid_by else None,
-                    'created_at': payment.created_at.strftime('%Y-%m-%d %H:%M:%S') if hasattr(payment, 'created_at') else None
-                })
-            
-            return Response({
-                'payments': payment_data,
-                'total_count': len(payment_data)
-            })
-            
-        except Exception as e:
-            return Response(
-                {'error': str(e)}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-    
-    def post(self, request):
-        # Your existing POST method remains the same
-        try:
-            data = request.data
-            shop_id = data.get('shop_id')
-            amount = data.get('amount')
-            payment_method = data.get('payment_method')
-            transaction_reference = data.get('transaction_reference', '')
-            payment_date = data.get('payment_date')
-            notes = data.get('notes', '')
-            
-            # Validate required fields
-            if not all([shop_id, amount, payment_method, payment_date]):
-                return Response(
-                    {'error': 'Missing required fields'}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Get shop
-            shop = Shop.objects.get(id=shop_id)
-            
-            # Create payment record
-            payment = ShopCommissionPayment.objects.create(
-                shop=shop,
-                amount=amount,
-                payment_method=payment_method,
-                transaction_reference=transaction_reference,
-                payment_date=payment_date,
-                notes=notes,
-                paid_by=request.user
-            )
-            
-            return Response({
-                'message': 'Payment recorded successfully',
-                'payment_id': payment.id
-            })
-            
-        except Shop.DoesNotExist:
-            return Response(
-                {'error': 'Shop not found'}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
             return Response(
                 {'error': str(e)}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR

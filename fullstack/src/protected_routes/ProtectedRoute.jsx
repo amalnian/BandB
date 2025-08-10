@@ -1,9 +1,7 @@
-// Enhanced Protected Route Components without Redux
 import { Navigate, useLocation } from "react-router-dom"
 import { useEffect, useState, useCallback } from "react"
 
-// Utility function to read user data from localStorage synchronously
-// Fixed Utility function to read user data from localStorage synchronously
+
 const getUserDataFromStorage = () => {
   try {
     const storedUser = localStorage.getItem("user_data");
