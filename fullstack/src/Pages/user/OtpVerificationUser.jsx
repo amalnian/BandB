@@ -1,5 +1,4 @@
 import React, { useState, useEffect } from 'react';
-import toast, { Toaster } from "react-hot-toast"
 
 const OtpVerification = () => {
   const [otp, setOtp] = useState('');
@@ -61,9 +60,52 @@ const OtpVerification = () => {
     );
   };
 
-  // Add validation before form submission
+  // Success toast component for resend OTP
+  const SuccessToast = ({ show, message, onClose }) => {
+    useEffect(() => {
+      if (show) {
+        const timer = setTimeout(() => {
+          onClose();
+        }, 3000);
+        return () => clearTimeout(timer);
+      }
+    }, [show, onClose]);
+
+    if (!show) return null;
+
+    return (
+      <div className="fixed top-4 right-4 z-50 animate-slide-in">
+        <div className="bg-blue-500 text-white px-6 py-4 rounded-lg shadow-lg flex items-center gap-3">
+          <div className="flex-shrink-0">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 4.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <span className="font-medium">{message}</span>
+          <button 
+            onClick={onClose}
+            className="ml-2 text-white hover:text-gray-200 transition-colors"
+          >
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  const [showResendToast, setShowResendToast] = useState(false);
+
+  // OTP verification function - uses verify-otp endpoint
   const handleVerify = async (e) => {
     e.preventDefault();
+    
+    // Validate OTP input
+    if (!otp || otp.trim() === '') {
+      setError('Please enter the verification code.');
+      return;
+    }
     
     // Check if email exists before proceeding
     if (!userEmail || userEmail.trim() === '') {
@@ -81,8 +123,8 @@ const OtpVerification = () => {
         otp: otp
       });
       
-      // Make actual API call to verify OTP
-      const response = await fetch(`${import.meta.env.VITE_USER}resend-otp/`, {
+      // Make API call to verify OTP - using verify-otp endpoint
+      const response = await fetch(`${import.meta.env.VITE_USER}verify-otp/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -110,12 +152,16 @@ const OtpVerification = () => {
         // Handle errors from backend
         if (data.email) {
           setError(`Email error: ${data.email}`);
+        } else if (data.otp) {
+          setError(`OTP error: ${data.otp}`);
         } else if (data.error) {
           setError(data.error);
         } else if (data.detail) {
           setError(data.detail);
+        } else if (data.message) {
+          setError(data.message);
         } else {
-          setError('Failed to verify OTP. Please try again.');
+          setError('Invalid verification code. Please try again.');
         }
       }
     } catch (error) {
@@ -126,6 +172,7 @@ const OtpVerification = () => {
     }
   };
 
+  // Resend OTP function - uses resend-otp endpoint
   const handleResendOtp = async () => {
     if (!userEmail || userEmail.trim() === '') {
       setError('Email address is missing. Please try registering again.');
@@ -138,6 +185,7 @@ const OtpVerification = () => {
     try {
       console.log('Resending OTP to:', userEmail);
       
+      // Make API call to resend OTP - using resend-otp endpoint
       const response = await fetch(`${import.meta.env.VITE_USER}resend-otp/`, {
         method: 'POST',
         headers: {
@@ -152,11 +200,17 @@ const OtpVerification = () => {
 
       if (response.ok) {
         console.log('OTP resend response:', data);
+        // Clear the OTP input field for new code
+        setOtp('');
         // Show success message
-        toast.success('A new verification code has been sent to your email.');
+        setShowResendToast(true);
       } else {
         if (data.error) {
           setError(data.error);
+        } else if (data.detail) {
+          setError(data.detail);
+        } else if (data.message) {
+          setError(data.message);
         } else {
           setError('Failed to resend OTP. Please try again.');
         }
@@ -192,11 +246,18 @@ const OtpVerification = () => {
         }
       `}</style>
       
-      {/* Toast Notification */}
+      {/* Success Toast for Verification */}
       <Toast 
         show={showToast} 
-        message="Account created successfully!" 
+        message="OTP verified successfully! Redirecting to login..." 
         onClose={() => setShowToast(false)}
+      />
+
+      {/* Success Toast for Resend OTP */}
+      <SuccessToast 
+        show={showResendToast} 
+        message="A new verification code has been sent to your email!" 
+        onClose={() => setShowResendToast(false)}
       />
 
       <div className="flex flex-col md:flex-row w-full min-h-screen">
@@ -251,13 +312,6 @@ const OtpVerification = () => {
             {/* OTP Form */}
             {userEmail && (
               <div className="flex flex-col space-y-6">
-                {/* Add explicit email field (hidden) */}
-                <input 
-                  type="hidden" 
-                  name="email" 
-                  value={userEmail || ''} 
-                />
-                
                 <div className="flex flex-col space-y-2">
                   <label htmlFor="otp-input" className="text-gray-700">Verification Code</label>
                   <input
@@ -267,9 +321,14 @@ const OtpVerification = () => {
                     value={otp}
                     onChange={(e) => setOtp(e.target.value)}
                     className="p-3 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-amber-500"
-                    required
                     autoComplete="one-time-code"
                     disabled={isVerifying}
+                    maxLength="6"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        handleVerify(e);
+                      }
+                    }}
                   />
                 </div>
                 
