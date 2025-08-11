@@ -42,25 +42,25 @@ export default function Home() {
     setSearchQuery("")
   }, [])
 
-  // Initialize app - try to get location and fetch shops
- const initializeApp = useCallback(async () => {
+
+// Initialize app - try to get location and fetch shops
+const initializeApp = useCallback(async () => {
   if (isInitialized) return
   
   setIsInitialized(true)
   
   try {
-    // First, try to fetch nearby shops using stored coordinates from DB
+    // Try to fetch nearby shops using stored coordinates from DB
     await fetchNearbyShops(null, searchRadius)
   } catch (err) {
-    console.log('Failed to load nearby shops with stored location:', err)
+    console.log('No location available, fetching all shops:', err)
     
-    // Check if the error indicates we need to fallback to all shops
-    if (err.message.includes('No location available') || err.message.includes('fallback_needed')) {
-      try {
-        await fetchAllShops()
-      } catch (shopsErr) {
-        console.error('Failed to load all shops:', shopsErr)
-      }
+    // If no location is available, fallback to showing all shops
+    try {
+      await fetchAllShops()
+    } catch (shopsErr) {
+      console.error('Failed to load all shops:', shopsErr)
+      // Let the error state be handled by the UI
     }
   }
 }, [isInitialized, fetchNearbyShops, fetchAllShops, searchRadius])
